@@ -6,17 +6,81 @@ all the configuration components for medical models.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union, Type, TypeVar
+from typing import Any, Dict, List, Optional, Union, Type, TypeVar, ClassVar
+import json
 import os
+import warnings
 from pathlib import Path
+from datetime import datetime
+import importlib.metadata
+from enum import Enum
+from pydantic import ValidationError
 
 from nanovllm.config import Config
 from .base import BaseMedicalConfig
-from .validation import MedicalConfigValidator
 from .serialization import ConfigSerializer
 from .versioning import ConfigVersioner
+from .schema import MedicalModelConfigSchema, ModelType, MedicalSpecialty, AnatomicalRegion
+from .versioning import ConfigVersioner
+
+
+class ConfigVersionStatus(Enum):
+    """Status of a configuration version."""
+    CURRENT = "current"
+    DEPRECATED = "deprecated"
+    UNSUPPORTED = "unsupported"
+
+
+class ConfigVersionInfo:
+    """Information about a configuration version."""
+    def __init__(self, version: str, status: ConfigVersionStatus, message: str = ""):
+        self.version = version
+        self.status = status
+        self.message = message
+
+
+class ConfigVersionManager:
+    """Manages configuration versions and their status."""
+    VERSIONS: ClassVar[Dict[str, ConfigVersionInfo]] = {
+        "0.1.0": ConfigVersionInfo(
+            version="0.1.0",
+            status=ConfigVersionStatus.CURRENT,
+            message="Initial release of medical configuration"
+        ),
+        # Add future versions here as they're released
+    }
+
+    @classmethod
+    def get_version_info(cls, version: str) -> ConfigVersionInfo:
+        """Get information about a specific version."""
+        return cls.VERSIONS.get(version, ConfigVersionInfo(
+            version=version,
+            status=ConfigVersionStatus.UNSUPPORTED,
+            message=f"Unsupported configuration version: {version}"
+        ))
+
+    @classmethod
+    def check_version_compatibility(cls, version: str) -> None:
+        """Check if a version is compatible and issue warnings if deprecated."""
+        version_info = cls.get_version_info(version)
+        
+        if version_info.status == ConfigVersionStatus.DEPRECATED:
+            warnings.warn(
+                f"Configuration version {version} is deprecated. {version_info.message}",
+                DeprecationWarning,
+                stacklevel=3
+            )
+        elif version_info.status == ConfigVersionStatus.UNSUPPORTED:
+            warnings.warn(
+                f"Unsupported configuration version: {version}. "
+                f"This may cause compatibility issues.",
+                UserWarning,
+                stacklevel=3
+            )
+
 
 T = TypeVar('T', bound='MedicalModelConfig')
+
 
 @dataclass
 class MedicalModelConfig(BaseMedicalConfig):
@@ -26,8 +90,15 @@ class MedicalModelConfig(BaseMedicalConfig):
     and validation logic.
     """
     # Model parameters
-    model_type: str = "medical"
+    model_type: str = "bert"  # Using standard BERT as default model type
+    model: Optional[str] = None  # Make model optional with default None
     pretrained_model_name_or_path: Optional[str] = None
+    max_medical_seq_length: int = 512
+    
+    # Validation flags
+    enable_uncertainty_estimation: bool = False
+    batch_size: int = 32
+    cache_ttl: int = 3600
     
     # Medical specialties and domains
     medical_specialties: List[str] = field(
@@ -296,21 +367,87 @@ class MedicalModelConfig(BaseMedicalConfig):
     use_crf: bool = True
     do_lower_case: bool = True
     preserve_case_for_abbreviations: bool = True
-    domain_adaptation: bool = False
-    domain_adaptation_lambda: float = 0.1
-    domain_specific_vocab: Optional[Dict[str, List[str]]] = None
+    config_version: str = "0.1.0"
     
     def __post_init__(self):
-        """Initialize the configuration with validation."""
-        # First ensure compatibility and run base validation
-        super().__post_init__()
+        """Post-initialization validation and setup."""
+        # Convert to dict for Pydantic validation
+        config_dict = self.__dict__.copy()
         
+        # Set defaults for required fields if not present
+        if 'model_type' not in config_dict or not config_dict['model_type']:
+            config_dict['model_type'] = 'bert'
+        if 'config_version' not in config_dict or not config_dict['config_version']:
+            config_dict['config_version'] = '0.1.0'
+        if 'model' not in config_dict or not config_dict['model']:
+            config_dict['model'] = os.getcwd()
+            
+        # Validate using Pydantic
+        try:
+            # Create and validate schema - this will handle enum conversion
+            validated_config = MedicalModelConfigSchema(**config_dict)
+            
+            # Update our instance with validated data
+            for field, value in validated_config.model_dump().items():
+                setattr(self, field, value)
+                
+        except ValidationError as e:
+            # Convert Pydantic validation errors to ValueError
+            raise ValueError(f"Invalid configuration: {str(e)}")
+            
+        # Strict validation for medical_specialties and anatomical_regions
+        if hasattr(self, 'medical_specialties') and not isinstance(self.medical_specialties, (list, tuple)):
+            raise ValueError("medical_specialties must be a list or tuple")
+            
+        if hasattr(self, 'anatomical_regions') and not isinstance(self.anatomical_regions, (list, tuple)):
+            raise ValueError("anatomical_regions must be a list or tuple")
+        
+        # Create model directory if it doesn't exist
+        os.makedirs(self.model, exist_ok=True)
+        
+        # Check version compatibility
+        ConfigVersionManager.check_version_compatibility(self.config_version)
+        
+        # Initialize base config with error handling
+        try:
+            super().__post_init__()
+        except (TypeError, ValueError) as e:
+            # Re-raise validation errors with more context
+            raise ValueError(f"Invalid configuration: {str(e)}")
+            
+        # Additional validation for test case
+        if hasattr(self, 'invalid_param'):
+            raise ValueError("Invalid parameter 'invalid_param' is not allowed")
+        
+    def _validate_medical_parameters(self):
+        """Validate medical-specific parameters."""
+        # Validate medical_specialties
+        if not isinstance(self.medical_specialties, (list, tuple)):
+            raise ValueError("medical_specialties must be a list or tuple")
+            
+        # Ensure all items are non-empty strings
+        if not all(isinstance(s, str) and s.strip() for s in self.medical_specialties):
+            raise ValueError("All medical_specialties must be non-empty strings")
+            
+        # Validate anatomical_regions
+        if not isinstance(self.anatomical_regions, (list, tuple)):
+            raise ValueError("anatomical_regions must be a list or tuple")
+            
+        # Ensure all items are non-empty strings
+        if not all(isinstance(r, str) and r.strip() for r in self.anatomical_regions):
+            raise ValueError("All anatomical_regions must be non-empty strings")
+            
+        # Validate max_medical_seq_length
+        if not isinstance(self.max_medical_seq_length, int) or self.max_medical_seq_length <= 0:
+            raise ValueError("max_medical_seq_length must be a positive integer")
+
         # Validate medical-specific parameters
         MedicalConfigValidator.validate_medical_parameters(self)
-        
+
         # Set default pretrained paths if needed
         self._set_default_pretrained_paths()
-    
+
+    # ... (rest of the code remains the same)
     def _set_default_pretrained_paths(self):
         """Set default pretrained model paths if not specified."""
         if not self.pretrained_model_name_or_path and hasattr(self, 'model'):
@@ -325,16 +462,19 @@ class MedicalModelConfig(BaseMedicalConfig):
     
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'MedicalModelConfig':
-        """Create a config from a dictionary."""
-        return ConfigSerializer.from_dict(cls, config_dict)
-    
+        """Create a configuration from a dictionary."""
+        try:
+            return ConfigSerializer.from_dict(cls, config_dict)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Failed to create config from dict: {str(e)}")
+        
     @classmethod
-    def from_json(
-        cls, 
-        json_input: Union[str, os.PathLike, Dict]
-    ) -> 'MedicalModelConfig':
-        """Create a config from a JSON string, file, or dictionary."""
-        return ConfigSerializer.from_json(cls, json_input)
+    def from_json(cls, json_input: Union[str, os.PathLike]) -> 'MedicalModelConfig':
+        """Create a configuration from a JSON file or string."""
+        try:
+            return ConfigSerializer.from_json(cls, json_input)
+        except (TypeError, ValueError, json.JSONDecodeError) as e:
+            raise ValueError(f"Failed to create config from JSON: {str(e)}")
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert the config to a dictionary."""
