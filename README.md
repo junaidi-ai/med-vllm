@@ -1,58 +1,125 @@
-# Nano-vLLM
+# Med vLLM
 
-A lightweight vLLM implementation built from scratch.
+Med vLLM is a project aimed at creating a specialized language model for medical applications. By leveraging the efficient [Nano vLLM](https://github.com/GeeeekExplorer/nano-vllm) and the domain knowledge of [BioBERT](https://github.com/monologg/BioBERT) and [ClinicalBERT](https://github.com/monologg/ClinicalBERT), we provide a tool that's both powerful and resource-friendly.
+
+## Motivation
+
+Large language models have shown great promise in various fields, but their size and resource requirements can be prohibitive, especially in resource-constrained environments like hospitals or research labs. Med vLLM addresses this by using a lightweight inference engine while maintaining high performance on medical tasks such as analyzing clinical notes or assisting with medical research.
 
 ## Key Features
 
-* 🚀 **Fast offline inference** - Comparable inference speeds to vLLM
-* 📖 **Readable codebase** - Clean implementation in ~ 1,200 lines of Python code
-* ⚡ **Optimization Suite** - Prefix caching, Tensor Parallelism, Torch compilation, CUDA graph, etc.
+- **Efficient Inference**: Powered by [Nano vLLM](https://github.com/GeeeekExplorer/nano-vllm) for lightweight performance.
+- **Medical Expertise**: Pre-trained on medical data with [BioBERT](https://github.com/monologg/BioBERT) and [ClinicalBERT](https://github.com/monologg/ClinicalBERT).
+- **Easy Integration**: Seamlessly fits into existing workflows.
+- **Customizable**: Adaptable for specific medical applications.
 
-## Installation
+## Getting Started
+
+### Prerequisites
+
+- Python 3.8 or higher
+- PyTorch
+- Hugging Face Transformers library
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/SHA888/med-vllm.git
+   ```
+
+2. Navigate to the project directory:
+   ```bash
+   cd med-vllm
+   ```
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+## Quick Start Example
+
+Run a sample inference:
 
 ```bash
-pip install git+https://github.com/GeeeekExplorer/nano-vllm.git
+python run_inference.py --model bioBERT --input "The patient has a history of diabetes and hypertension."
 ```
 
-## Manual download
+This will process the input using the specified model (e.g., BioBERT). You can also use `--model clinicalBERT` to switch models.
 
-If you’d rather fetch the model weights yourself, you can use:
+## Usage
+
+### Text Classification
+
+Classify a clinical note as positive or negative for a condition:
+
 ```bash
-huggingface-cli download --resume-download Qwen/Qwen3-0.6B \
-  --local-dir ~/huggingface/Qwen3-0.6B/ \
-  --local-dir-use-symlinks False
+python run_inference.py --model clinicalBERT --task classify --input "Patient shows signs of pneumonia."
 ```
 
-## Quick Start
+### Named Entity Recognition
 
-See `example.py` for usage. The API mirrors vLLM's interface with minor differences in the `LLM.generate` method.
-```python
-from nanovllm import LLM, SamplingParams
-llm = LLM("/YOUR/MODEL/PATH", enforce_eager=True, tensor_parallel_size=1)
-sampling_params = SamplingParams(temperature=0.6, max_tokens=256)
-prompts = ["Hello, Nano-vLLM."]
-outputs = llm.generate(prompts, sampling_params)
-outputs[0]["text"]
+Extract medical entities from text:
+
+```bash
+python run_inference.py --model bioBERT --task ner --input "Patient prescribed metformin for diabetes."
 ```
 
-## Benchmark
+### Text Generation
 
-See `bench.py` for benchmark.
+Generate a summary of a patient's medical history:
 
-**Test Configuration:**
-- Hardware: RTX 4070 Laptop (8GB)
-- Model: Qwen3-0.6B
-- Total Requests: 256 sequences
-- Input Length: Randomly sampled between 100–1024 tokens
-- Output Length: Randomly sampled between 100–1024 tokens
+```bash
+python run_inference.py --model clinicalBERT --task generate --input "Patient has diabetes and hypertension."
+```
 
-**Performance Results:**
-| Inference Engine | Output Tokens | Time (s) | Throughput (tokens/s) |
-|----------------|-------------|----------|-----------------------|
-| vLLM           | 133,966     | 98.37    | 1361.84               |
-| Nano-vLLM      | 133,966     | 93.41    | 1434.13               |
+### Fine-Tuning
 
+To fine-tune Med vLLM on your own medical dataset:
 
-## Star History
+1. Prepare your dataset in a compatible format (e.g., JSON or CSV).
+2. Use the provided training script:
+   ```bash
+   python train.py --model bioBERT --dataset path/to/your/data
+   ```
+3. Evaluate the fine-tuned model with:
+   ```bash
+   python evaluate.py --model path/to/finetuned/model
+   ```
 
-[![Star History Chart](https://api.star-history.com/svg?repos=GeeeekExplorer/nano-vllm&type=Date)](https://www.star-history.com/#GeeeekExplorer/nano-vllm&Date)
+Detailed instructions will be provided as the project evolves.
+
+## Limitations
+
+- Currently supports only English-language medical texts.
+- Multilingual support is planned for future releases.
+
+## Contributing
+
+We welcome contributions! To get involved:
+
+- Report bugs or suggest features by opening an issue.
+- Submit pull requests with improvements, following the project's code style and including tests for new features.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+Med vLLM builds upon:
+
+- [Nano vLLM](https://github.com/GeeeekExplorer/nano-vllm)
+- [BioBERT](https://github.com/monologg/BioBERT)
+- [ClinicalBERT](https://github.com/monologg/ClinicalBERT)
+
+Thanks to their creators for their open-source contributions.
+
+## Citation
+
+If you use Med vLLM in your research or application, please cite it as:
+
+```
+[SHA888](https://github.com/SHA888). (2025). Med vLLM: A Medical Language Model. GitHub repository, https://github.com/SHA888/med-vllm
+```
