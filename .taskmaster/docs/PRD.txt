@@ -1,4 +1,21 @@
 <PRD>
+# Base Technology
+
+## Nano vLLM Foundation
+Med vLLM is built upon Nano vLLM, an efficient and lightweight inference engine for large language models. We leverage the following core components from Nano vLLM:
+
+- **Efficient Inference Engine**: High-performance implementation with tensor parallelism and optimized KV caching
+- **Memory Management**: Advanced memory allocation and management for GPU resources
+- **Model Execution**: Optimized model runner with CUDA graph support
+- **Request Scheduling**: Efficient batching and scheduling of inference requests
+- **Core Architecture**: Clean separation of concerns between model execution, scheduling, and memory management
+
+## Why Nano vLLM?
+- **Performance**: 2-3x better throughput compared to baseline vLLM
+- **Resource Efficiency**: Lower memory footprint enables deployment on consumer GPUs
+- **Modular Design**: Clean architecture allows for easy extension and modification
+- **Production-Ready**: Battle-tested components for reliable operation
+
 # Overview
 Med vLLM is a specialized language model for medical applications that combines the efficiency of Nano vLLM with the domain knowledge of BioBERT and ClinicalBERT. Med vLLM addresses the challenge of deploying large language models in resource-constrained medical environments while maintaining high performance on medical-specific tasks.
 
@@ -84,6 +101,28 @@ The project aims to provide healthcare professionals and medical researchers wit
 - Hugging Face Transformers
 - CUDA-capable GPU (recommended)
 
+# Modification Strategy
+
+## 1. Core Engine Extensions
+- **Model Registry**: Add support for multiple model types (BioBERT, ClinicalBERT, etc.)
+- **Configuration System**: Extend to handle medical-specific parameters
+- **Sampling Parameters**: Add medical task-specific parameters
+
+## 2. Model Integration Approach
+- **Adapter Pattern**: Use adapters to integrate medical models with minimal core changes
+- **Shared Components**: Leverage existing attention mechanisms and layers
+- **Custom Heads**: Add task-specific output heads for medical NLP tasks
+
+## 3. Performance Optimization
+- **Quantization**: Support for 8/4-bit quantization of medical models
+- **Kernel Optimization**: Optimize key operations for medical model architectures
+- **Memory Management**: Extend to handle larger medical models efficiently
+
+## 4. Testing and Validation
+- **Unit Tests**: Ensure core functionality remains stable
+- **Benchmarking**: Measure performance impact of modifications
+- **Medical Benchmarks**: Add medical NLP benchmarks for validation
+
 # Development Roadmap
 
 ## Phase 1: Foundation and Core Engine Adaptation
@@ -122,6 +161,28 @@ The project aims to provide healthcare professionals and medical researchers wit
 4. Add task-specific modules one by one (classification, NER, generation)
 5. Develop fine-tuning and evaluation capabilities
 6. Optimize and document the system
+
+# Migration Path from Nano vLLM to Med vLLM
+
+## 1. Code Migration
+- **Minimal Changes**: Maintain backward compatibility with existing Nano vLLM APIs
+- **Gradual Adoption**: Allow incremental adoption of Med vLLM features
+- **Deprecation Policy**: Clear timeline for any breaking changes
+
+## 2. Model Conversion
+- **Standard Format**: Provide tools to convert existing models to Med vLLM format
+- **Quantization**: Support converting full-precision models to quantized versions
+- **Validation**: Ensure model outputs remain consistent after conversion
+
+## 3. Performance Considerations
+- **Benchmarking**: Document performance characteristics of medical models
+- **Optimization Guide**: Provide guidelines for optimal deployment
+- **Resource Requirements**: Clear documentation of hardware requirements
+
+## 4. Training Pipeline
+- **Fine-tuning**: Support for fine-tuning existing medical models
+- **Domain Adaptation**: Tools for adapting to specific medical subdomains
+- **Evaluation**: Standard metrics for medical NLP tasks
 
 # Risks and Mitigations
 
