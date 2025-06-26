@@ -8,6 +8,9 @@ from ..config import Config
 # Type variable for the class itself (for type hints in class methods)
 T = TypeVar('T', bound='MedicalModelConfig')
 
+# Current configuration schema version
+CONFIG_VERSION = "1.0.0"
+
 @dataclass
 class MedicalModelConfig(Config):
     """
@@ -15,7 +18,17 @@ class MedicalModelConfig(Config):
     
     This class extends the base Config class with medical domain-specific parameters
     and functionality for handling medical NLP tasks.
+    
+    Versioning:
+    - 1.0.0: Initial version with medical-specific parameters and validation
+    
+    Backward Compatibility:
+    - The config_version field was added in version 1.0.0
+    - When loading older configs without version, they're treated as version 0.1.0
+    - The migrate_config() method handles migration between versions
     """
+    # Configuration version for schema evolution tracking
+    config_version: str = field(default=CONFIG_VERSION, init=False)
     # Model type specification (e.g., 'biobert', 'clinicalbert', 'bioclinicalbert')
     model_type: str = "biobert"
     
@@ -291,14 +304,33 @@ class MedicalModelConfig(Config):
     def __post_init__(self):
         """
         Initialize the configuration and validate all parameters.
-
+        
         This method is automatically called after the dataclass is initialized.
         It performs validation of all configuration parameters and sets default values.
-
+        
+        The method handles:
+        - Version checking and migration of older configs
+        - Base configuration validation
+        - Medical-specific validation
+        - Fallback to pretrained models when needed
+        
         Note:
             We call the parent's __post_init__ first to ensure base validation runs.
             Then we apply medical-specific validation and defaults.
+            
+        Example:
+            >>> config = MedicalModelConfig(model="path/to/model")
+            >>> config.config_version
+            '1.0.0'
         """
+        # Ensure compatibility with the current version
+        self.ensure_compatibility()
+        # Handle versioning for existing configs
+        if not hasattr(self, 'config_version'):
+            self.config_version = "0.1.0"  # Default version for existing configs
+            
+        # Migrate config if needed
+        self._migrate_config()
         # Store original model path before parent validation might modify it
         original_model = getattr(self, 'model', None)
 
@@ -506,20 +538,120 @@ class MedicalModelConfig(Config):
         Create a MedicalModelConfig from a dictionary.
         
         Args:
-            config_dict: Dictionary containing configuration parameters
+            config_dict: Dictionary containing configuration parameters.
+                        Can include a 'config_version' field to handle migrations.
             
         Returns:
-            MedicalModelConfig: Configured instance
+            MedicalModelConfig: Configured instance with migrated parameters
             
-        Note:
-            Handles both base Config parameters and medical-specific parameters.
-            Preserves backward compatibility with the base Config class.
+        Example:
+            >>> config_dict = {"model": "path/to/model", "config_version": "1.0.0"}
+            >>> config = MedicalModelConfig.from_dict(config_dict)
+            >>> config.config_version
+            '1.0.0'
+            
+            # Legacy config without version
+            >>> legacy_config = {"model": "path/to/legacy"}
+            >>> config = MedicalModelConfig.from_dict(legacy_config)
+            >>> config.config_version  # Automatically migrated
+            '1.0.0'
+        """
+        # Create a new dict to avoid modifying the input
+        config_dict = config_dict.copy()
+        
+        # Handle versioning - remove version from dict before creating instance
+        config_version = config_dict.pop('config_version', '0.1.0')
+        
+        # Create config instance
+        config = cls(**config_dict)
+        
+        # Set version and migrate if needed
+        if config_version != CONFIG_VERSION:
+            config.config_version = config_version
+            config._migrate_config()
+            
+        return config
+        
+    @classmethod
+    def _migrate_config(self) -> None:
+        """
+        Migrate the current configuration to the latest version.
+        
+        This method handles the migration of configuration parameters between versions.
+        It should be called during initialization to ensure the config is up-to-date.
+        
+        Version History:
+        - 0.1.0: Initial version (pre-versioning)
+        - 1.0.0: Added versioning support and standardized parameter names
+        """
+        version = getattr(self, 'config_version', '0.1.0')
+        
+        # Migration from 0.1.0 to 1.0.0
+        if version == '0.1.0':
+            # Handle any renames or transformations
+            if hasattr(self, 'medical_params') and isinstance(self.medical_params, dict):
+                # Migrate old nested structure to flat structure
+                for key, value in self.medical_params.items():
+                    if not hasattr(self, key):
+                        setattr(self, key, value)
+                # Remove the old attribute
+                delattr(self, 'medical_params')
+            
+            # Update version
+            self.config_version = '1.0.0'
+        
+    def _warn_deprecated(self, param_name: str, version: str, alternative: str = None) -> None:
+        """
+        Log a deprecation warning for a parameter.
+        
+        Args:
+            param_name: Name of the deprecated parameter
+            version: Version in which the parameter will be removed
+            alternative: Optional alternative parameter to use instead
+            
+        Example:
+            >>> self._warn_deprecated('old_param', '2.0.0', 'new_param')
+            DeprecationWarning: 'old_param' is deprecated and will be removed in version 2.0.0. Use 'new_param' instead.
+        """
+        import warnings
+        msg = f"'{param_name}' is deprecated and will be removed in version {version}."
+        if alternative:
+            msg += f" Use '{alternative}' instead."
+        warnings.warn(msg, DeprecationWarning, stacklevel=2)
+        
+    @classmethod
+    def get_schema_version(cls) -> str:
+        """
+        Get the current schema version.
+        
+        Returns:
+            str: The current schema version string
+            
+        Example:
+            >>> MedicalModelConfig.get_schema_version()
+            '1.0.0'
+        """
+        return CONFIG_VERSION
+        
+    def ensure_compatibility(self) -> bool:
+        """
+        Ensure the configuration is compatible with the current version.
+        
+        Returns:
+            bool: True if compatible, False if migration was needed
+            
+        Example:
+            >>> config = MedicalModelConfig(model="path/to/model")
+            >>> config.ensure_compatibility()
+            True
             
         Raises:
             ValueError: If required parameters are missing or invalid
         """
-        if not isinstance(config_dict, dict):
-            raise ValueError("Input must be a dictionary")
+        if not hasattr(self, 'config_version') or self.config_version != CONFIG_VERSION:
+            self._migrate_config()
+            return False
+        return True
             
         # Create a copy to avoid modifying the input
         config_dict = config_dict.copy()
