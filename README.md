@@ -25,7 +25,7 @@ Large language models have shown great promise in various fields, but their size
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/SHA888/med-vllm.git
+   git clone https://github.com/your-github-username/med-vllm.git
    ```
 
 2. Navigate to the project directory:

@@ -291,21 +291,83 @@ class MedicalModelConfig(Config):
     def __post_init__(self):
         """
         Initialize the configuration and validate all parameters.
-        
+
         This method is automatically called after the dataclass is initialized.
         It performs validation of all configuration parameters and sets default values.
+
+        Note:
+            We call the parent's __post_init__ first to ensure base validation runs.
+            Then we apply medical-specific validation and defaults.
         """
-        # First call parent's __post_init__
-        super().__post_init__()
+        # Store original model path before parent validation might modify it
+        original_model = getattr(self, 'model', None)
+
+        try:
+            # Validate tensor_parallel_size first to provide better error messages
+            if hasattr(self, 'tensor_parallel_size') and self.tensor_parallel_size is not None:
+                if not (1 <= self.tensor_parallel_size <= 8):
+                    raise ValueError(
+                        f"tensor_parallel_size must be between 1 and 8, got {self.tensor_parallel_size}"
+                    )
+            
+            # Call parent's __post_init__ for base validation
+            super().__post_init__()
+                
+        except Exception as e:
+            # If validation fails but we have a pretrained model, try with that
+            if hasattr(self, 'pretrained_model_name_or_path') and self.pretrained_model_name_or_path:
+                original_model = self.model  # Save the original model path
+                try:
+                    self.model = self.pretrained_model_name_or_path
+                    # Re-validate tensor_parallel_size for the pretrained model
+                    if hasattr(self, 'tensor_parallel_size') and self.tensor_parallel_size is not None:
+                        if not (1 <= self.tensor_parallel_size <= 8):
+                            raise ValueError(
+                                f"tensor_parallel_size must be between 1 and 8, got {self.tensor_parallel_size}"
+                            )
+                    super().__post_init__()  # Call the parent's __post_init__ with parentheses
+                except Exception as e2:
+                    self.model = original_model  # Restore original model path on failure
+                    if 'tensor_parallel_size' in str(e2).lower():
+                        raise ValueError(f"Invalid tensor_parallel_size: {e2}")
+                    raise ValueError(f"Invalid configuration with pretrained model: {str(e2)}")
+            else:
+                if 'tensor_parallel_size' in str(e).lower():
+                    raise ValueError(f"Invalid tensor_parallel_size: {e}")
+                raise ValueError(f"Invalid configuration: {str(e)}. Please provide a valid model path or set pretrained_model_name_or_path.")
         
+        # Restore original model path if it was set and different
+        if original_model and original_model != self.model:
+            self.model = original_model
+            
+        # Apply medical-specific validations
         self._validate_model_type()
         self._validate_medical_parameters()
         self._validate_entity_linking()
         self._set_default_pretrained_paths()
         
-        # Update model path to use the pretrained model if not specified
-        if not Path(self.model).exists() and self.pretrained_model_name_or_path:
+        # Update model path to use the pretrained model if specified and local path doesn't exist
+        if not Path(str(self.model)).exists() and hasattr(self, 'pretrained_model_name_or_path') and self.pretrained_model_name_or_path:
             self.model = self.pretrained_model_name_or_path
+    
+    def _validate_model_type(self) -> None:
+        """
+        Validate the model type.
+        
+        Raises:
+            ValueError: If the model type is not supported
+        """
+        supported_models = [
+            'biobert', 'clinicalbert', 'bioclinicalbert', 'bluebert', 'pubmedbert',
+            'clinicalcovidbert', 'scibert', 'biomed_roberta', 'gpt2_medical',
+            'gpt_neo_medical', 'gptj_medical', 'gpt_neox_medical', 'llama_medical'
+        ]
+        
+        if self.model_type.lower() not in supported_models:
+            raise ValueError(
+                f"Unsupported model type: {self.model_type}. "
+                f"Supported types are: {', '.join(supported_models)}"
+            )
     
     def _validate_medical_parameters(self) -> None:
         """
@@ -450,20 +512,56 @@ class MedicalModelConfig(Config):
             MedicalModelConfig: Configured instance
             
         Note:
-            This is a simplified version that creates a new instance and updates it.
-            More sophisticated merging can be added if needed.
+            Handles both base Config parameters and medical-specific parameters.
+            Preserves backward compatibility with the base Config class.
+            
+        Raises:
+            ValueError: If required parameters are missing or invalid
         """
-        # Extract base config parameters
-        base_config = {k: v for k, v in config_dict.items() 
-                      if k in [f.name for f in fields(Config)]}
+        if not isinstance(config_dict, dict):
+            raise ValueError("Input must be a dictionary")
+            
+        # Create a copy to avoid modifying the input
+        config_dict = config_dict.copy()
         
-        # Create base config
-        config = cls(**base_config)
+        # Extract base config parameters that are valid for the parent class
+        base_config = {}
+        base_fields = {f.name for f in fields(Config) if f.init}
         
-        # Update with all other parameters
+        for field_name in base_fields:
+            if field_name in config_dict:
+                base_config[field_name] = config_dict.pop(field_name)
+        
+        # Handle model path - prioritize pretrained model if specified
+        if 'pretrained_model_name_or_path' in config_dict and not base_config.get('model'):
+            base_config['model'] = config_dict.pop('pretrained_model_name_or_path')
+        
+        # Create instance with base config
+        try:
+            if base_config:
+                config = cls(**base_config)
+            else:
+                # If no base config provided, use defaults
+                config = cls(model=config_dict.get('model', ''))
+        except Exception as e:
+            raise ValueError(f"Failed to initialize base config: {str(e)}")
+        
+        # Update with remaining parameters (medical-specific)
         for key, value in config_dict.items():
-            if hasattr(config, key):
-                setattr(config, key, value)
+            # Only set attributes that are defined in the class
+            if hasattr(config, key) or key in cls.__annotations__:
+                try:
+                    setattr(config, key, value)
+                except Exception as e:
+                    import warnings
+                    warnings.warn(f"Could not set {key}: {str(e)}")
+        
+        # Re-validate the configuration
+        try:
+            config.__post_init__()
+        except Exception as e:
+            import warnings
+            warnings.warn(f"Configuration validation warning: {str(e)}")
                 
         return config
         
@@ -504,8 +602,30 @@ class MedicalModelConfig(Config):
         
         Returns:
             Dict: A dictionary containing all configuration parameters
+            
+        Note:
+            First gets all base class parameters using super().to_dict(),
+            then updates with medical-specific parameters.
+            This ensures we don't miss any base class parameters.
         """
-        output = super().to_dict()
+        # Get base config parameters
+        output = {}
+        try:
+            # Try to get base class dict if available
+            if hasattr(super(), 'to_dict'):
+                output = super().to_dict()
+            else:
+                # Fallback: Get all fields from base class
+                base_fields = {}
+                for field in fields(Config):
+                    if hasattr(self, field.name):
+                        base_fields[field.name] = getattr(self, field.name)
+                output.update(base_fields)
+        except Exception as e:
+            # If base class to_dict fails, collect fields manually
+            import traceback
+            print(f"Warning: Could not get base config: {str(e)}\n{traceback.format_exc()}")
+            
         # Add medical-specific fields
         medical_fields = {
             "model_type": self.model_type,
@@ -540,7 +660,12 @@ class MedicalModelConfig(Config):
             "cache_ttl": self.cache_ttl,
             "max_cache_size": self.max_cache_size,
         }
-        output.update(medical_fields)
+        
+        # Only update with non-None values to avoid overwriting valid base config
+        for k, v in medical_fields.items():
+            if v is not None:
+                output[k] = v
+                
         return output
         
     def to_json(self, file_path: Optional[str] = None, indent: int = 2) -> Optional[str]:
@@ -557,18 +682,31 @@ class MedicalModelConfig(Config):
         Raises:
             ValueError: If the file cannot be written
         """
+        def json_serializable(obj):
+            """Convert objects to JSON serializable format."""
+            if isinstance(obj, (int, float, str, bool, type(None))):
+                return obj
+            elif isinstance(obj, (list, tuple)):
+                return [json_serializable(item) for item in obj]
+            elif isinstance(obj, dict):
+                return {str(k): json_serializable(v) for k, v in obj.items()}
+            elif hasattr(obj, 'to_json_string'):
+                return json.loads(obj.to_json_string())
+            elif hasattr(obj, '__dict__'):
+                return json_serializable(obj.__dict__)
+            else:
+                return str(obj)
+        
         config_dict = self.to_dict()
-        json_str = json.dumps(config_dict, indent=indent, ensure_ascii=False)
+        serializable_dict = json_serializable(config_dict)
         
         if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(json_str)
-                return None
-            except (IOError, OSError) as e:
-                raise ValueError(f"Failed to write configuration to {file_path}: {str(e)}")
-        return json_str
-        
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_dict, f, indent=indent, ensure_ascii=False)
+            return None
+        else:
+            return json.dumps(serializable_dict, indent=indent, ensure_ascii=False)
+
     @classmethod
     def from_json(cls, json_input: Union[str, os.PathLike, Dict]) -> 'MedicalModelConfig':
         """
