@@ -1,5 +1,8 @@
 import torch
 import torch.distributed as dist
+from torch import nn
+from transformers import Qwen3Config
+
 from medvllm.layers.activation import SiluAndMul
 from medvllm.layers.attention import Attention
 from medvllm.layers.embed_head import ParallelLMHead, VocabParallelEmbedding
@@ -10,8 +13,6 @@ from medvllm.layers.linear import (
     RowParallelLinear,
 )
 from medvllm.layers.rotary_embedding import get_rope
-from torch import nn
-from transformers import Qwen3Config
 
 
 class Qwen3Attention(nn.Module):

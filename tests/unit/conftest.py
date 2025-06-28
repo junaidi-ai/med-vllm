@@ -1,8 +1,11 @@
 """Configuration and fixtures for unit tests."""
-import pytest
+
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Common fixtures for unit tests
+
 
 @pytest.fixture
 def mock_medical_config():
@@ -12,16 +15,20 @@ def mock_medical_config():
         "medical_specialties": ["cardiology"],
         "anatomical_regions": ["head"],
         "max_seq_len": 1024,
-        "dtype": "float16"
+        "dtype": "float16",
     }
+
 
 @pytest.fixture
 def patch_imports():
     """Patch common imports to avoid loading heavy dependencies."""
-    with patch.dict('sys.modules', {
-        'torch': MagicMock(),
-        'torch.cuda': MagicMock(is_available=lambda: False),
-        'flash_attn': MagicMock(),
-        'transformers': MagicMock(),
-    }):
+    with patch.dict(
+        "sys.modules",
+        {
+            "torch": MagicMock(),
+            "torch.cuda": MagicMock(is_available=lambda: False),
+            "flash_attn": MagicMock(),
+            "transformers": MagicMock(),
+        },
+    ):
         yield

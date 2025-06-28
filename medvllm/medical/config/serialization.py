@@ -101,47 +101,55 @@ class ConfigSerializer:
     @classmethod
     def from_dict(cls, config_class: Type[T], config_dict: Dict[str, Any]) -> T:
         """Create a configuration from a dictionary with improved type handling.
-        
+
         Args:
             config_class: The configuration class to instantiate
             config_dict: Dictionary containing configuration parameters
-            
+
         Returns:
             An instance of config_class initialized with the provided parameters
-            
+
         Raises:
             ValueError: If the configuration is invalid or missing required fields
             TypeError: If there are type mismatches in the configuration
         """
         if not isinstance(config_dict, dict):
             raise TypeError(f"Expected dict, got {type(config_dict).__name__}")
-            
+
         config_dict = config_dict.copy()
-        
+
         # Handle config version with type checking
         config_version = config_dict.pop("config_version", "0.1.0")
         if not isinstance(config_version, str):
-            raise TypeError(f"config_version must be a string, got {type(config_version).__name__}")
+            raise TypeError(
+                f"config_version must be a string, got {type(config_version).__name__}"
+            )
 
         try:
             # Create config instance with type checking
             config = config_class(**config_dict)
-            
+
             # Set version and migrate if needed
-            if hasattr(config, 'config_version') and config_version != config.config_version:
+            if (
+                hasattr(config, "config_version")
+                and config_version != config.config_version
+            ):
                 config.config_version = config_version
                 from .versioning import ConfigVersioner
+
                 ConfigVersioner.migrate_config(config)
-                
+
             return config
-            
+
         except TypeError as e:
             # Improve error message for type errors
-            param = str(e).split("'")[1] if "unexpected keyword argument" in str(e) else ""
+            param = (
+                str(e).split("'")[1] if "unexpected keyword argument" in str(e) else ""
+            )
             if param:
                 raise TypeError(f"Invalid type for parameter '{param}': {e}") from e
             raise
-            
+
         except Exception as e:
             raise ValueError(f"Failed to create configuration: {str(e)}") from e
 

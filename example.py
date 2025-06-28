@@ -1,7 +1,8 @@
 import os
 
-from medvllm import LLM, SamplingParams
 from transformers import AutoTokenizer
+
+from medvllm import LLM, SamplingParams
 
 
 def main():

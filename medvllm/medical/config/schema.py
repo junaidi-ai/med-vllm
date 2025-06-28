@@ -133,33 +133,37 @@ class MedicalModelConfigSchema(BaseModel):
     @classmethod
     def validate_medical_specialties(cls, v: Any) -> List[str]:
         """Normalize and validate medical specialties.
-        
+
         Args:
             v: Input value which can be None, string, or list of strings
-            
+
         Returns:
             List of normalized medical specialty strings
-            
+
         Raises:
             ValueError: If the input is not a valid list of medical specialties
         """
         if v is None:
             return []
-            
+
         # Handle string input (comma-separated values)
         if isinstance(v, str):
             v = [s.strip() for s in v.split(",") if s.strip()]
-        
+
         # Only accept list or tuple of strings
         if not isinstance(v, (list, tuple)):
-            raise ValueError("medical_specialties must be a string, list, or tuple of strings")
-            
+            raise ValueError(
+                "medical_specialties must be a string, list, or tuple of strings"
+            )
+
         # Convert all items to strings if they aren't already
         try:
             v = [str(item) for item in v]
         except (TypeError, ValueError) as e:
-            raise ValueError("All medical_specialties must be convertible to strings") from e
-            
+            raise ValueError(
+                "All medical_specialties must be convertible to strings"
+            ) from e
+
         # Ensure all items are non-empty after conversion
         if not all(s.strip() for s in v):
             raise ValueError("All medical_specialties must be non-empty strings")
@@ -172,10 +176,10 @@ class MedicalModelConfigSchema(BaseModel):
             normalized_s = "".join(c for c in normalized_s if c.isalnum() or c == "_")
             if normalized_s:  # Only add non-empty strings
                 normalized.append(normalized_s)
-                
+
         if not normalized and v:
             raise ValueError("No valid medical specialties found after normalization")
-            
+
         # Remove duplicates while preserving order
         seen = set()
         return [x for x in normalized if not (x in seen or seen.add(x))]
@@ -184,33 +188,37 @@ class MedicalModelConfigSchema(BaseModel):
     @classmethod
     def validate_anatomical_regions(cls, v: Any) -> List[str]:
         """Normalize and validate anatomical regions.
-        
+
         Args:
             v: Input value which can be None, string, or list of strings
-            
+
         Returns:
             List of normalized anatomical region strings
-            
+
         Raises:
             ValueError: If the input is not a valid list of anatomical regions
         """
         if v is None:
             return []
-            
+
         # Handle string input (comma-separated values)
         if isinstance(v, str):
             v = [s.strip() for s in v.split(",") if s.strip()]
-        
+
         # Only accept list or tuple of strings
         if not isinstance(v, (list, tuple)):
-            raise ValueError("anatomical_regions must be a string, list, or tuple of strings")
-            
+            raise ValueError(
+                "anatomical_regions must be a string, list, or tuple of strings"
+            )
+
         # Convert all items to strings if they aren't already
         try:
             v = [str(item) for item in v]
         except (TypeError, ValueError) as e:
-            raise ValueError("All anatomical_regions must be convertible to strings") from e
-            
+            raise ValueError(
+                "All anatomical_regions must be convertible to strings"
+            ) from e
+
         # Ensure all items are non-empty after conversion
         if not all(s.strip() for s in v):
             raise ValueError("All anatomical_regions must be non-empty strings")
@@ -223,10 +231,10 @@ class MedicalModelConfigSchema(BaseModel):
             normalized_r = "".join(c for c in normalized_r if c.isalnum() or c in "_-")
             if normalized_r:  # Only add non-empty strings
                 normalized.append(normalized_r)
-                
+
         if not normalized and v:
             raise ValueError("No valid anatomical regions found after normalization")
-            
+
         # Remove duplicates while preserving order
         seen = set()
         return [x for x in normalized if not (x in seen or seen.add(x))]

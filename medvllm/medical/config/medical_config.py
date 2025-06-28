@@ -13,10 +13,21 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Type, TypeVar, Union, get_type_hints
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+    get_type_hints,
+)
+
+from pydantic import ValidationError
 
 from medvllm.config import Config
-from pydantic import ValidationError
 
 from .base import BaseMedicalConfig
 from .schema import (
@@ -105,7 +116,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     model_type: str = "bert"  # Using standard BERT as default model type
     model: Optional[Union[str, os.PathLike]] = field(
         default=None,
-        description="Path to the model directory or model identifier. Will be converted to string when used."
+        description="Path to the model directory or model identifier. Will be converted to string when used.",
     )
     pretrained_model_name_or_path: Optional[str] = None
     max_medical_seq_length: int = 512

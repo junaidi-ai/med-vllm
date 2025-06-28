@@ -5,17 +5,19 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
 # Mock the imports that would normally be provided by the application
-sys.modules['medvllm.medical.config.base'] = MagicMock()
-sys.modules['medvllm.medical.config.base'].BaseMedicalConfig = type('BaseMedicalConfig', (), {})
+sys.modules["medvllm.medical.config.base"] = MagicMock()
+sys.modules["medvllm.medical.config.base"].BaseMedicalConfig = type(
+    "BaseMedicalConfig", (), {}
+)
 
 # Mock transformers and other dependencies
-sys.modules['transformers'] = MagicMock()
-sys.modules['torch'] = MagicMock()
+sys.modules["transformers"] = MagicMock()
+sys.modules["torch"] = MagicMock()
 
 # Now import the class we want to test
 from medvllm.medical.config.medical_config import MedicalModelConfig
@@ -35,17 +37,18 @@ class TestMedicalConfigCompatibility:
         self.mock_config.num_hidden_layers = 12
         self.mock_config.num_attention_heads = 12
         self.mock_config.hidden_act = "gelu"
-        
+
         # Patch transformers import
-        self.patcher = patch("transformers.AutoConfig.from_pretrained", 
-                           return_value=self.mock_config)
+        self.patcher = patch(
+            "transformers.AutoConfig.from_pretrained", return_value=self.mock_config
+        )
         self.mock_from_pretrained = self.patcher.start()
-        
+
         yield
-        
+
         # Cleanup
         self.patcher.stop()
-    
+
     def test_base_config_compatibility(self):
         """Test that MedicalModelConfig works with base Config parameters."""
         base_params = {
@@ -123,7 +126,9 @@ class TestMedicalConfigCompatibility:
 
         # Verify all parameters match
         for key, value in all_params.items():
-            assert getattr(new_config, key) == value, f"Mismatch for {key} after roundtrip"
+            assert (
+                getattr(new_config, key) == value
+            ), f"Mismatch for {key} after roundtrip"
 
     def test_json_serialization(self, tmp_path):
         """Test JSON serialization/deserialization."""
@@ -148,7 +153,9 @@ class TestMedicalConfigCompatibility:
 
         # Verify all parameters match
         for key, value in all_params.items():
-            assert getattr(loaded_config, key) == value, f"Mismatch for {key} after JSON roundtrip"
+            assert (
+                getattr(loaded_config, key) == value
+            ), f"Mismatch for {key} after JSON roundtrip"
 
     def test_backward_compatibility(self):
         """Test compatibility with base Config usage patterns."""

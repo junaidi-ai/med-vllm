@@ -1,8 +1,9 @@
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from medvllm.utils.context import get_context
 from torch import nn
+
+from medvllm.utils.context import get_context
 
 
 class VocabParallelEmbedding(nn.Module):
