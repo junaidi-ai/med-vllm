@@ -4,8 +4,13 @@ Validation utilities for medical model configurations.
 This module contains validation functions for medical model configurations.
 """
 
+from __future__ import annotations
+
 import warnings
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    from .medical_config import MedicalModelConfig
 
 
 class MedicalConfigValidator:

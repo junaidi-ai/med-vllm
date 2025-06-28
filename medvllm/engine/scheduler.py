@@ -1,8 +1,8 @@
 from collections import deque
 
-from nanovllm.config import Config
-from nanovllm.engine.block_manager import BlockManager
-from nanovllm.engine.sequence import Sequence, SequenceStatus
+from medvllm.config import Config
+from medvllm.engine.block_manager import BlockManager
+from medvllm.engine.sequence import Sequence, SequenceStatus
 
 
 class Scheduler:
@@ -67,6 +67,7 @@ class Scheduler:
         self.waiting.appendleft(seq)
 
     def postprocess(self, seqs: list[Sequence], token_ids: list[int]) -> list[bool]:
+        finished = []
         for seq, token_id in zip(seqs, token_ids):
             seq.append_token(token_id)
             if (
@@ -75,3 +76,7 @@ class Scheduler:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)
+                finished.append(True)
+            else:
+                finished.append(False)
+        return finished

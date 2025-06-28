@@ -1,2 +1,2 @@
-from nanovllm.llm import LLM
-from nanovllm.sampling_params import SamplingParams
+from medvllm.llm import LLM
+from medvllm.sampling_params import SamplingParams

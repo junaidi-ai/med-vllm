@@ -1,20 +1,23 @@
 import pickle
 from multiprocessing.shared_memory import SharedMemory
-from multiprocessing.synchronize import Event
+from multiprocessing.synchronize import Event as MP_Event
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
-from nanovllm.config import Config
-from nanovllm.engine.sequence import Sequence
-from nanovllm.layers.sampler import Sampler
-from nanovllm.models.qwen3 import Qwen3ForCausalLM
-from nanovllm.utils.context import get_context, reset_context, set_context
-from nanovllm.utils.loader import load_model
+from medvllm.config import Config
+from medvllm.engine.sequence import Sequence
+from medvllm.layers.sampler import Sampler
+from medvllm.models.qwen3 import Qwen3ForCausalLM
+from medvllm.utils.context import get_context, reset_context, set_context
+from medvllm.utils.loader import load_model
 
 
 class ModelRunner:
 
-    def __init__(self, config: Config, rank: int, event: Event | list[Event]):
+    def __init__(
+        self, config: Config, rank: int, event: Union[MP_Event, List[MP_Event]]
+    ):
         self.config = config
         hf_config = config.hf_config
         self.block_size = config.kvcache_block_size
@@ -59,36 +62,86 @@ class ModelRunner:
         torch.cuda.synchronize()
         dist.destroy_process_group()
 
-    def loop(self):
+    def loop(self) -> None:
+        """Main loop for the model runner process.
+
+        Continuously reads from shared memory and processes commands until
+        an exit command is received.
+        """
         while True:
             method_name, args = self.read_shm()
             self.call(method_name, *args)
             if method_name == "exit":
                 break
 
-    def read_shm(self):
+    def read_shm(self) -> Tuple[str, tuple]:
+        """Read data from shared memory.
+
+        Returns:
+            A tuple containing (method_name, args) read from shared memory.
+        """
         assert self.world_size > 1 and self.rank
-        self.event.wait()
+        if isinstance(self.event, list):
+            for e in self.event:
+                e.wait()
+        else:
+            self.event.wait()
+
         n = int.from_bytes(self.shm.buf[0:4], "little")
         method_name, *args = pickle.loads(self.shm.buf[4 : n + 4])
-        self.event.clear()
-        return method_name, args
 
-    def write_shm(self, method_name, *args):
+        if isinstance(self.event, list):
+            for e in self.event:
+                e.clear()
+        else:
+            self.event.clear()
+
+        return method_name, tuple(args)
+
+    def write_shm(self, method_name: str, *args: Any) -> None:
+        """Write data to shared memory.
+
+        Args:
+            method_name: Name of the method to call.
+            *args: Arguments to pass to the method.
+        """
         assert self.world_size > 1 and not self.rank
         data = pickle.dumps([method_name, *args])
         n = len(data)
-        assert n + 4 <= self.shm.size
+        assert (
+            n + 4 <= self.shm.size
+        ), f"Data too large for shared memory: {n + 4} > {self.shm.size}"
+
         self.shm.buf[0:4] = n.to_bytes(4, "little")
         self.shm.buf[4 : n + 4] = data
-        for event in self.event:
-            event.set()
 
-    def call(self, method_name, *args):
+        if isinstance(self.event, list):
+            for event in self.event:
+                event.set()
+        else:
+            self.event.set()
+
+    def call(self, method_name: str, *args: Any) -> Any:
+        """Call a method by name with the given arguments.
+
+        Args:
+            method_name: Name of the method to call.
+            *args: Arguments to pass to the method.
+
+        Returns:
+            The result of the method call.
+
+        Raises:
+            AssertionError: If the method is not callable.
+        """
         if self.world_size > 1 and self.rank == 0:
             self.write_shm(method_name, *args)
+            return None
+
         method = getattr(self, method_name, None)
-        assert callable(method)
+        if not callable(method):
+            raise AttributeError(f"Method {method_name} not found or not callable")
+
         return method(*args)
 
     def allocate_kv_cache(self, gpu_memory_utilization):

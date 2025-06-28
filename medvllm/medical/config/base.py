@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
-from nanovllm.config import Config
+from medvllm.config import Config
 
 CONFIG_VERSION = "1.0.0"
 

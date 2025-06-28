@@ -9,13 +9,13 @@ import importlib.metadata
 import json
 import os
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, ClassVar, Dict, List, Optional, Type, TypeVar, Union, get_type_hints
 
-from nanovllm.config import Config
+from medvllm.config import Config
 from pydantic import ValidationError
 
 from .base import BaseMedicalConfig
@@ -103,7 +103,10 @@ class MedicalModelConfig(BaseMedicalConfig):
 
     # Model parameters
     model_type: str = "bert"  # Using standard BERT as default model type
-    model: Optional[str] = None  # Make model optional with default None
+    model: Optional[Union[str, os.PathLike]] = field(
+        default=None,
+        description="Path to the model directory or model identifier. Will be converted to string when used."
+    )
     pretrained_model_name_or_path: Optional[str] = None
     max_medical_seq_length: int = 512
 
@@ -646,82 +649,16 @@ class MedicalModelConfig(BaseMedicalConfig):
         ]
     )
 
-    # Clinical NLP specific
-    enable_uncertainty_estimation: bool = True
+    # Clinical NLP specific parameters
     uncertainty_threshold: float = 0.3
-
-    # API and request handling
     max_retries: int = 3
-    request_timeout: int = 30  # seconds
-
-    # Performance and optimization
-    batch_size: int = 32
-    enable_caching: bool = True
-    cache_ttl: int = 3600  # 1 hour in seconds
-    max_cache_size: int = 1000  # Max number of items in cache
-
-    # Advanced parameters
-    use_crf: bool = True
-    do_lower_case: bool = True
-    preserve_case_for_abbreviations: bool = True
+    request_timeout: int = 30
     domain_adaptation: bool = False
     domain_adaptation_lambda: float = 0.1
     domain_specific_vocab: Optional[Dict[str, List[str]]] = None
-
-    # Regulatory compliance
     regulatory_compliance: List[str] = field(
         default_factory=lambda: ["hipaa", "gdpr", "hl7", "fda_510k", "ce_mark"]
     )
-
-    # NER and entity linking
-    medical_entity_types: List[str] = field(
-        default_factory=lambda: [
-            "DISEASE",
-            "SYMPTOM",
-            "TREATMENT",
-            "MEDICATION",
-            "LAB_TEST",
-            "ANATOMY",
-            "PROCEDURE",
-            "FINDING",
-        ]
-    )
-    ner_confidence_threshold: float = 0.85
-    max_entity_span_length: int = 10
-    entity_linking_enabled: bool = False
-    entity_linking_knowledge_bases: List[str] = field(
-        default_factory=lambda: ["umls", "snomed_ct", "rxnorm", "loinc"]
-    )
-
-    # Document processing
-    document_types: List[str] = field(
-        default_factory=lambda: [
-            "clinical_notes",
-            "radiology_reports",
-            "discharge_summaries",
-        ]
-    )
-    section_headers: List[str] = field(
-        default_factory=lambda: [
-            "history",
-            "findings",
-            "impression",
-            "assessment",
-            "plan",
-            "medications",
-        ]
-    )
-
-    # Performance and optimization
-    batch_size: int = 32
-    enable_caching: bool = True
-    cache_ttl: int = 3600  # 1 hour in seconds
-    max_cache_size: int = 1000  # Max number of items in cache
-
-    # Advanced parameters
-    use_crf: bool = True
-    do_lower_case: bool = True
-    preserve_case_for_abbreviations: bool = True
     config_version: str = "0.1.0"
 
     def __post_init__(self):
@@ -762,7 +699,13 @@ class MedicalModelConfig(BaseMedicalConfig):
             raise ValueError("anatomical_regions must be a list or tuple")
 
         # Create model directory if it doesn't exist
-        os.makedirs(self.model, exist_ok=True)
+        if self.model is not None:
+            try:
+                model_path = str(self.model)  # Convert PathLike to string if needed
+                os.makedirs(model_path, exist_ok=True)
+                self.model = model_path  # Update with string path
+            except (TypeError, OSError) as e:
+                raise ValueError(f"Invalid model path '{self.model}': {str(e)}")
 
         # Check version compatibility
         ConfigVersionManager.check_version_compatibility(self.config_version)

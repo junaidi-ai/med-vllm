@@ -2,7 +2,8 @@ from collections import deque
 
 import numpy as np
 import xxhash
-from nanovllm.engine.sequence import Sequence
+
+from medvllm.engine.sequence import Sequence
 
 
 class Block:
@@ -53,11 +54,23 @@ class BlockManager:
         assert self.blocks[block_id].ref_count == 0
         self.used_block_ids.remove(block_id)
         self.free_block_ids.append(block_id)
+        return self.blocks[block_id]
 
     def can_allocate(self, seq: Sequence) -> bool:
         return len(self.free_block_ids) >= seq.num_blocks
 
-    def allocate(self, seq: Sequence):
+    def allocate(self, seq: Sequence) -> None:
+        """Allocate blocks for the sequence.
+
+        Args:
+            seq: The sequence to allocate blocks for.
+
+        Returns:
+            None: This method modifies the sequence in-place by updating its block table.
+
+        Raises:
+            AssertionError: If the sequence already has blocks allocated.
+        """
         assert not seq.block_table
         h = -1
         cache_miss = False
@@ -68,6 +81,7 @@ class BlockManager:
                 if len(token_ids) == self.block_size
                 else -1
             )
+
             block_id = self.hash_to_block_id.get(h, -1)
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
                 cache_miss = True

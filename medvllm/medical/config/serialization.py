@@ -2,12 +2,17 @@
 Serialization and deserialization utilities for medical model configurations.
 """
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Type, TypeVar, Union
 
 from .base import BaseMedicalConfig
+
+if TYPE_CHECKING:
+    from .medical_config import MedicalModelConfig
 
 T = TypeVar("T", bound="MedicalModelConfig")
 
@@ -95,35 +100,66 @@ class ConfigSerializer:
 
     @classmethod
     def from_dict(cls, config_class: Type[T], config_dict: Dict[str, Any]) -> T:
-        """Create a configuration from a dictionary."""
+        """Create a configuration from a dictionary with improved type handling.
+        
+        Args:
+            config_class: The configuration class to instantiate
+            config_dict: Dictionary containing configuration parameters
+            
+        Returns:
+            An instance of config_class initialized with the provided parameters
+            
+        Raises:
+            ValueError: If the configuration is invalid or missing required fields
+            TypeError: If there are type mismatches in the configuration
+        """
+        if not isinstance(config_dict, dict):
+            raise TypeError(f"Expected dict, got {type(config_dict).__name__}")
+            
         config_dict = config_dict.copy()
+        
+        # Handle config version with type checking
         config_version = config_dict.pop("config_version", "0.1.0")
+        if not isinstance(config_version, str):
+            raise TypeError(f"config_version must be a string, got {type(config_version).__name__}")
 
-        # Create config instance
-        config = config_class(**config_dict)
-
-        # Set version and migrate if needed
-        if config_version != config.config_version:
-            config.config_version = config_version
-            from .versioning import ConfigVersioner
-
-            ConfigVersioner.migrate_config(config)
-
-        return config
+        try:
+            # Create config instance with type checking
+            config = config_class(**config_dict)
+            
+            # Set version and migrate if needed
+            if hasattr(config, 'config_version') and config_version != config.config_version:
+                config.config_version = config_version
+                from .versioning import ConfigVersioner
+                ConfigVersioner.migrate_config(config)
+                
+            return config
+            
+        except TypeError as e:
+            # Improve error message for type errors
+            param = str(e).split("'")[1] if "unexpected keyword argument" in str(e) else ""
+            if param:
+                raise TypeError(f"Invalid type for parameter '{param}': {e}") from e
+            raise
+            
+        except Exception as e:
+            raise ValueError(f"Failed to create configuration: {str(e)}") from e
 
     @classmethod
     def from_json(
         cls, config_class: Type[T], json_input: Union[str, os.PathLike, Dict]
     ) -> T:
         """Create a configuration from a JSON string, file, or dictionary."""
+        config_dict: Dict[str, Any]
         if isinstance(json_input, dict):
             config_dict = json_input
         elif isinstance(json_input, (str, os.PathLike)):
-            if os.path.isfile(json_input):
-                with open(json_input, "r", encoding="utf-8") as f:
+            json_str = str(json_input)  # Convert PathLike to string
+            if os.path.isfile(json_str):
+                with open(json_str, "r", encoding="utf-8") as f:
                     config_dict = json.load(f)
             else:
-                config_dict = json.loads(json_input)
+                config_dict = json.loads(json_str)
         else:
             raise TypeError("Input must be a JSON string, file path, or dictionary")
 

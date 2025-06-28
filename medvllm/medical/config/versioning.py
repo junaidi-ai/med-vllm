@@ -1,14 +1,20 @@
 """
-Versioning and migration utilities for medical model configurations.
+Versioning utilities for medical model configurations.
 
-This module handles version checking and migration of configuration files.
+This module handles versioning and migration of medical model configurations.
 """
 
-from typing import Any, Dict, Optional, Type, TypeVar
+from __future__ import annotations
 
-from .base import BaseMedicalConfig
+import json
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, TypeVar, Union
+
+if TYPE_CHECKING:
+    from .medical_config import MedicalModelConfig
 
 T = TypeVar("T", bound="MedicalModelConfig")
+
+from .base import BaseMedicalConfig
 
 
 class ConfigVersioner:

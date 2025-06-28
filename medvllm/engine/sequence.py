@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from copy import copy
 from enum import Enum, auto
 from itertools import count
+from typing import List
 
-from nanovllm.sampling_params import SamplingParams
+from medvllm.sampling_params import SamplingParams
 
 
 class SequenceStatus(Enum):
@@ -23,7 +26,7 @@ class Sequence:
         self.num_tokens = len(self.token_ids)
         self.num_prompt_tokens = len(token_ids)
         self.num_cached_tokens = 0
-        self.block_table = []
+        self.block_table: List[int] = []
         self.temperature = sampling_params.temperature
         self.max_tokens = sampling_params.max_tokens
         self.ignore_eos = sampling_params.ignore_eos

@@ -99,9 +99,17 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
         super().__init__(input_size, sum(output_sizes), bias=bias)
 
     def weight_loader(
-        self, param: nn.Parameter, loaded_weight: torch.Tensor, loaded_shard_id: int
-    ):
+        self,
+        param: nn.Parameter,
+        loaded_weight: torch.Tensor,
+        loaded_shard_id: int | None = None,
+    ) -> None:
         param_data = param.data
+        if loaded_shard_id is None:
+            # Handle the case when called from parent class
+            param_data.copy_(loaded_weight)
+            return
+
         shard_offset = sum(self.output_sizes[:loaded_shard_id]) // self.tp_size
         shard_size = self.output_sizes[loaded_shard_id] // self.tp_size
         param_data = param_data.narrow(self.tp_dim, shard_offset, shard_size)
@@ -133,9 +141,17 @@ class QKVParallelLinear(ColumnParallelLinear):
         super().__init__(input_size, output_size, bias)
 
     def weight_loader(
-        self, param: nn.Parameter, loaded_weight: torch.Tensor, loaded_shard_id: str
-    ):
+        self,
+        param: nn.Parameter,
+        loaded_weight: torch.Tensor,
+        loaded_shard_id: str | None = None,
+    ) -> None:
         param_data = param.data
+        if loaded_shard_id is None:
+            # Handle the case when called from parent class
+            param_data.copy_(loaded_weight)
+            return
+
         assert loaded_shard_id in ["q", "k", "v"]
         if loaded_shard_id == "q":
             shard_size = self.num_heads * self.head_size

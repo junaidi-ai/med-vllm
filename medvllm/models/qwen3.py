@@ -1,15 +1,15 @@
 import torch
 import torch.distributed as dist
-from nanovllm.layers.activation import SiluAndMul
-from nanovllm.layers.attention import Attention
-from nanovllm.layers.embed_head import ParallelLMHead, VocabParallelEmbedding
-from nanovllm.layers.layernorm import RMSNorm
-from nanovllm.layers.linear import (
+from medvllm.layers.activation import SiluAndMul
+from medvllm.layers.attention import Attention
+from medvllm.layers.embed_head import ParallelLMHead, VocabParallelEmbedding
+from medvllm.layers.layernorm import RMSNorm
+from medvllm.layers.linear import (
     MergedColumnParallelLinear,
     QKVParallelLinear,
     RowParallelLinear,
 )
-from nanovllm.layers.rotary_embedding import get_rope
+from medvllm.layers.rotary_embedding import get_rope
 from torch import nn
 from transformers import Qwen3Config
 
