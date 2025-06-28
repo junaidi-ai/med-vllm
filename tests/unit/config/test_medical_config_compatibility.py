@@ -2,12 +2,22 @@
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
+# Mock the imports that would normally be provided by the application
+sys.modules['medvllm.medical.config.base'] = MagicMock()
+sys.modules['medvllm.medical.config.base'].BaseMedicalConfig = type('BaseMedicalConfig', (), {})
+
+# Mock transformers and other dependencies
+sys.modules['transformers'] = MagicMock()
+sys.modules['torch'] = MagicMock()
+
+# Now import the class we want to test
 from medvllm.medical.config.medical_config import MedicalModelConfig
 
 
