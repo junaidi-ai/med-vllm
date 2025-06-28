@@ -1,13 +1,17 @@
 """Mock implementation of flash_attn for testing purposes."""
 
+from typing import Any, Optional
+
 
 class MockFlashAttn:
     @staticmethod
-    def flash_attn_varlen_func(*args, **kwargs):
+    def flash_attn_varlen_func(*args: Any, **kwargs: Any) -> None:
+        """Mock implementation of flash_attn_varlen_func."""
         return None
 
     @staticmethod
-    def flash_attn_with_kvcache(*args, **kwargs):
+    def flash_attn_with_kvcache(*args: Any, **kwargs: Any) -> None:
+        """Mock implementation of flash_attn_with_kvcache."""
         return None
 
 
