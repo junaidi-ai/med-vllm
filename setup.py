@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="med-vllm",
@@ -11,17 +11,17 @@ setup(
         "xxhash",
     ],
     extras_require={
-        'all': [
-            'flash-attn',
+        "all": [
+            "flash-attn",
         ],
-        'test': [
-            'pytest>=7.0.0',
-            'pytest-cov>=3.0.0',
-            'black>=22.0.0',
-            'isort>=5.10.0',
-            'mypy>=0.990',
-            'flake8>=5.0.0',
+        "test": [
+            "pytest>=7.0.0",
+            "pytest-cov>=3.0.0",
+            "black>=22.0.0",
+            "isort>=5.10.0",
+            "mypy>=0.990",
+            "flake8>=5.0.0",
         ],
     },
-    python_requires='>=3.10,<3.13',
+    python_requires=">=3.10,<3.13",
 )

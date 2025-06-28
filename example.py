@@ -1,4 +1,5 @@
 import os
+
 from nanovllm import LLM, SamplingParams
 from transformers import AutoTokenizer
 
@@ -18,7 +19,7 @@ def main():
             [{"role": "user", "content": prompt}],
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=True
+            enable_thinking=True,
         )
         for prompt in prompts
     ]

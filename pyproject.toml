@@ -3,13 +3,13 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nano-vllm"
-version = "0.2.0"
-authors = [{ name = "Xingkai Yu" }]
+name = "med-vllm"
+version = "0.1.0"
+authors = [{ name = "Kresna Sucandra" }]
 license = "MIT"
 license-files = ["LICENSE"]
 readme = "README.md"
-description = "a lightweight vLLM implementation built from scratch"
+description = "a Nano vLLM fine-tuned for medical applications"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "torch>=2.4.0",
@@ -23,14 +23,32 @@ all = ["flash-attn"]
 test = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
-    "black>=22.0.0",
-    "isort>=5.10.0",
-    "mypy>=0.990",
-    "flake8>=5.0.0",
+]
+dev = [
+    "black>=24.3.0",
+    "isort>=5.13.2",
+    "pylint>=3.1.0",
+    "mypy>=1.11.1",
+    "bandit>=1.7.7",
+    "safety>=2.3.5",
+    "pre-commit>=3.0.0",
+    "types-requests",
+    "types-pyyaml",
+    "types-python-dateutil",
 ]
 
 [project.urls]
-Homepage="https://github.com/GeeeekExplorer/nano-vllm"
+Homepage="https://github.com/SHA888/med-vllm"
 
 [tool.setuptools]
-packages = ["nanovllm"]
+packages = ["medvllm"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+check_untyped_defs = true
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
