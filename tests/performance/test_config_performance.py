@@ -17,40 +17,59 @@ from medvllm.medical.config import MedicalModelConfig
 
 # Sample configuration data for performance testing
 SAMPLE_CONFIG = {
-    "model_type": "medical_llm",
-    "model_name_or_path": "medical-bert-base",
-    "vocab_size": 30522,
-    "hidden_size": 768,
-    "num_hidden_layers": 12,
-    "num_attention_heads": 12,
-    "intermediate_size": 3072,
-    "hidden_dropout_prob": 0.1,
-    "attention_probs_dropout_prob": 0.1,
-    "max_position_embeddings": 512,
-    "type_vocab_size": 2,
-    "initializer_range": 0.02,
-    "layer_norm_eps": 1e-12,
-    "pad_token_id": 0,
-    "position_embedding_type": "absolute",
-    "use_cache": True,
-    "classifier_dropout": 0.1,
-    "medical_specialties": ["cardiology", "radiology"],
+    "model": "medical-bert-base",  # Required field
+    "model_type": "bert",  # Must be one of the supported model types
+    "pretrained_model_name_or_path": "medical-bert-base",
+    "max_medical_seq_length": 512,
+    "batch_size": 32,
+    "enable_uncertainty_estimation": False,
+    "uncertainty_threshold": 0.5,
+    "cache_ttl": 3600,
+    "medical_specialties": ["cardiology", "radiology", "neurology"],
     "anatomical_regions": ["head", "chest"],
-    "max_sequence_length": 512,
+    "imaging_modalities": ["xray", "mri"],
+    "medical_entity_types": ["DISEASE", "SYMPTOM", "MEDICATION"],
+    "ner_confidence_threshold": 0.8,
+    "max_entity_span_length": 10,
+    "entity_linking": {
+        "enabled": False,
+        "knowledge_bases": ["umls", "snomed"],
+        "confidence_threshold": 0.8
+    },
+    "document_types": ["clinical_notes", "radiology_reports"],
+    "section_headers": ["history", "examination", "assessment"],
+    "max_retries": 3,
+    "request_timeout": 30,
+    "domain_adaptation": False,
+    "domain_adaptation_lambda": 0.1,
+    "domain_specific_vocab": None,
+    "regulatory_compliance": ["hipaa", "gdpr"],
+    "config_version": "1.0.0"
 }
 
 # Large configuration for stress testing
+# Using only valid enum values for enums, and realistic values for other fields
 LARGE_CONFIG = {
     **SAMPLE_CONFIG,
-    "model_name_or_path": "large-medical-model",
-    "hidden_size": 4096,
-    "num_hidden_layers": 48,
-    "num_attention_heads": 64,
-    "intermediate_size": 16384,
-    "medical_specialties": [f"specialty_{i}" for i in range(50)],
-    "anatomical_regions": [f"region_{i}" for i in range(100)],
-    "additional_config": {
-        f"key_{i}": f"value_{i}" for i in range(1000)
+    "model": "large-medical-model",
+    "pretrained_model_name_or_path": "large-medical-model",
+    "max_medical_seq_length": 1024,
+    "batch_size": 64,
+    "medical_specialties": ["cardiology", "radiology", "neurology", "oncology", "pediatrics"],
+    "anatomical_regions": ["head", "chest", "abdomen", "pelvis", "upper_limb"],
+    "imaging_modalities": ["xray", "ct", "mri", "ultrasound", "pet"],
+    "medical_entity_types": ["DISEASE", "SYMPTOM", "MEDICATION", "TREATMENT", "LAB_TEST", "ANATOMY"],
+    "document_types": ["clinical_notes", "radiology_reports", "discharge_summaries", "progress_notes"],
+    "section_headers": ["history", "examination", "assessment", "plan", "medications"],
+    "entity_linking": {
+        "enabled": True,
+        "knowledge_bases": ["umls", "snomed", "icd10", "rxnorm"],
+        "confidence_threshold": 0.8
+    },
+    "domain_specific_vocab": {
+        "cardiology": ["echocardiogram", "stent", "angioplasty", "tachycardia", "myocardial"],
+        "oncology": ["chemotherapy", "biopsy", "metastasis", "carcinoma", "malignancy"],
+        "neurology": ["migraine", "seizure", "neuropathy", "cerebral", "cognitive"]
     }
 }
 
@@ -137,30 +156,37 @@ class TestConfigPerformance:
     def test_config_to_json(self, benchmark) -> None:
         """Benchmark conversion to JSON string."""
         config = MedicalModelConfig(**SAMPLE_CONFIG)
-        benchmark(config.to_json_string)
+        benchmark(config.to_json)
     
     @pytest.mark.performance
     def test_config_to_json_large(self, benchmark) -> None:
         """Benchmark conversion of large config to JSON string."""
         config = MedicalModelConfig(**LARGE_CONFIG)
-        benchmark(config.to_json_string)
+        benchmark(config.to_json)
 
 
 @pytest.fixture(scope="module")
-def large_config_file() -> Path:
-    """Create a temporary file with a large configuration for testing."""
+def large_config_file(tmp_path_factory) -> Path:
+    """Create a temporary directory with a large configuration for testing."""
+    # Create a temporary directory
+    temp_dir = tmp_path_factory.mktemp("large_config")
+    
+    # Create a config with the large configuration
     config = MedicalModelConfig(**LARGE_CONFIG)
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        f.write(config.to_json_string())
-    return Path(f.name)
+    
+    # Save the config to the temporary directory
+    config_path = temp_dir / "config.json"
+    config.to_json(config_path)
+    
+    return config_path
 
 
 def test_config_loading_from_large_file(benchmark, large_config_file: Path) -> None:
-    """Benchmark loading configuration from a large file."""
+    """Benchmark loading configuration from a large config file."""
     def load_config() -> None:
-        MedicalModelConfig.from_pretrained(large_config_file.parent)
+        # Load the config from the file using from_dict
+        with open(large_config_file, "r") as f:
+            config_dict = json.load(f)
+        MedicalModelConfig.from_dict(config_dict)
     
     benchmark(load_config)
-    
-    # Cleanup
-    large_config_file.unlink()

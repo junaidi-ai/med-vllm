@@ -24,11 +24,27 @@ class MedicalConfigValidator:
             value: The value to validate
             
         Raises:
-            FieldValueError: If the value is not between 1 and 8
+            FieldValueError: If the value is not between 1 and 8 or is not an integer
         """
-        if not (1 <= value <= 8):
+        if value is None:
             raise FieldValueError(
-                "tensor_parallel_size must be between 1 and 8",
+                "must be between 1 and 8",
+                field="tensor_parallel_size",
+                value=value
+            )
+            
+        try:
+            int_value = int(value)
+        except (TypeError, ValueError):
+            raise FieldValueError(
+                "must be between 1 and 8",
+                field="tensor_parallel_size",
+                value=value
+            )
+            
+        if not (1 <= int_value <= 8):
+            raise FieldValueError(
+                "must be between 1 and 8",
                 field="tensor_parallel_size",
                 value=value
             )
@@ -43,13 +59,25 @@ class MedicalConfigValidator:
         Raises:
             ValidationError: If entity linking is enabled but no knowledge bases are specified
         """
-        if config.entity_linking.get(
-            "enabled", False
-        ) and not config.entity_linking.get("knowledge_bases"):
+        # If entity_linking is None or not present, it's valid
+        if not hasattr(config, 'entity_linking') or config.entity_linking is None:
+            return
+            
+        # If entity_linking is present but not a dictionary, it's invalid
+        if not isinstance(config.entity_linking, dict):
             raise ValidationError(
-                "Entity linking is enabled but no knowledge bases are specified",
-                field="entity_linking.knowledge_bases"
+                "Entity linking configuration must be a dictionary",
+                field="entity_linking"
             )
+            
+        # Check if entity linking is enabled and has knowledge bases
+        if config.entity_linking.get("enabled", False):
+            knowledge_bases = config.entity_linking.get("knowledge_bases")
+            if not knowledge_bases or not isinstance(knowledge_bases, list) or not knowledge_bases:
+                raise ValidationError(
+                    "Entity linking is enabled but no knowledge bases are specified",
+                    field="entity_linking.knowledge_bases"
+                )
 
     @classmethod
     def validate_medical_parameters(cls, config: "BaseMedicalConfig") -> None:
