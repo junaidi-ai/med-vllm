@@ -1,5 +1,5 @@
 """
-Medical configuration module.
+Medical model configuration module.
 
 This package provides configuration management for medical models, including:
 - MedicalModelConfig: Main configuration class
@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Type, TypeVar, Union
 # Re-export base configuration
 from .base import BaseMedicalConfig
 
-# Re-export constants
+# Import from constants
 from .constants import (
     CONFIG_VERSION,
     DEFAULT_ANATOMICAL_REGIONS,
@@ -35,53 +35,45 @@ from .constants import (
     SUPPORTED_MODEL_TYPES,
 )
 
-# Re-export main configuration class
+# Import main configuration class
 from .medical_config import MedicalModelConfig
 
-# Re-export serialization
-from .serialization import ConfigSerializer
+# Import serialization
+from .serialization import ConfigSerializer, JSONSerializer, YAMLSerializer
 
-# Re-export types and enums
-from .types import (
+# Import enums from types_
+from .types_ import (
     AnatomicalRegion,
-    ClinicalMetrics,
     DocumentType,
-    DomainConfig,
-    EntityLinkingConfig,
     EntityType,
     ImagingModality,
     MedicalSpecialty,
-    MetricConfig,
-    ModelConfig,
     RegulatoryStandard,
 )
 
-# Re-export validation
+# Import validation
 from .validation import MedicalConfigValidator
 
-# Re-export versioning utilities
-from .versioning import ConfigVersioner, ConfigVersionInfo, ConfigVersionStatus
+# Import versioning utilities
+from .versioning.config_versioner import (
+    ConfigVersioner,
+    ConfigVersionInfo,
+    ConfigVersionStatus,
+)
 
 # Define public API
 __all__ = [
-    # Main configuration class
+    # Main configuration classes
     "MedicalModelConfig",
-    # Base classes
     "BaseMedicalConfig",
-    "ModelConfig",
     # Enums
     "AnatomicalRegion",
     "DocumentType",
-    "EntityType",
     "ImagingModality",
     "MedicalSpecialty",
     "RegulatoryStandard",
+    "EntityType",
     "ConfigVersionStatus",
-    # Type definitions
-    "ClinicalMetrics",
-    "DomainConfig",
-    "EntityLinkingConfig",
-    "MetricConfig",
     # Constants
     "CONFIG_VERSION",
     "DEFAULT_ANATOMICAL_REGIONS",
@@ -103,7 +95,10 @@ __all__ = [
     "SUPPORTED_MODEL_TYPES",
     # Utilities
     "ConfigSerializer",
+    "JSONSerializer",
+    "YAMLSerializer",
+    "ConfigValidator",
+    "MedicalConfigValidator",
     "ConfigVersioner",
     "ConfigVersionInfo",
-    "MedicalConfigValidator",
 ]

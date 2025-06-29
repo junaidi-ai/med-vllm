@@ -65,7 +65,7 @@ from .constants import (
 )
 from .schema import MedicalModelConfigSchema, ModelType
 from .serialization import ConfigSerializer
-from .types import (
+from .types_ import (
     AnatomicalRegion,
     ClinicalMetrics,
     DocumentType,
@@ -236,7 +236,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     )
 
     # Medical domain configuration
-    medical_specialties: List[MedicalSpecialty] = field(
+    medical_specialties: List[Union[MedicalSpecialty, str]] = field(
         default_factory=lambda: list(DEFAULT_MEDICAL_SPECIALTIES),
         metadata={
             "description": "List of medical specialties this model is trained on",
@@ -244,7 +244,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         },
     )
 
-    anatomical_regions: List[AnatomicalRegion] = field(
+    anatomical_regions: List[Union[AnatomicalRegion, str]] = field(
         default_factory=lambda: list(DEFAULT_ANATOMICAL_REGIONS),
         metadata={
             "description": "List of anatomical regions this model can process",
@@ -252,7 +252,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         },
     )
 
-    imaging_modalities: List[ImagingModality] = field(
+    imaging_modalities: List[Union[ImagingModality, str]] = field(
         default_factory=lambda: list(DEFAULT_IMAGING_MODALITIES),
         metadata={
             "description": "List of medical imaging modalities supported by the model",
@@ -261,7 +261,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     )
 
     # Clinical and entity recognition
-    medical_entity_types: List[EntityType] = field(
+    medical_entity_types: List[Union[EntityType, str]] = field(
         default_factory=lambda: list(DEFAULT_ENTITY_TYPES),
         metadata={"description": "Types of medical entities to recognize"},
     )
@@ -276,7 +276,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         metadata={"description": "Maximum token length for entity spans"},
     )
 
-    entity_linking: EntityLinkingConfig = field(
+    entity_linking: Dict[str, Any] = field(
         default_factory=lambda: {
             "enabled": False,
             "knowledge_bases": list(DEFAULT_KNOWLEDGE_BASES),
@@ -286,7 +286,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     )
 
     # Document processing
-    document_types: List[DocumentType] = field(
+    document_types: List[Union[DocumentType, str]] = field(
         default_factory=lambda: list(DEFAULT_DOCUMENT_TYPES),
         metadata={"description": "Types of clinical documents supported"},
     )
@@ -321,7 +321,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     )
 
     # Compliance and versioning
-    regulatory_compliance: List[RegulatoryStandard] = field(
+    regulatory_compliance: List[Union[RegulatoryStandard, str]] = field(
         default_factory=lambda: list(DEFAULT_REGULATORY_STANDARDS),
         metadata={"description": "Regulatory standards the model complies with"},
     )
@@ -334,7 +334,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         },
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Post-initialization validation and setup.
 
         This method performs several important tasks after the configuration is initialized:
@@ -343,23 +343,25 @@ class MedicalModelConfig(BaseMedicalConfig):
         3. Initializes version compatibility checks
         4. Performs any necessary type conversions
         """
-        # Call parent class initialization first
-        super().__post_init__()
+        # Set up version compatibility
+        self._setup_version_compatibility()
+
+        # Convert string values to proper enum types if needed
+        self._convert_enums()
+
+        # Initialize any dependent configuration objects
+        self._initialize_dependent_configs()
 
         # Set default pretrained paths if not specified
         self._set_default_pretrained_paths()
 
-        # Convert string enums to proper enum types if needed
-        self._convert_enums()
-
-        # Validate configuration parameters
+        # Run validation
         self._validate_medical_parameters()
 
-        # Set up version compatibility
-        self._setup_version_compatibility()
-
-        # Initialize any dependent configurations
-        self._initialize_dependent_configs()
+    def _setup_version_compatibility(self) -> None:
+        """Set up version compatibility checks and migrations."""
+        # This method is intentionally left empty as a placeholder for future version compatibility logic
+        pass
 
     def _convert_enums(self) -> None:
         """Convert string values to proper enum types if needed.
@@ -682,228 +684,10 @@ class MedicalModelConfig(BaseMedicalConfig):
             config._validate_medical_parameters()
 
             return config
-
         except Exception as e:
             raise ValueError(
                 f"Error loading configuration for model '{model_name_or_path}'. "
                 f"Original error: {str(e)}"
-            ) from e
-
-    @classmethod
-    def _convert_dict_values(
-        cls,
-        config_dict: Dict[str, Any],
-        field_type: Optional[Type] = None,
-        field_name: str = "",
-    ) -> Any:
-        """Recursively convert dictionary values to appropriate types.
-
-        Args:
-            config_dict: The dictionary to convert values in
-            field_type: The expected type of the field (if known)
-            field_name: Name of the field being processed (for error messages)
-
-        Returns:
-            The converted dictionary with proper types
-        """
-        if not isinstance(config_dict, dict):
-            return config_dict
-
-        result = {}
-        for key, value in config_dict.items():
-            # Skip private fields
-            if key.startswith("_"):
-                continue
-
-            # Get field type if available
-            field = None
-            if hasattr(cls, "__annotations__") and key in cls.__annotations__:
-                field_type = cls.__annotations__[key]
-
-                # Handle Optional[Type] and Union[Type, None]
-                if hasattr(field_type, "__origin__"):
-                    if field_type.__origin__ is Union:
-                        # Get the non-None type if it's Optional[Type]
-                        non_none_types = [
-                            t for t in field_type.__args__ if t is not type(None)
-                        ]
-                        if non_none_types:
-                            field_type = non_none_types[0]
-
-            # Convert based on type
-            if value is None:
-                result[key] = None
-
-            # Handle nested dictionaries
-            elif isinstance(value, dict):
-                result[key] = cls._convert_dict_values(value, field_type, key)
-
-            # Handle lists
-            elif isinstance(value, (list, tuple)):
-                if not value:
-                    result[key] = list(value)
-                    continue
-
-                # Check if it's a list of enums
-                if (
-                    field_type
-                    and hasattr(field_type, "__origin__")
-                    and field_type.__origin__ is list
-                ):
-                    item_type = field_type.__args__[0] if field_type.__args__ else None
-                    if item_type and issubclass(item_type, Enum):
-                        try:
-                            result[key] = [
-                                item_type(val) if isinstance(val, str) else val
-                                for val in value
-                            ]
-                            continue
-                        except ValueError as e:
-                            raise ValueError(
-                                f"Invalid value for {field_name}.{key}: {str(e)}"
-                            ) from e
-
-                # Handle lists of dictionaries
-                if all(isinstance(v, dict) for v in value):
-                    result[key] = [
-                        cls._convert_dict_values(v, field_type, f"{key}[{i}]")
-                        for i, v in enumerate(value)
-                    ]
-                else:
-                    result[key] = list(value)
-
-            # Convert string values to enums
-            elif field_type and issubclass(field_type, Enum) and isinstance(value, str):
-                try:
-                    result[key] = field_type(value)
-                except ValueError as e:
-                    raise ValueError(
-                        f"Invalid {key}: '{value}'. Must be one of: {', '.join(e.value for e in field_type)}"
-                    ) from e
-
-            # Handle other types
-            else:
-                result[key] = value
-
-        return result
-
-    @classmethod
-    def from_dict(
-        cls: Type["MedicalModelConfig"], config_dict: Dict[str, Any], **kwargs: Any
-    ) -> "MedicalModelConfig":
-        """Create a configuration from a dictionary.
-
-        This method creates a new configuration instance from a dictionary of parameters.
-        It handles conversion of string values to appropriate enum types and nested
-        configuration objects.
-
-        Args:
-            config_dict: Dictionary containing configuration parameters
-            **kwargs: Additional keyword arguments to override config values
-
-        Returns:
-            MedicalModelConfig: A new instance of MedicalModelConfig
-
-        Raises:
-            ValueError: If the configuration dictionary is invalid or missing required fields
-            TypeError: If config_dict is not a dictionary
-
-        Example:
-            ```python
-            config_dict = {
-                "model_type": "bert",
-                "max_medical_seq_length": 512,
-                "medical_specialties": ["cardiology", "neurology"],
-                "entity_linking": {
-                    "enabled": True,
-                    "knowledge_bases": ["umls", "snomed_ct"]
-                }
-            }
-            config = MedicalModelConfig.from_dict(config_dict)
-            ```
-        """
-        if not isinstance(config_dict, dict):
-            raise TypeError(
-                f"config_dict must be a dictionary, got {type(config_dict).__name__}"
-            )
-
-        try:
-            # Create a deep copy to avoid modifying the input
-            config_data = dict(config_dict)
-
-            # Update with any additional kwargs
-            config_data.update(kwargs)
-
-            # Convert string values to appropriate types
-            config_data = cls._convert_dict_values(config_data)
-
-            # Create the config instance
-            config = cls(**config_data)
-
-            # Run validation
-            config._validate_medical_parameters()
-
-            return config
-
-        except Exception as e:
-            raise ValueError(
-                f"Failed to create configuration from dictionary: {str(e)}"
-            ) from e
-
-    @classmethod
-    def from_json(
-        cls: Type["MedicalModelConfig"],
-        json_input: Union[str, bytes, os.PathLike],
-        **kwargs: Any,
-    ) -> "MedicalModelConfig":
-        """Create a configuration from a JSON file or string.
-
-        This method loads a configuration from a JSON string or file. The JSON should
-        contain key-value pairs that match the configuration parameters.
-
-        Args:
-            json_input: JSON string, bytes, or path to a JSON file
-            **kwargs: Additional keyword arguments to override config values
-
-        Returns:
-            MedicalModelConfig: A new instance of MedicalModelConfig
-
-        Raises:
-            ValueError: If the JSON is invalid or missing required fields
-            TypeError: If json_input is not a string, bytes, or PathLike
-
-        Example:
-            ```python
-            # From JSON string
-            config = MedicalModelConfig.from_json('{"model_type": "bert", "max_medical_seq_length": 512}')
-
-            # From file
-            config = MedicalModelConfig.from_json("path/to/config.json")
-            ```
-        """
-        if not isinstance(json_input, (str, bytes, os.PathLike)):
-            raise TypeError(
-                f"json_input must be a string, bytes, or os.PathLike, got {type(json_input).__name__}"
-            )
-
-        try:
-            # Try to load as file first
-            if isinstance(json_input, (str, os.PathLike)) and os.path.isfile(
-                json_input
-            ):
-                with open(json_input, "r", encoding="utf-8") as f:
-                    config_dict = json.load(f)
-            else:
-                # Try to parse as JSON string/bytes
-                config_dict = json.loads(json_input)
-
-            return cls.from_dict(config_dict, **kwargs)
-
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON: {str(e)}")
-        except Exception as e:
-            raise ValueError(
-                f"Failed to load configuration from JSON. Error: {str(e)}"
             ) from e
 
     @classmethod
@@ -927,55 +711,43 @@ class MedicalModelConfig(BaseMedicalConfig):
         Raises:
             ImportError: If PyYAML is not installed
             ValueError: If the YAML is invalid or missing required fields
-
-        Example:
-            ```python
-            # From YAML string
-            yaml_str = '''
-            model_type: bert
-            max_medical_seq_length: 512
-            medical_specialties:
-              - cardiology
-              - neurology
-            '''
-            config = MedicalModelConfig.from_yaml(yaml_str)
-
-            # From file
-            config = MedicalModelConfig.from_yaml("path/to/config.yaml")
-            ```
         """
         try:
             import yaml
-        except ImportError:
+            from yaml import safe_load
+        except ImportError as e:
             raise ImportError(
-                "PyYAML is required to load YAML configurations. "
-                "Install it with: pip install pyyaml"
-            )
-
-        if not isinstance(yaml_input, (str, bytes, os.PathLike)):
-            raise TypeError(
-                f"yaml_input must be a string, bytes, or os.PathLike, got {type(yaml_input).__name__}"
-            )
+                "PyYAML is required to load YAML configuration. "
+                "Please install it with: pip install pyyaml"
+            ) from e
 
         try:
-            # Try to load as file first
-            if isinstance(yaml_input, (str, os.PathLike)) and os.path.isfile(
-                yaml_input
+            if isinstance(yaml_input, (str, bytes)) and any(
+                prefix.encode("utf-8") if isinstance(yaml_input, bytes) else prefix
+                for prefix in [
+                    b"---" if isinstance(yaml_input, bytes) else "---",
+                    b"{" if isinstance(yaml_input, bytes) else "{",
+                    b"[" if isinstance(yaml_input, bytes) else "[",
+                ]
+                if (yaml_input.strip().startswith(prefix))
             ):
-                with open(yaml_input, "r", encoding="utf-8") as f:
-                    config_dict = yaml.safe_load(f)
+                # Input is a YAML string
+                config_dict = safe_load(yaml_input)
             else:
-                # Try to parse as YAML string/bytes
-                config_dict = yaml.safe_load(yaml_input)
+                # Input is a file path
+                with open(yaml_input, "r") as f:
+                    config_dict = safe_load(f)
 
-            return cls.from_dict(config_dict, **kwargs)
+            # Update with any overrides
+            if kwargs:
+                config_dict.update(kwargs)
+
+            return cls.from_dict(config_dict)
 
         except yaml.YAMLError as e:
             raise ValueError(f"Invalid YAML: {str(e)}")
-        except Exception as e:
-            raise ValueError(
-                f"Failed to load configuration from YAML. Error: {str(e)}"
-            ) from e
+        except (IOError, OSError) as e:
+            raise ValueError(f"Error reading YAML file: {str(e)}")
 
     def _convert_to_serializable(self, value: Any, serialize_enums: bool = True) -> Any:
         """Recursively convert a value to a serializable format.
@@ -987,39 +759,22 @@ class MedicalModelConfig(BaseMedicalConfig):
         Returns:
             The value in a serializable format
         """
-        if value is None:
-            return None
-
-        # Handle enums
-        if isinstance(value, Enum) and serialize_enums:
-            return value.value
-
-        # Handle lists and tuples
-        if isinstance(value, (list, tuple)):
-            return [self._convert_to_serializable(v, serialize_enums) for v in value]
-
-        # Handle dictionaries
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
         if isinstance(value, dict):
             return {
-                k: self._convert_to_serializable(v, serialize_enums)
+                str(k): self._convert_to_serializable(v, serialize_enums)
                 for k, v in value.items()
             }
-
-        # Handle dataclasses
-        if dataclasses.is_dataclass(value) and not isinstance(value, type):
-            return {
-                f.name: self._convert_to_serializable(
-                    getattr(value, f.name), serialize_enums
-                )
-                for f in dataclasses.fields(value)
-                if not f.name.startswith("_")
-            }
-
-        # Handle other types that might have a to_dict method
-        if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+        if isinstance(value, (list, tuple, set)):
+            return [self._convert_to_serializable(v, serialize_enums) for v in value]
+        if hasattr(value, "to_dict"):
             return value.to_dict()
-
-        return value
+        if isinstance(value, Enum) and serialize_enums:
+            return value.value if hasattr(value, "value") else str(value)
+        if hasattr(value, "__dict__"):
+            return self._convert_to_serializable(value.__dict__, serialize_enums)
+        return str(value)
 
     def to_dict(self, serialize_enums: bool = True) -> Dict[str, Any]:
         """Convert the configuration to a dictionary.
@@ -1029,18 +784,10 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         Args:
             serialize_enums: If True, convert enums to their string representations.
-
         Returns:
             Dict containing the configuration parameters in a serializable format.
-
-        Example:
-            ```python
-            config = MedicalModelConfig()
-            config_dict = config.to_dict()
-            ```
         """
-        # Use the helper method to convert the entire object to a serializable dict
-        return self._convert_to_serializable(dataclasses.asdict(self), serialize_enums)
+        return self._convert_to_serializable(self.__dict__, serialize_enums)
 
     def to_json(
         self, file_path: Optional[Union[str, os.PathLike]] = None, **kwargs: Any
@@ -1084,6 +831,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         """
         try:
             import yaml
+            from yaml import SafeDumper
         except ImportError as e:
             raise ImportError(
                 "PyYAML is required to export YAML. Install it with: pip install pyyaml"
@@ -1104,9 +852,114 @@ class MedicalModelConfig(BaseMedicalConfig):
         try:
             if file_path is not None:
                 with open(file_path, "w", encoding="utf-8") as f:
-                    yaml.dump(config_dict, f, **yaml_kwargs)
+                    yaml.dump(config_dict, f, Dumper=SafeDumper, **yaml_kwargs)
                 return None
-            return yaml.dump(config_dict, **yaml_kwargs)
+            return yaml.dump(config_dict, Dumper=SafeDumper, **yaml_kwargs)
         except Exception as e:
             error_msg = f"Failed to {'save' if file_path else 'serialize'} configuration to YAML"
             raise ValueError(f"{error_msg}. Error: {str(e)}") from e
+
+
+    @classmethod
+    def _convert_dict_values(
+        cls,
+        config_dict: Dict[str, Any],
+        field_type: Optional[Type] = None,
+        field_name: str = "",
+    ) -> Dict[str, Any]:
+        """Recursively convert dictionary values to appropriate types.
+
+        Args:
+            config_dict: The dictionary to convert values in
+            field_type: The expected type of the field (if known)
+            field_name: Name of the field being processed (for error messages)
+
+        Returns:
+            The converted dictionary with proper types
+        """
+        if not isinstance(config_dict, dict):
+            return config_dict
+
+        result: Dict[str, Any] = {}
+        for key, value in config_dict.items():
+            if value is None:
+                result[key] = None
+                continue
+
+            # Get the field type from the class annotations if not provided
+            current_field_type = field_type
+            if hasattr(cls, "__annotations__") and key in cls.__annotations__:
+                current_field_type = cls.__annotations__[key]
+
+            # Handle different types of values
+            if isinstance(value, dict):
+                result[key] = cls._convert_dict_values(value, current_field_type, key)
+            elif isinstance(value, list):
+                item_type = None
+                if (
+                    current_field_type
+                    and hasattr(current_field_type, "__args__")
+                    and current_field_type.__args__
+                ):
+                    item_type = current_field_type.__args__[0]
+
+                result[key] = [
+                    cls._convert_dict_values(
+                        v if isinstance(v, dict) else {"value": v},
+                        item_type,
+                        f"{key}[{i}]",
+                    ).get(
+                        "value", v
+                    )  # Extract the value if we wrapped it
+                    for i, v in enumerate(value)
+                ]
+            elif isinstance(value, str):
+                # Try to convert string to appropriate enum type
+                try:
+                    if (
+                        current_field_type
+                        and hasattr(current_field_type, "__origin__")
+                        and current_field_type.__origin__ == list
+                    ):
+                        item_type = (
+                            current_field_type.__args__[0]
+                            if current_field_type.__args__
+                            else None
+                        )
+                        if item_type:
+                            if item_type == MedicalSpecialty and hasattr(
+                                MedicalSpecialty, value.upper()
+                            ):
+                                result[key] = MedicalSpecialty[value.upper()]
+                            elif item_type == AnatomicalRegion and hasattr(
+                                AnatomicalRegion, value.upper()
+                            ):
+                                result[key] = AnatomicalRegion[value.upper()]
+                            elif item_type == ImagingModality and hasattr(
+                                ImagingModality, value.upper()
+                            ):
+                                result[key] = ImagingModality[value.upper()]
+                            elif item_type == EntityType and hasattr(EntityType, value):
+                                result[key] = EntityType[value]
+                            elif item_type == DocumentType and hasattr(
+                                DocumentType, value.upper()
+                            ):
+                                result[key] = DocumentType[value.upper()]
+                            elif item_type == RegulatoryStandard and hasattr(
+                                RegulatoryStandard, value.upper()
+                            ):
+                                result[key] = RegulatoryStandard[value.upper()]
+                            else:
+                                result[key] = value
+                        else:
+                            result[key] = value
+                    else:
+                        result[key] = value
+                except (KeyError, AttributeError):
+                    result[key] = value
+            else:
+                result[key] = value
+
+        return result
+
+
