@@ -74,6 +74,9 @@ def is_union_type(t: type) -> bool:
     Returns:
         bool: True if the type is a Union, False otherwise
     """
+    if is_optional_type(t):
+        return False
+        
     origin = get_origin(t)
     return origin is Union
 
@@ -178,20 +181,41 @@ def convert_string_to_type(value: str, target_type: type) -> Any:
     Raises:
         ValueError: If the conversion fails
     """
-    if target_type is bool:
-        # Handle boolean values
-        if value.lower() in ('true', 't', 'yes', 'y', '1'):
-            return True
-        elif value.lower() in ('false', 'f', 'no', 'n', '0'):
-            return False
-        else:
-            raise ValueError(f"Cannot convert '{value}' to bool")
+    if not isinstance(value, str):
+        return value
+        
+    if target_type is str:
+        return value
     elif target_type is int:
         return int(value)
     elif target_type is float:
         return float(value)
-    elif target_type is str:
-        return value
+    elif target_type is bool:
+        return value.lower() in ('true', 'yes', '1')
+    elif is_list_type(target_type):
+        import json
+        item_type = get_list_item_type(target_type)
+        try:
+            parsed_list = json.loads(value)
+            if not isinstance(parsed_list, list):
+                raise ValueError(f"Expected a JSON array, got {type(parsed_list).__name__}")
+            return [convert_string_to_type(str(item), item_type) for item in parsed_list]
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON for list conversion: {e}")
+    elif is_dict_type(target_type):
+        import json
+        key_type, value_type = get_dict_types(target_type)
+        try:
+            parsed_dict = json.loads(value)
+            if not isinstance(parsed_dict, dict):
+                raise ValueError(f"Expected a JSON object, got {type(parsed_dict).__name__}")
+            return {
+                convert_string_to_type(str(k), key_type): 
+                convert_string_to_type(str(v), value_type)
+                for k, v in parsed_dict.items()
+            }
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON for dict conversion: {e}")
     else:
         raise ValueError(f"Unsupported target type: {target_type}")
 
