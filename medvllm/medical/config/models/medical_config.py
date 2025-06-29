@@ -122,6 +122,32 @@ class MedicalModelConfig(BaseMedicalConfig):
     This class extends the base configuration with medical-specific parameters
     and validation logic, utilizing the new modular structure for better
     organization and type safety.
+
+    Attributes:
+        model_type (str): Type of the model architecture. Must be one of the supported model types.
+        model (str): Path to the model directory or model identifier.
+        pretrained_model_name_or_path (Optional[str]): Name or path of the pretrained model.
+        max_medical_seq_length (int): Maximum sequence length for medical text processing.
+        batch_size (int): Default batch size for inference.
+        enable_uncertainty_estimation (bool): Whether to enable uncertainty estimation.
+        uncertainty_threshold (float): Threshold for model uncertainty calibration.
+        cache_ttl (int): Time-to-live for cache in seconds.
+        medical_specialties (List[Union[MedicalSpecialty, str]]): List of medical specialties.
+        anatomical_regions (List[Union[AnatomicalRegion, str]]): List of anatomical regions.
+        imaging_modalities (List[Union[ImagingModality, str]]): List of imaging modalities.
+        medical_entity_types (List[Union[EntityType, str]]): Types of medical entities to recognize.
+        ner_confidence_threshold (float): Minimum confidence score for NER predictions.
+        max_entity_span_length (int): Maximum token length for entity spans.
+        entity_linking (Dict[str, Any]): Configuration for entity linking.
+        document_types (List[Union[DocumentType, str]]): Types of clinical documents supported.
+        section_headers (List[str]): Common section headers in clinical documents.
+        max_retries (int): Maximum number of retries for API calls.
+        request_timeout (int): Timeout in seconds for API requests.
+        domain_adaptation (bool): Whether to enable domain adaptation.
+        domain_adaptation_lambda (float): Weight for domain adaptation loss.
+        domain_specific_vocab (Optional[Dict[str, List[str]]]): Domain-specific vocabulary terms.
+        regulatory_compliance (List[Union[RegulatoryStandard, str]]): Regulatory standards the model complies with.
+        config_version (str): Configuration schema version.
     """
 
     # Model configuration
@@ -353,6 +379,60 @@ class MedicalModelConfig(BaseMedicalConfig):
                 RegulatoryStandard(std) if isinstance(std, str) else std
                 for std in self.regulatory_compliance
             ]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MedicalModelConfig':
+        """Create a configuration from a dictionary.
+        
+        Args:
+            data: Dictionary containing configuration parameters
+            
+        Returns:
+            A new instance of MedicalModelConfig
+        """
+        # Create a copy to avoid modifying the input
+        data = data.copy()
+        
+        # Remove domain_config and internal fields from the data
+        domain_config = data.pop('domain_config', None)
+        data.pop('_extra_fields', None)  # Remove internal fields
+        
+        # Create the instance with only valid constructor arguments
+        valid_fields = {f.name for f in fields(cls) if f.init}
+        constructor_args = {k: v for k, v in data.items() if k in valid_fields}
+        instance = cls(**constructor_args)
+        
+        # Set any remaining fields as attributes
+        for k, v in data.items():
+            if k not in valid_fields and not k.startswith('_'):
+                setattr(instance, k, v)
+        
+        # Handle model_type if present
+        if 'model_type' in data:
+            instance.model_type = data['model_type']
+        
+        # Set domain_config after initialization if it exists
+        if domain_config is not None:
+            if isinstance(domain_config, dict):
+                instance.domain_config = DomainConfig(**domain_config)
+            else:
+                instance.domain_config = domain_config
+                
+        return instance
+
+    def copy(self) -> 'MedicalModelConfig':
+        """Create a copy of the configuration.
+        
+        This method ensures that domain_config and other fields are properly handled during copying.
+        
+        Returns:
+            A new instance with the same parameters
+        """
+        # Get the dictionary representation
+        data = self.to_dict()
+        
+        # Create a new instance using from_dict which handles all the special cases
+        return self.__class__.from_dict(data)
 
     def _initialize_dependent_configs(self) -> None:
         """Initialize any dependent configuration objects.
@@ -790,8 +870,8 @@ class MedicalModelConfig(BaseMedicalConfig):
             raise ValueError(f"{error_msg}. Error: {str(e)}") from e
 
     def to_yaml(
-        self, file_path: Optional[Union[str, os.PathLike]] = None, **kwargs: Any
-    ) -> Optional[str]:
+            self, file_path: Optional[Union[str, os.PathLike]] = None, **kwargs: Any
+        ) -> Optional[str]:
         """Convert the configuration to a YAML string or file.
 
         Args:
@@ -804,15 +884,29 @@ class MedicalModelConfig(BaseMedicalConfig):
         Raises:
             ImportError: If PyYAML is not installed
         """
-        try:
-            import yaml
-            from yaml import SafeDumper
-        except ImportError as e:
-            raise ImportError(
-                "PyYAML is required to export YAML. Install it with: pip install pyyaml"
-            ) from e
-
-        config_dict = self.to_dict()
+        return ConfigSerializer.to_yaml(self, file_path, **kwargs)
+        
+    def save_pretrained(self, save_directory: Union[str, os.PathLike], **kwargs) -> None:
+        """Save the configuration to a directory.
+        
+        This method saves the configuration as a JSON file in the specified directory.
+        
+        Args:
+            save_directory: Directory to save the configuration file to.
+            **kwargs: Additional keyword arguments passed to `to_json`.
+            
+        Example:
+            ```python
+            config = MedicalModelConfig()
+            config.save_pretrained("path/to/save")
+            ```
+        """
+        save_directory = Path(save_directory)
+        save_directory.mkdir(parents=True, exist_ok=True)
+        
+        # Save the config
+        output_config_file = save_directory / "config.json"
+        self.to_json(output_config_file, **kwargs)
 
         # Common YAML kwargs
         common_kwargs = {

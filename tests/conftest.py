@@ -306,6 +306,20 @@ if not hasattr(torch, 'utils'):
     torch.utils = MagicMock()
     torch.utils._pytree = MockPyTree()
 
+import os
+import tempfile
+import pytest
+
+@pytest.fixture
+def temp_model_dir():
+    """Create a temporary directory with a dummy config.json for testing."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create a dummy config.json file
+        config_path = os.path.join(tmpdir, "config.json")
+        with open(config_path, "w") as f:
+            f.write('{"model_type":"bert","hidden_size":768,"num_hidden_layers":12}')
+        yield tmpdir
+
 # Skip tests that require CUDA if not available
 HAS_CUDA = False
 

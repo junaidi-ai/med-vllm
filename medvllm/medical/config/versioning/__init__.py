@@ -29,12 +29,16 @@ class ConfigVersioner:
     """Manages configuration versions and their status."""
 
     VERSIONS: Dict[str, ConfigVersionInfo] = {
+        "1.0.0": ConfigVersionInfo(
+            version="1.0.0",
+            status=ConfigVersionStatus.CURRENT,
+            message="Stable release of medical configuration",
+        ),
         "0.1.0": ConfigVersionInfo(
             version="0.1.0",
-            status=ConfigVersionStatus.CURRENT,
-            message="Initial release of medical configuration",
+            status=ConfigVersionStatus.DEPRECATED,
+            message="Initial release of medical configuration. Please upgrade to 1.0.0",
         ),
-        # Add future versions here as they're released
     }
 
     @classmethod
