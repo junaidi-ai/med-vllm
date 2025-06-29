@@ -1,0 +1,25 @@
+EXAM: CHEST X-RAY (2 VIEWS)
+DATE: 2025-06-28
+
+CLINICAL HISTORY:
+45-year-old male with cough and fever. Rule out pneumonia.
+
+TECHNIQUE:
+PA and lateral views of the chest were obtained.
+
+COMPARISON:
+No prior imaging available for comparison.
+
+FINDINGS:
+- Lungs are well expanded and clear bilaterally.
+- No focal consolidation, pleural effusion, or pneumothorax.
+- Cardiac silhouette is normal in size and configuration.
+- Mediastinal contours are normal.
+- No acute bony abnormalities.
+- No free air under the diaphragm.
+
+IMPRESSION:
+No acute cardiopulmonary abnormality.
+
+RECOMMENDATION:
+Clinical correlation is recommended. If clinical suspicion for pneumonia remains high despite negative chest x-ray, consider chest CT for further evaluation.

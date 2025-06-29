@@ -1,0 +1,13 @@
+{
+  "text": "Patient presents with a 3-day history of persistent cough, fever (38.2°C), and mild chest discomfort. Reports fatigue but denies shortness of breath, nausea, or vomiting.",
+  "entities": [
+    {"text": "persistent cough", "type": "SYMPTOM", "start": 35, "end": 50, "confidence": 0.95},
+    {"text": "fever", "type": "SYMPTOM", "start": 52, "end": 57, "confidence": 0.98},
+    {"text": "38.2°C", "type": "MEASUREMENT", "start": 59, "end": 65, "unit": "Celsius", "confidence": 0.99},
+    {"text": "chest discomfort", "type": "SYMPTOM", "start": 71, "end": 87, "confidence": 0.94},
+    {"text": "fatigue", "type": "SYMPTOM", "start": 99, "end": 106, "confidence": 0.97},
+    {"text": "shortness of breath", "type": "SYMPTOM", "start": 116, "end": 135, "confidence": 0.96},
+    {"text": "nausea", "type": "SYMPTOM", "start": 137, "end": 143, "confidence": 0.97},
+    {"text": "vomiting", "type": "SYMPTOM", "start": 148, "end": 156, "confidence": 0.96}
+  ]
+}

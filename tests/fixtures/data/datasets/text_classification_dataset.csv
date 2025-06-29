@@ -1,0 +1,6 @@
+text,label,source,split
+"Patient reports chest pain and shortness of breath. EKG shows ST elevation.","cardiac_emergency","ED_notes","train"
+"Follow-up visit for well-controlled type 2 diabetes. No acute issues reported.","diabetes_management","clinic_notes","train"
+"CT scan reveals left-sided pleural effusion with adjacent atelectasis.","radiology_finding","radiology_reports","test"
+"Prescription refill requested for lisinopril 10mg daily.","medication_request","patient_portal","test"
+"Patient presents with productive cough, fever, and fatigue for 5 days.","respiratory_infection","telehealth_notes","train"

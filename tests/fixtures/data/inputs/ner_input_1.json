@@ -1,0 +1,5 @@
+{
+  "text": "Patient presents with a 3-day history of persistent cough, fever (38.2°C), and mild chest discomfort. Reports fatigue but denies shortness of breath, nausea, or vomiting.",
+  "task": "named_entity_recognition",
+  "entity_types": ["SYMPTOM", "DISEASE", "MEASUREMENT"]
+}

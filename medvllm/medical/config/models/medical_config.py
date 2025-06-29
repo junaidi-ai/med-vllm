@@ -38,12 +38,12 @@ from pydantic import ValidationError
 
 # Internal imports
 from medvllm.config import Config
-from medvllm.medical.config.validator import MedicalConfigValidator
+from medvllm.medical.config.validation import MedicalConfigValidator
 from medvllm.utils.logging import get_logger
 
 # Local application imports
-from .base import BaseMedicalConfig
-from .constants import (
+from ..base import BaseMedicalConfig
+from ..constants import (
     CONFIG_VERSION,
     DEFAULT_ANATOMICAL_REGIONS,
     DEFAULT_BATCH_SIZE,
@@ -63,13 +63,12 @@ from .constants import (
     DEFAULT_UNCERTAINTY_THRESHOLD,
     SUPPORTED_MODEL_TYPES,
 )
-from .schema import MedicalModelConfigSchema, ModelType
-from .serialization import ConfigSerializer
-from .types_ import (
+# Import types from the new module structure
+from ..types import (
     AnatomicalRegion,
     ClinicalMetrics,
-    DocumentType,
     DomainConfig,
+    DocumentType,
     EntityLinkingConfig,
     EntityType,
     ImagingModality,
@@ -80,7 +79,18 @@ from .types_ import (
     RegulatoryStandard,
     validate_model_path,
 )
-from .validation import MedicalConfigValidator
+
+# Import serialization
+from ..serialization import ConfigSerializer
+
+# Import validation
+from ..validation import MedicalConfigValidator
+
+# Import versioning
+from ..versioning import ConfigVersioner, ConfigVersionStatus, ConfigVersionInfo
+
+# Import schema
+from .schema import MedicalModelConfigSchema, ModelType
 
 # Type variable for class methods that return an instance of the class
 T = TypeVar("T", bound="MedicalModelConfig")
@@ -103,73 +113,6 @@ CONFIG_VERSION = "1.0.0"
 
 # Initialize logger
 logger = get_logger(__name__)
-
-# Import versioning after logger to avoid circular imports
-from .versioning import ConfigVersioner
-
-
-class ConfigVersionStatus(Enum):
-    """Status of a configuration version."""
-
-    CURRENT = "current"
-    DEPRECATED = "deprecated"
-    UNSUPPORTED = "unsupported"
-
-
-class ConfigVersionInfo:
-    """Information about a configuration version."""
-
-    def __init__(self, version: str, status: ConfigVersionStatus, message: str = ""):
-        self.version = version
-        self.status = status
-        self.message = message
-
-
-class ConfigVersionManager:
-    """Manages configuration versions and their status."""
-
-    VERSIONS: ClassVar[Dict[str, ConfigVersionInfo]] = {
-        "0.1.0": ConfigVersionInfo(
-            version="0.1.0",
-            status=ConfigVersionStatus.CURRENT,
-            message="Initial release of medical configuration",
-        ),
-        # Add future versions here as they're released
-    }
-
-    @classmethod
-    def get_version_info(cls, version: str) -> ConfigVersionInfo:
-        """Get information about a specific version."""
-        return cls.VERSIONS.get(
-            version,
-            ConfigVersionInfo(
-                version=version,
-                status=ConfigVersionStatus.UNSUPPORTED,
-                message=f"Unsupported configuration version: {version}",
-            ),
-        )
-
-    @classmethod
-    def check_version_compatibility(cls, version: str) -> None:
-        """Check if a version is compatible and issue warnings if deprecated."""
-        version_info = cls.get_version_info(version)
-
-        if version_info.status == ConfigVersionStatus.DEPRECATED:
-            warnings.warn(
-                f"Configuration version {version} is deprecated. {version_info.message}",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-        elif version_info.status == ConfigVersionStatus.UNSUPPORTED:
-            warnings.warn(
-                f"Unsupported configuration version: {version}. "
-                f"This may cause compatibility issues.",
-                UserWarning,
-                stacklevel=3,
-            )
-
-
-T = TypeVar("T", bound="MedicalModelConfig")
 
 
 @dataclass
@@ -458,8 +401,8 @@ class MedicalModelConfig(BaseMedicalConfig):
             except (TypeError, OSError) as e:
                 raise ValueError(f"Invalid model path '{self.model}': {str(e)}")
 
-        # Check version compatibility
-        ConfigVersionManager.check_version_compatibility(self.config_version)
+        # Initialize version compatibility check
+        ConfigVersioner.check_version_compatibility(self.config_version)
 
         # Initialize base config with error handling
         try:
@@ -800,19 +743,48 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         Returns:
             JSON string if file_path is None, otherwise None
+
+        Raises:
+            ValueError: If serialization fails
         """
         config_dict = self.to_dict()
 
-        # Default JSON kwargs
-        json_kwargs = {"indent": 2, "sort_keys": True, "ensure_ascii": False}
-        json_kwargs.update(kwargs)
+        # Extract common kwargs with proper types
+        ensure_ascii = bool(kwargs.pop("ensure_ascii", False))
+        sort_keys = bool(kwargs.pop("sort_keys", True))
+        indent = int(kwargs.pop("indent", 2))
+        default = kwargs.pop("default", str)
+        
+        # Any remaining kwargs will be passed through
+        extra_kwargs = kwargs
 
-        if file_path is not None:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(config_dict, f, **json_kwargs)
-            return None
-
-        return json.dumps(config_dict, **json_kwargs)
+        try:
+            if file_path is not None:
+                # For file output, use json.dump with file handle
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(
+                        obj=config_dict,
+                        fp=f,
+                        ensure_ascii=ensure_ascii,
+                        indent=indent,
+                        sort_keys=sort_keys,
+                        default=default,
+                        **extra_kwargs
+                    )
+                return None
+            
+            # For string output, use json.dumps
+            return json.dumps(
+                obj=config_dict,
+                ensure_ascii=ensure_ascii,
+                indent=indent,
+                sort_keys=sort_keys,
+                default=default,
+                **extra_kwargs
+            )
+        except (TypeError, ValueError) as e:
+            error_msg = f"Failed to {'save' if file_path else 'serialize'} configuration to JSON"
+            raise ValueError(f"{error_msg}. Error: {str(e)}") from e
 
     def to_yaml(
         self, file_path: Optional[Union[str, os.PathLike]] = None, **kwargs: Any
@@ -839,26 +811,54 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         config_dict = self.to_dict()
 
-        # Default YAML kwargs
-        yaml_kwargs = {
+        # Common YAML kwargs
+        common_kwargs = {
             "default_flow_style": False,
             "sort_keys": False,
             "allow_unicode": True,
-            "encoding": "utf-8",
             "width": 80,
         }
-        yaml_kwargs.update(kwargs)
+
+        # Update with user-provided kwargs, but don't allow overriding Dumper
+        if "Dumper" in kwargs:
+            del kwargs["Dumper"]
+
+        # Update common kwargs with user-provided values
+        common_kwargs.update(kwargs)
 
         try:
             if file_path is not None:
+                # For file output, use stream parameter
+                file_kwargs = common_kwargs.copy()
+                file_kwargs["encoding"] = "utf-8"
                 with open(file_path, "w", encoding="utf-8") as f:
-                    yaml.dump(config_dict, f, Dumper=SafeDumper, **yaml_kwargs)
+                    yaml.dump(
+                        data=config_dict,
+                        stream=f,
+                        Dumper=SafeDumper,
+                        default_flow_style=file_kwargs["default_flow_style"],
+                        sort_keys=file_kwargs["sort_keys"],
+                        allow_unicode=file_kwargs["allow_unicode"],
+                        width=file_kwargs["width"],
+                    )
                 return None
-            return yaml.dump(config_dict, Dumper=SafeDumper, **yaml_kwargs)
+
+            # For string output, don't use stream or encoding
+            string_kwargs = common_kwargs.copy()
+            if "encoding" in string_kwargs:
+                del string_kwargs["encoding"]
+
+            return yaml.dump(
+                data=config_dict,
+                Dumper=SafeDumper,
+                default_flow_style=string_kwargs["default_flow_style"],
+                sort_keys=string_kwargs["sort_keys"],
+                allow_unicode=string_kwargs["allow_unicode"],
+                width=string_kwargs["width"],
+            )
         except Exception as e:
             error_msg = f"Failed to {'save' if file_path else 'serialize'} configuration to YAML"
             raise ValueError(f"{error_msg}. Error: {str(e)}") from e
-
 
     @classmethod
     def _convert_dict_values(
@@ -961,5 +961,3 @@ class MedicalModelConfig(BaseMedicalConfig):
                 result[key] = value
 
         return result
-
-

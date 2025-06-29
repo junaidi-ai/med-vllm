@@ -1,0 +1,13 @@
+{
+  "text": "Patient presents with acute onset of severe headache, photophobia, and neck stiffness. No history of trauma. Vital signs stable.",
+  "predicted_label": "emergency",
+  "confidence": 0.92,
+  "label_probabilities": {
+    "non_urgent": 0.02,
+    "urgent": 0.06,
+    "emergency": 0.92
+  },
+  "explanation": "The presence of severe headache, photophobia, and neck stiffness suggests possible meningitis or subarachnoid hemorrhage, which are medical emergencies requiring immediate attention.",
+  "model_version": "triage_classifier_v1.0",
+  "timestamp": "2025-06-29T11:15:30Z"
+}

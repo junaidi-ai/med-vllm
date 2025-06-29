@@ -1,0 +1,23 @@
+PATIENT: John Doe
+AGE: 45
+SEX: Male
+DATE: 2025-06-29
+
+SUBJECTIVE:
+Patient presents with a 3-day history of persistent cough, fever (38.2°C), and mild chest discomfort. Reports fatigue but denies shortness of breath, nausea, or vomiting. No recent travel history. No known sick contacts.
+
+OBJECTIVE:
+- BP: 122/78 mmHg, HR: 88 bpm, RR: 18, SpO2: 98% on room air
+- Lungs: Mild bilateral rhonchi, no wheezing
+- Heart: Regular rate and rhythm, no murmurs
+- No lower extremity edema
+
+ASSESSMENT:
+1. Acute bronchitis (J20.9)
+2. Rule out community-acquired pneumonia
+
+PLAN:
+1. Chest X-ray to rule out pneumonia
+2. Symptomatic treatment with guaifenesin and acetaminophen PRN
+3. Increase fluid intake
+4. Follow up in 1 week if symptoms worsen or persist

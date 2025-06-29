@@ -1,0 +1,6 @@
+{
+  "text": "Patient presents with acute onset of severe headache, photophobia, and neck stiffness. No history of trauma. Vital signs stable.",
+  "task": "triage_classification",
+  "possible_labels": ["non_urgent", "urgent", "emergency"],
+  "model_version": "triage_classifier_v1.0"
+}
