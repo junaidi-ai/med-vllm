@@ -13,7 +13,6 @@ import yaml
 
 from medvllm.medical.config import MedicalModelConfig
 
-
 # Path to the fixtures directory
 FIXTURES_DIR = Path(__file__).parent
 CONFIGS_DIR = FIXTURES_DIR / "configs"
@@ -98,7 +97,7 @@ def large_config_dict() -> Dict[str, Any]:
         "anatomical_regions": [f"region_{i}" for i in range(100)],
         "max_sequence_length": 4096,
     }
-    
+
     # Add some additional nested configuration
     base_config["training_config"] = {
         "learning_rate": 5e-5,
@@ -113,7 +112,7 @@ def large_config_dict() -> Dict[str, Any]:
         "eval_steps": 1000,
         "save_total_limit": 5,
     }
-    
+
     # Add some custom parameters
     base_config["custom_parameters"] = {
         "enable_gradient_checkpointing": True,
@@ -122,7 +121,7 @@ def large_config_dict() -> Dict[str, Any]:
         "fp16_opt_level": "O1",
         "seed": 42,
     }
-    
+
     return base_config
 
 
@@ -142,12 +141,31 @@ def invalid_config_dict() -> Dict[str, Any]:
 def all_specialties() -> List[str]:
     """Return a list of all allowed medical specialties."""
     return [
-        "cardiology", "radiology", "neurology", "oncology", "pediatrics",
-        "dermatology", "gastroenterology", "endocrinology", "nephrology",
-        "pulmonology", "rheumatology", "urology", "ophthalmology", "otolaryngology",
-        "pathology", "psychiatry", "anesthesiology", "emergency_medicine", "family_medicine",
-        "internal_medicine", "obstetrics_gynecology", "physical_medicine", "preventive_medicine",
-        "radiation_oncology", "surgery"
+        "cardiology",
+        "radiology",
+        "neurology",
+        "oncology",
+        "pediatrics",
+        "dermatology",
+        "gastroenterology",
+        "endocrinology",
+        "nephrology",
+        "pulmonology",
+        "rheumatology",
+        "urology",
+        "ophthalmology",
+        "otolaryngology",
+        "pathology",
+        "psychiatry",
+        "anesthesiology",
+        "emergency_medicine",
+        "family_medicine",
+        "internal_medicine",
+        "obstetrics_gynecology",
+        "physical_medicine",
+        "preventive_medicine",
+        "radiation_oncology",
+        "surgery",
     ]
 
 
@@ -155,9 +173,30 @@ def all_specialties() -> List[str]:
 def all_anatomical_regions() -> List[str]:
     """Return a list of all allowed anatomical regions."""
     return [
-        "head", "neck", "chest", "abdomen", "pelvis", "back", "upper_limb", "lower_limb",
-        "brain", "heart", "lungs", "liver", "kidneys", "stomach", "intestines", "bladder",
-        "prostate", "ovaries", "uterus", "testes", "pancreas", "spleen", "thyroid", "adrenals"
+        "head",
+        "neck",
+        "chest",
+        "abdomen",
+        "pelvis",
+        "back",
+        "upper_limb",
+        "lower_limb",
+        "brain",
+        "heart",
+        "lungs",
+        "liver",
+        "kidneys",
+        "stomach",
+        "intestines",
+        "bladder",
+        "prostate",
+        "ovaries",
+        "uterus",
+        "testes",
+        "pancreas",
+        "spleen",
+        "thyroid",
+        "adrenals",
     ]
 
 

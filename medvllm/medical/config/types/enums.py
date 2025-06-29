@@ -4,8 +4,10 @@ Enum types for medical model configuration.
 
 from enum import Enum
 
+
 class MedicalSpecialty(str, Enum):
     """Enumeration of medical specialties."""
+
     FAMILY_MEDICINE = "family_medicine"
     INTERNAL_MEDICINE = "internal_medicine"
     PEDIATRICS = "pediatrics"
@@ -26,6 +28,7 @@ class MedicalSpecialty(str, Enum):
 
 class AnatomicalRegion(str, Enum):
     """Enumeration of anatomical regions."""
+
     HEAD = "head"
     THORAX = "thorax"
     ABDOMEN = "abdomen"
@@ -40,6 +43,7 @@ class AnatomicalRegion(str, Enum):
 
 class ImagingModality(str, Enum):
     """Enumeration of medical imaging modalities."""
+
     XRAY = "xray"
     CT = "ct"
     MRI = "mri"
@@ -52,6 +56,7 @@ class ImagingModality(str, Enum):
 
 class EntityType(str, Enum):
     """Types of medical entities."""
+
     DISEASE = "DISEASE"
     SYMPTOM = "SYMPTOM"
     TREATMENT = "TREATMENT"
@@ -72,6 +77,7 @@ class EntityType(str, Enum):
 
 class DocumentType(str, Enum):
     """Types of clinical documents."""
+
     CLINICAL_NOTES = "clinical_notes"
     RADIOLOGY_REPORTS = "radiology_reports"
     DISCHARGE_SUMMARIES = "discharge_summaries"
@@ -85,6 +91,7 @@ class DocumentType(str, Enum):
 
 class RegulatoryStandard(str, Enum):
     """Regulatory compliance standards."""
+
     HIPAA = "hipaa"
     GDPR = "gdpr"
     HL7 = "hl7"

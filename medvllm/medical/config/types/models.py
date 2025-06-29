@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 @dataclass
 class MetricRange:
     """Range for metric values with optional bounds."""
+
     min: float
     max: float
     unit: str
@@ -18,6 +19,7 @@ class MetricRange:
 
 class MetricConfig(BaseModel):
     """Configuration for a single metric."""
+
     description: str
     unit: str
     normal_range: MetricRange
@@ -29,6 +31,7 @@ class MetricConfig(BaseModel):
 
 class ClinicalMetrics(BaseModel):
     """Configuration for clinical metrics."""
+
     vital_signs: Dict[str, MetricConfig]
     lab_tests: Dict[str, MetricConfig]
     scores: Dict[str, MetricConfig]
@@ -36,6 +39,7 @@ class ClinicalMetrics(BaseModel):
 
 class DomainConfig(BaseModel):
     """Configuration for domain-specific settings."""
+
     domain_adaptation: bool = False
     domain_adaptation_lambda: float = 0.1
     domain_specific_vocab: Optional[Dict[str, List[str]]] = None
@@ -43,6 +47,7 @@ class DomainConfig(BaseModel):
 
 class EntityLinkingConfig(BaseModel):
     """Configuration for entity linking."""
+
     enabled: bool = False
     knowledge_bases: List[str] = []
     confidence_threshold: float = 0.8
@@ -50,6 +55,7 @@ class EntityLinkingConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     """Base model configuration."""
+
     model_name: str = Field(..., description="Name or path of the model")
     model_type: str = Field(..., description="Type of the model architecture")
     max_sequence_length: int = Field(

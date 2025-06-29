@@ -8,16 +8,17 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Type, Union
 from unittest.mock import MagicMock, Mock
 
+import pytest
+
 # Import torch for type checking and mocking
 import torch
-
-import pytest
 
 # Import mock field function to handle description parameter
 from tests.mock_field import field  # noqa: F401
 
 # Add the project root to the Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
 
 # Mock flash_attn and other CUDA-related modules
 class MockFlashAttn:
@@ -29,6 +30,7 @@ class MockFlashAttn:
     def flash_attn_with_kvcache(*args, **kwargs):
         return MagicMock()
 
+
 # Create a proper module mock that works with importlib
 class ModuleMock(Mock):
     def __init__(self, *args, **kwargs):
@@ -36,8 +38,9 @@ class ModuleMock(Mock):
         self.__spec__ = Mock()
         self.__spec__.name = self.__class__.__name__.lower()
         self.__path__ = []
-        self.__package__ = ''
-        self.__version__ = '2.0.0'
+        self.__package__ = ""
+        self.__version__ = "2.0.0"
+
 
 # Mock torch and CUDA-related modules
 class MockTorch(ModuleMock):
@@ -45,10 +48,10 @@ class MockTorch(ModuleMock):
         @staticmethod
         def is_available():
             return False
-            
+
         class Stream(ModuleMock):
             pass
-            
+
     class nn(ModuleMock):
         class Parameter(ModuleMock):
             def __new__(cls, data=None, requires_grad=True):
@@ -57,16 +60,16 @@ class MockTorch(ModuleMock):
                 instance.requires_grad = requires_grad
                 instance.grad = None
                 return instance
-                
+
             def __init__(self, data=None, requires_grad=True):
                 super().__init__()
                 self.data = data if data is not None else MockTorch.Tensor()
                 self.requires_grad = requires_grad
                 self.grad = None
-                
+
             def __repr__(self):
                 return f"Parameter containing:\n{self.data}"
-                
+
         class Module(ModuleMock):
             def __init__(self, *args, **kwargs):
                 super().__init__()
@@ -74,32 +77,32 @@ class MockTorch(ModuleMock):
                 self._parameters = {}
                 self._buffers = {}
                 self._modules = {}
-                
+
             def register_parameter(self, name, param):
                 self._parameters[name] = param
                 return param
-                
+
             def register_buffer(self, name, tensor):
                 self._buffers[name] = tensor
                 return tensor
-                
+
             def to(self, *args, **kwargs):
                 return self
-                
+
             def cuda(self, *args, **kwargs):
                 return self
-                
+
             def eval(self, *args, **kwargs):
                 self.training = False
                 return self
-                
+
             def train(self, mode=True):
                 self.training = mode
                 return self
-                
+
             def forward(self, *args, **kwargs):
                 return args[0] if args else None
-                
+
             def __call__(self, *args, **kwargs):
                 return self.forward(*args, **kwargs)
 
@@ -112,92 +115,100 @@ class MockTorch(ModuleMock):
                 if bias:
                     self.bias = MockTorch.nn.Parameter(MockTorch.Tensor())
                 else:
-                    self.register_parameter('bias', None)
-                    
+                    self.register_parameter("bias", None)
+
         class functional(ModuleMock):
             """Mock for torch.nn.functional"""
+
             @staticmethod
             def silu(input, inplace=False):
                 return input
-                
+
             @staticmethod
             def linear(input, weight, bias=None):
                 return input
-                
+
             @staticmethod
             def softmax(input, dim=None, _stacklevel=3, dtype=None):
                 return input
-                
+
             @staticmethod
             def layer_norm(input, normalized_shape, weight=None, bias=None, eps=1e-5):
                 return input
-                
+
             @staticmethod
-            def embedding(input, weight, padding_idx=None, max_norm=None, norm_type=2.0,
-                        scale_grad_by_freq=False, sparse=False):
+            def embedding(
+                input,
+                weight,
+                padding_idx=None,
+                max_norm=None,
+                norm_type=2.0,
+                scale_grad_by_freq=False,
+                sparse=False,
+            ):
                 return input
 
     class optim(ModuleMock):
         class AdamW(ModuleMock):
             def __init__(self, params, lr=1e-3, **kwargs):
                 super().__init__()
-                self.param_groups = [{'params': params}]
-                self.defaults = {'lr': lr, **kwargs}
-                
+                self.param_groups = [{"params": params}]
+                self.defaults = {"lr": lr, **kwargs}
+
             def step(self, closure=None):
                 pass
-                
+
             def zero_grad(self, set_to_none=False):
                 pass
-                
+
             def state_dict(self):
                 return {}
-                
+
             def load_state_dict(self, state_dict):
                 pass
 
     @contextlib.contextmanager
     def no_grad(self):
         yield
-        
+
     def manual_seed(self, seed):
         pass
-        
+
     def set_grad_enabled(self, mode):
         return self
-        
+
     def is_grad_enabled(self):
         return False
-        
+
     def cuda(self, *args, **kwargs):
         return self
-        
+
     def float(self):
         return self
-        
+
     def __getattr__(self, name):
-        if name in ('__file__', '__path__'):
+        if name in ("__file__", "__path__"):
             return None
         return super().__getattr__(name)
 
     class Tensor(ModuleMock):
         pass
-        
+
     class FloatTensor(ModuleMock):
         pass
-        
+
     class device(ModuleMock):
         def __init__(self, *args, **kwargs):
             super().__init__()
-            self.type = 'cuda' if args and args[0] == 'cuda' else 'cpu'
-    
+            self.type = "cuda" if args and args[0] == "cuda" else "cpu"
+
     @staticmethod
     def tensor(*args, **kwargs):
         return MockTorch.Tensor()
-        
+
     @staticmethod
     def float32():
-        return 'float32'
+        return "float32"
 
     @property
     def float16(self):
@@ -208,29 +219,34 @@ class MockTorch(ModuleMock):
 class MockPreTrainedModel:
     def __init__(self, *args, **kwargs):
         pass
-    
+
     def to(self, *args, **kwargs):
         return self
-    
+
     def eval(self):
         return self
-    
+
     def generate(self, *args, **kwargs):
         return torch.zeros(1, 10, dtype=torch.long)
+
 
 class MockTokenizer:
     def __init__(self, *args, **kwargs):
         self.pad_token_id = 0
         self.eos_token_id = 1
-    
+
     def __call__(self, *args, **kwargs):
-        return {'input_ids': torch.zeros(1, 10, dtype=torch.long), 'attention_mask': torch.ones(1, 10, dtype=torch.long)}
-    
+        return {
+            "input_ids": torch.zeros(1, 10, dtype=torch.long),
+            "attention_mask": torch.ones(1, 10, dtype=torch.long),
+        }
+
     def encode(self, *args, **kwargs):
         return [0] * 10
-    
+
     def decode(self, *args, **kwargs):
         return "Mock decoded text"
+
 
 class Qwen3Config:
     def __init__(self, *args, **kwargs):
@@ -240,7 +256,7 @@ class Qwen3Config:
         self.num_hidden_layers = 32
         self.num_attention_heads = 32
         self.num_key_value_heads = 32
-        self.hidden_act = 'silu'
+        self.hidden_act = "silu"
         self.max_position_embeddings = 32768
         self.initializer_range = 0.02
         self.rms_norm_eps = 1e-6
@@ -253,16 +269,17 @@ class Qwen3Config:
         self.pad_token_id = 0
         self.bos_token_id = 1
         self.eos_token_id = 2
-        self.torch_dtype = 'float16'
-        
+        self.torch_dtype = "float16"
+
     def to_dict(self):
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+
 
 class MockTransformers:
     class AutoConfig:
         @staticmethod
         def from_pretrained(*args, **kwargs):
-            if 'qwen' in args[0].lower():
+            if "qwen" in args[0].lower():
                 return Qwen3Config()
             return {}
 
@@ -270,20 +287,21 @@ class MockTransformers:
         @staticmethod
         def from_pretrained(*args, **kwargs):
             return MockPreTrainedModel()
-    
+
     class AutoTokenizer:
         @staticmethod
         def from_pretrained(*args, **kwargs):
             return MockTokenizer()
-    
+
     class PreTrainedModel:
         pass
-    
+
     class PreTrainedTokenizer:
         pass
-        
+
     # Add Qwen3 specific classes
     Qwen3Config = Qwen3Config
+
 
 # Apply mocks
 sys.modules["flash_attn"] = MockFlashAttn()
@@ -297,18 +315,22 @@ sys.modules["transformers.utils"] = MagicMock()
 sys.modules["transformers.utils.generic"] = MagicMock()
 sys.modules["transformers.utils._pytree"] = MagicMock()
 
+
 # Mock torch.utils._pytree
 class MockPyTree:
     def tree_map(self, *args, **kwargs):
         return lambda x: x
 
-if not hasattr(torch, 'utils'):
+
+if not hasattr(torch, "utils"):
     torch.utils = MagicMock()
     torch.utils._pytree = MockPyTree()
 
 import os
 import tempfile
+
 import pytest
+
 
 @pytest.fixture
 def temp_model_dir():
@@ -319,6 +341,7 @@ def temp_model_dir():
         with open(config_path, "w") as f:
             f.write('{"model_type":"bert","hidden_size":768,"num_hidden_layers":12}')
         yield tmpdir
+
 
 # Skip tests that require CUDA if not available
 HAS_CUDA = False

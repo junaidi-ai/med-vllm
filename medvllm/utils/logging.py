@@ -1,6 +1,7 @@
 """
 Logging utilities for the medvllm package.
 """
+
 import logging
 import logging.config
 import os
@@ -20,11 +21,13 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     # Configure logging if not already configured
     if not logging.root.handlers:
         configure_logging()
-    
+
     return logging.getLogger(name)
 
 
-def configure_logging(level: int = logging.INFO, log_file: Optional[str] = None) -> None:
+def configure_logging(
+    level: int = logging.INFO, log_file: Optional[str] = None
+) -> None:
     """
     Configure logging for the application.
 
@@ -33,32 +36,32 @@ def configure_logging(level: int = logging.INFO, log_file: Optional[str] = None)
         log_file: Optional path to a log file. If None, logs will only go to stderr.
     """
     log_config = {
-        'version': 1,
-        'disable_existing_loggers': False,
-        'formatters': {
-            'standard': {
-                'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                'datefmt': '%Y-%m-%d %H:%M:%S',
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "standard": {
+                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
             },
         },
-        'handlers': {
-            'console': {
-                'level': level,
-                'class': 'logging.StreamHandler',
-                'formatter': 'standard',
-                'stream': 'ext://sys.stderr',
+        "handlers": {
+            "console": {
+                "level": level,
+                "class": "logging.StreamHandler",
+                "formatter": "standard",
+                "stream": "ext://sys.stderr",
             },
         },
-        'loggers': {
-            '': {  # root logger
-                'handlers': ['console'],
-                'level': level,
-                'propagate': True,
+        "loggers": {
+            "": {  # root logger
+                "handlers": ["console"],
+                "level": level,
+                "propagate": True,
             },
-            'medvllm': {
-                'handlers': ['console'],
-                'level': level,
-                'propagate': False,
+            "medvllm": {
+                "handlers": ["console"],
+                "level": level,
+                "propagate": False,
             },
         },
     }
@@ -69,18 +72,18 @@ def configure_logging(level: int = logging.INFO, log_file: Optional[str] = None)
         log_dir = os.path.dirname(log_file)
         if log_dir and not os.path.exists(log_dir):
             os.makedirs(log_dir, exist_ok=True)
-        
-        log_config['handlers']['file'] = {
-            'level': level,
-            'class': 'logging.FileHandler',
-            'filename': log_file,
-            'formatter': 'standard',
-            'mode': 'a',  # append to the file if it exists
+
+        log_config["handlers"]["file"] = {
+            "level": level,
+            "class": "logging.FileHandler",
+            "filename": log_file,
+            "formatter": "standard",
+            "mode": "a",  # append to the file if it exists
         }
-        
+
         # Add file handler to root logger and medvllm logger
-        log_config['loggers']['']['handlers'].append('file')
-        log_config['loggers']['medvllm']['handlers'].append('file')
+        log_config["loggers"][""]["handlers"].append("file")
+        log_config["loggers"]["medvllm"]["handlers"].append("file")
 
     # Apply the configuration
     logging.config.dictConfig(log_config)

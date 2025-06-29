@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 class ConfigVersionStatus(str, Enum):
     """Status of a configuration version."""
+
     CURRENT = "current"
     DEPRECATED = "deprecated"
     UNSUPPORTED = "unsupported"
@@ -20,6 +21,7 @@ class ConfigVersionStatus(str, Enum):
 
 class ConfigVersionInfo(BaseModel):
     """Information about a configuration version."""
+
     version: str
     status: ConfigVersionStatus
     message: str = ""
@@ -55,6 +57,7 @@ class ConfigVersioner:
 
         if version_info.status == ConfigVersionStatus.DEPRECATED:
             import warnings
+
             warnings.warn(
                 f"Configuration version {version} is deprecated. {version_info.message}",
                 DeprecationWarning,

@@ -1,0 +1,16 @@
+[MASTER]
+load-plugins=pylint.extensions.docparams
+
+[FORMAT]
+max-line-length=88
+
+[MESSAGES CONTROL]
+disable=missing-module-docstring, missing-class-docstring, missing-function-docstring, too-few-public-methods
+
+[SIMILARITIES]
+# Minimum lines number of a similarity.
+min-similarity-lines=4
+
+[BASIC]
+# Required attributes for module, separated by a comma
+docstring-min-length=10

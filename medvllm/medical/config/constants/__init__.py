@@ -112,7 +112,7 @@ DEFAULT_REGULATORY_STANDARDS = [
     "hitrust",
     "nist",
     "iso_13485",
-    "iso_14971"
+    "iso_14971",
 ]
 
 # Clinical entity types

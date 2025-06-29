@@ -30,9 +30,18 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    get_args,
+    get_origin,
     get_type_hints,
     overload,
 )
+
+try:
+    import yaml
+    from yaml import SafeDumper
+except ImportError:
+    yaml = None  # type: ignore
+    SafeDumper = None  # type: ignore
 
 from pydantic import ValidationError
 
@@ -42,7 +51,6 @@ from medvllm.medical.config.validation import MedicalConfigValidator
 from medvllm.utils.logging import get_logger
 
 # Local application imports
-from ..base import BaseMedicalConfig
 from ..constants import (
     CONFIG_VERSION,
     DEFAULT_ANATOMICAL_REGIONS,
@@ -63,12 +71,22 @@ from ..constants import (
     DEFAULT_UNCERTAINTY_THRESHOLD,
     SUPPORTED_MODEL_TYPES,
 )
+from ..enums import (
+    AnatomicalRegion,
+    DocumentType,
+    EntityType,
+    ImagingModality,
+    MedicalSpecialty,
+    RegulatoryStandard,
+)
+from ..serialization.config_serializer import ConfigSerializer
+
 # Import types from the new module structure
 from ..types import (
     AnatomicalRegion,
     ClinicalMetrics,
-    DomainConfig,
     DocumentType,
+    DomainConfig,
     EntityLinkingConfig,
     EntityType,
     ImagingModality,
@@ -80,14 +98,11 @@ from ..types import (
     validate_model_path,
 )
 
-# Import serialization
-from ..serialization import ConfigSerializer
-
 # Import validation
 from ..validation import MedicalConfigValidator
 
 # Import versioning
-from ..versioning import ConfigVersioner, ConfigVersionStatus, ConfigVersionInfo
+from ..versioning import ConfigVersioner, ConfigVersionInfo, ConfigVersionStatus
 
 # Import schema
 from .schema import MedicalModelConfigSchema, ModelType
@@ -312,19 +327,19 @@ class MedicalModelConfig(BaseMedicalConfig):
         3. Initializes version compatibility checks
         4. Performs any necessary type conversions
         """
-        # Set up version compatibility
-        self._setup_version_compatibility()
-
-        # Convert string values to proper enum types if needed
+        # Convert string values to proper enum types
         self._convert_enums()
 
-        # Initialize any dependent configuration objects
-        self._initialize_dependent_configs()
+        # Set up version compatibility
+        self._setup_version_compatibility()
 
         # Set default pretrained paths if not specified
         self._set_default_pretrained_paths()
 
-        # Run validation
+        # Initialize any dependent configs
+        self._initialize_dependent_configs()
+
+        # Validate all parameters
         self._validate_medical_parameters()
 
     def _setup_version_compatibility(self) -> None:
@@ -335,102 +350,121 @@ class MedicalModelConfig(BaseMedicalConfig):
     def _convert_enums(self) -> None:
         """Convert string values to proper enum types if needed.
 
-        This ensures type safety and consistency when loading from serialized formats.
+        This ensures type safety and consistency when loading serialized data.
         """
-        # Convert medical specialties to enum instances
-        if self.medical_specialties and not isinstance(
-            self.medical_specialties[0], MedicalSpecialty
-        ):
+
+        # Convert string values in lists to enums with type checking
+        def safe_convert(value: Union[str, Enum], enum_type: Type[Enum]) -> Enum:
+            if isinstance(value, str):
+                try:
+                    return enum_type(value)
+                except ValueError as e:
+                    warnings.warn(
+                        f"Invalid {enum_type.__name__} value: {value}. Using default.",
+                        UserWarning,
+                    )
+                    return list(enum_type)[0]  # Return first enum value as default
+            return value
+
+        # Convert each list of enums
+        if self.medical_specialties:
             self.medical_specialties = [
-                MedicalSpecialty(spec) if isinstance(spec, str) else spec
+                safe_convert(spec, MedicalSpecialty) if isinstance(spec, str) else spec
                 for spec in self.medical_specialties
             ]
-
-        # Convert anatomical regions to enum instances
-        if self.anatomical_regions and not isinstance(
-            self.anatomical_regions[0], AnatomicalRegion
-        ):
+        if self.anatomical_regions:
             self.anatomical_regions = [
-                AnatomicalRegion(region) if isinstance(region, str) else region
+                (
+                    safe_convert(region, AnatomicalRegion)
+                    if isinstance(region, str)
+                    else region
+                )
                 for region in self.anatomical_regions
             ]
-
-        # Convert imaging modalities to enum instances
-        if self.imaging_modalities and not isinstance(
-            self.imaging_modalities[0], ImagingModality
-        ):
+        if self.imaging_modalities:
             self.imaging_modalities = [
-                ImagingModality(modality) if isinstance(modality, str) else modality
+                (
+                    safe_convert(modality, ImagingModality)
+                    if isinstance(modality, str)
+                    else modality
+                )
                 for modality in self.imaging_modalities
             ]
-
-        # Convert document types to enum instances
-        if self.document_types and not isinstance(self.document_types[0], DocumentType):
+        if self.medical_entity_types:
+            self.medical_entity_types = [
+                (
+                    safe_convert(entity_type, EntityType)
+                    if isinstance(entity_type, str)
+                    else entity_type
+                )
+                for entity_type in self.medical_entity_types
+            ]
+        if self.document_types:
             self.document_types = [
-                DocumentType(doc_type) if isinstance(doc_type, str) else doc_type
+                (
+                    safe_convert(doc_type, DocumentType)
+                    if isinstance(doc_type, str)
+                    else doc_type
+                )
                 for doc_type in self.document_types
             ]
-
-        # Convert regulatory compliance to enum instances
-        if self.regulatory_compliance and not isinstance(
-            self.regulatory_compliance[0], RegulatoryStandard
-        ):
+        if self.regulatory_compliance:
             self.regulatory_compliance = [
-                RegulatoryStandard(std) if isinstance(std, str) else std
+                safe_convert(std, RegulatoryStandard) if isinstance(std, str) else std
                 for std in self.regulatory_compliance
             ]
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'MedicalModelConfig':
+    def from_dict(cls, data: Dict[str, Any]) -> "MedicalModelConfig":
         """Create a configuration from a dictionary.
-        
+
         Args:
             data: Dictionary containing configuration parameters
-            
+
         Returns:
             A new instance of MedicalModelConfig
         """
         # Create a copy to avoid modifying the input
         data = data.copy()
-        
+
         # Remove domain_config and internal fields from the data
-        domain_config = data.pop('domain_config', None)
-        data.pop('_extra_fields', None)  # Remove internal fields
-        
+        domain_config = data.pop("domain_config", None)
+        data.pop("_extra_fields", None)  # Remove internal fields
+
         # Create the instance with only valid constructor arguments
         valid_fields = {f.name for f in fields(cls) if f.init}
         constructor_args = {k: v for k, v in data.items() if k in valid_fields}
         instance = cls(**constructor_args)
-        
+
         # Set any remaining fields as attributes
         for k, v in data.items():
-            if k not in valid_fields and not k.startswith('_'):
+            if k not in valid_fields and not k.startswith("_"):
                 setattr(instance, k, v)
-        
+
         # Handle model_type if present
-        if 'model_type' in data:
-            instance.model_type = data['model_type']
-        
+        if "model_type" in data:
+            instance.model_type = data["model_type"]
+
         # Set domain_config after initialization if it exists
         if domain_config is not None:
             if isinstance(domain_config, dict):
                 instance.domain_config = DomainConfig(**domain_config)
             else:
                 instance.domain_config = domain_config
-                
+
         return instance
 
-    def copy(self) -> 'MedicalModelConfig':
+    def copy(self) -> "MedicalModelConfig":
         """Create a copy of the configuration.
-        
+
         This method ensures that domain_config and other fields are properly handled during copying.
-        
+
         Returns:
             A new instance with the same parameters
         """
         # Get the dictionary representation
         data = self.to_dict()
-        
+
         # Create a new instance using from_dict which handles all the special cases
         return self.__class__.from_dict(data)
 
@@ -440,19 +474,25 @@ class MedicalModelConfig(BaseMedicalConfig):
         This method sets up complex nested configurations that depend on other
         configuration values.
         """
+        # Initialize domain config if needed
+        if not hasattr(self, "domain_config") or self.domain_config is None:
+            self.domain_config: DomainConfig = DomainConfig(
+                enabled=self.domain_adaptation,
+                lambda_val=self.domain_adaptation_lambda,
+                vocab=self.domain_specific_vocab or {},
+            )
+
         # Initialize entity linking config if it's a dictionary
         if isinstance(self.entity_linking, dict):
             self.entity_linking = EntityLinkingConfig(**self.entity_linking)
 
-        # Ensure domain config is properly initialized
-        if hasattr(self, "domain_config") and isinstance(self.domain_config, dict):
-            self.domain_config = DomainConfig(**self.domain_config)
-
         # Validate using Pydantic
         try:
             # Create a copy of the current instance's attributes for validation
-            config_dict = {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
-            
+            config_dict = {
+                k: v for k, v in self.__dict__.items() if not k.startswith("_")
+            }
+
             # Create and validate schema - this will handle enum conversion
             validated_config = MedicalModelConfigSchema(**config_dict)
 
@@ -719,7 +759,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     @classmethod
     def from_yaml(
         cls: Type["MedicalModelConfig"],
-        yaml_input: Union[str, bytes, os.PathLike],
+        yaml_input: Union[str, bytes, os.PathLike, Any],
         **kwargs: Any,
     ) -> "MedicalModelConfig":
         """Create a configuration from a YAML file or string.
@@ -728,7 +768,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         contain key-value pairs that match the configuration parameters.
 
         Args:
-            yaml_input: YAML string, bytes, or path to a YAML file
+            yaml_input: YAML string, bytes, path to a YAML file, or file-like object
             **kwargs: Additional keyword arguments to override config values
 
         Returns:
@@ -738,6 +778,7 @@ class MedicalModelConfig(BaseMedicalConfig):
             ImportError: If PyYAML is not installed
             ValueError: If the YAML is invalid or missing required fields
         """
+        # Import PyYAML at runtime to avoid making it a hard dependency
         try:
             import yaml
             from yaml import safe_load
@@ -747,22 +788,42 @@ class MedicalModelConfig(BaseMedicalConfig):
                 "Please install it with: pip install pyyaml"
             ) from e
 
+        config_dict: Dict[str, Any] = {}
+
         try:
-            if isinstance(yaml_input, (str, bytes)) and any(
-                prefix.encode("utf-8") if isinstance(yaml_input, bytes) else prefix
-                for prefix in [
-                    b"---" if isinstance(yaml_input, bytes) else "---",
-                    b"{" if isinstance(yaml_input, bytes) else "{",
-                    b"[" if isinstance(yaml_input, bytes) else "[",
-                ]
-                if (yaml_input.strip().startswith(prefix))
+            # Handle file-like objects (check this first to avoid PathLike/str checks)
+            if hasattr(yaml_input, "read") and callable(
+                getattr(yaml_input, "read", None)
             ):
-                # Input is a YAML string
-                config_dict = safe_load(yaml_input)
+                # For file-like objects, read and parse directly
+                content = yaml_input.read()
+                if isinstance(content, bytes):
+                    content = content.decode("utf-8")
+                config_dict = safe_load(content) or {}
+            # Handle string, bytes, or path-like input
+            elif isinstance(yaml_input, (str, bytes, os.PathLike)):
+                # Convert PathLike to string
+                file_path = (
+                    str(yaml_input) if hasattr(yaml_input, "__fspath__") else yaml_input
+                )
+
+                # Check if input is a file path (not a YAML string)
+                if isinstance(file_path, str) and os.path.isfile(file_path):
+                    with open(file_path, "r") as f:
+                        config_dict = safe_load(f) or {}
+                else:
+                    # Handle YAML string/bytes
+                    if isinstance(file_path, bytes):
+                        file_path = file_path.decode("utf-8")
+                    config_dict = safe_load(file_path) or {}
             else:
-                # Input is a file path
-                with open(yaml_input, "r") as f:
-                    config_dict = safe_load(f)
+                raise ValueError(
+                    "Invalid input type for YAML loading. Expected string, bytes, "
+                    "path-like, or file-like object."
+                )
+
+            if not isinstance(config_dict, dict):
+                raise ValueError("YAML content must parse to a dictionary")
 
             # Update with any overrides
             if kwargs:
@@ -774,6 +835,8 @@ class MedicalModelConfig(BaseMedicalConfig):
             raise ValueError(f"Invalid YAML: {str(e)}")
         except (IOError, OSError) as e:
             raise ValueError(f"Error reading YAML file: {str(e)}")
+        except Exception as e:
+            raise ValueError(f"Error loading YAML configuration: {str(e)}")
 
     def _convert_to_serializable(self, value: Any, serialize_enums: bool = True) -> Any:
         """Recursively convert a value to a serializable format.
@@ -785,116 +848,43 @@ class MedicalModelConfig(BaseMedicalConfig):
         Returns:
             The value in a serializable format
         """
-        if isinstance(value, (str, int, float, bool)) or value is None:
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
             return value
+        if isinstance(value, (list, tuple)):
+            return [self._convert_to_serializable(v, serialize_enums) for v in value]
         if isinstance(value, dict):
             return {
                 str(k): self._convert_to_serializable(v, serialize_enums)
                 for k, v in value.items()
             }
-        if isinstance(value, (list, tuple, set)):
-            return [self._convert_to_serializable(v, serialize_enums) for v in value]
         if hasattr(value, "to_dict"):
-            return value.to_dict()
+            return value.to_dict(serialize_enums=serialize_enums)
         if isinstance(value, Enum) and serialize_enums:
             return value.value if hasattr(value, "value") else str(value)
-        if hasattr(value, "__dict__"):
-            return self._convert_to_serializable(value.__dict__, serialize_enums)
+        if dataclasses.is_dataclass(value):
+            return {
+                f.name: self._convert_to_serializable(
+                    getattr(value, f.name), serialize_enums
+                )
+                for f in dataclasses.fields(value)
+                if not f.name.startswith("_")
+            }
         return str(value)
 
-    def to_dict(self, serialize_enums: bool = True) -> Dict[str, Any]:
-        """Convert the configuration to a dictionary.
-
-        This method handles conversion of complex types like enums, dataclasses,
-        and nested structures to their serializable representations.
-
-        Args:
-            serialize_enums: If True, convert enums to their string representations.
-        Returns:
-            Dict containing the configuration parameters in a serializable format.
-        """
-        return self._convert_to_serializable(self.__dict__, serialize_enums)
-
-    def to_json(
-        self, file_path: Optional[Union[str, os.PathLike]] = None, **kwargs: Any
-    ) -> Optional[str]:
-        """Convert the configuration to a JSON string or file.
-
-        Args:
-            file_path: Optional path to save the JSON file.
-            **kwargs: Additional arguments for json.dump() or json.dumps()
-
-        Returns:
-            JSON string if file_path is None, otherwise None
-
-        Raises:
-            ValueError: If serialization fails
-        """
-        config_dict = self.to_dict()
-
-        # Extract common kwargs with proper types
-        ensure_ascii = bool(kwargs.pop("ensure_ascii", False))
-        sort_keys = bool(kwargs.pop("sort_keys", True))
-        indent = int(kwargs.pop("indent", 2))
-        default = kwargs.pop("default", str)
-        
-        # Any remaining kwargs will be passed through
-        extra_kwargs = kwargs
-
-        try:
-            if file_path is not None:
-                # For file output, use json.dump with file handle
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(
-                        obj=config_dict,
-                        fp=f,
-                        ensure_ascii=ensure_ascii,
-                        indent=indent,
-                        sort_keys=sort_keys,
-                        default=default,
-                        **extra_kwargs
-                    )
-                return None
-            
-            # For string output, use json.dumps
-            return json.dumps(
-                obj=config_dict,
-                ensure_ascii=ensure_ascii,
-                indent=indent,
-                sort_keys=sort_keys,
-                default=default,
-                **extra_kwargs
-            )
-        except (TypeError, ValueError) as e:
-            error_msg = f"Failed to {'save' if file_path else 'serialize'} configuration to JSON"
-            raise ValueError(f"{error_msg}. Error: {str(e)}") from e
-
-    def to_yaml(
-            self, file_path: Optional[Union[str, os.PathLike]] = None, **kwargs: Any
-        ) -> Optional[str]:
-        """Convert the configuration to a YAML string or file.
-
-        Args:
-            file_path: Optional path to save the YAML file.
-            **kwargs: Additional arguments for yaml.dump()
-
-        Returns:
-            YAML string if file_path is None, otherwise None
-
-        Raises:
-            ImportError: If PyYAML is not installed
-        """
-        return ConfigSerializer.to_yaml(self, file_path, **kwargs)
-        
-    def save_pretrained(self, save_directory: Union[str, os.PathLike], **kwargs) -> None:
+    def save_pretrained(
+        self, save_directory: Union[str, os.PathLike], **kwargs: Any
+    ) -> None:
         """Save the configuration to a directory.
-        
-        This method saves the configuration as a JSON file in the specified directory.
-        
+
+        This method saves the configuration as JSON and YAML files in the specified directory.
+
         Args:
-            save_directory: Directory to save the configuration file to.
-            **kwargs: Additional keyword arguments passed to `to_json`.
-            
+            save_directory: Directory to save the configuration files to.
+            **kwargs: Additional keyword arguments passed to serialization methods.
+
+
         Example:
             ```python
             config = MedicalModelConfig()
@@ -903,59 +893,18 @@ class MedicalModelConfig(BaseMedicalConfig):
         """
         save_directory = Path(save_directory)
         save_directory.mkdir(parents=True, exist_ok=True)
-        
-        # Save the config
-        output_config_file = save_directory / "config.json"
-        self.to_json(output_config_file, **kwargs)
 
-        # Common YAML kwargs
-        common_kwargs = {
-            "default_flow_style": False,
-            "sort_keys": False,
-            "allow_unicode": True,
-            "width": 80,
-        }
+        # Save as JSON
+        output_json_file = save_directory / "config.json"
+        self.to_json(output_json_file, **kwargs)
 
-        # Update with user-provided kwargs, but don't allow overriding Dumper
-        if "Dumper" in kwargs:
-            del kwargs["Dumper"]
-
-        # Update common kwargs with user-provided values
-        common_kwargs.update(kwargs)
-
+        # Also save as YAML if available
         try:
-            if file_path is not None:
-                # For file output, use stream parameter
-                file_kwargs = common_kwargs.copy()
-                file_kwargs["encoding"] = "utf-8"
-                with open(file_path, "w", encoding="utf-8") as f:
-                    yaml.dump(
-                        data=config_dict,
-                        stream=f,
-                        Dumper=SafeDumper,
-                        default_flow_style=file_kwargs["default_flow_style"],
-                        sort_keys=file_kwargs["sort_keys"],
-                        allow_unicode=file_kwargs["allow_unicode"],
-                        width=file_kwargs["width"],
-                    )
-                return None
-
-            # For string output, don't use stream or encoding
-            string_kwargs = common_kwargs.copy()
-            if "encoding" in string_kwargs:
-                del string_kwargs["encoding"]
-
-            return yaml.dump(
-                data=config_dict,
-                Dumper=SafeDumper,
-                default_flow_style=string_kwargs["default_flow_style"],
-                sort_keys=string_kwargs["sort_keys"],
-                allow_unicode=string_kwargs["allow_unicode"],
-                width=string_kwargs["width"],
-            )
-        except Exception as e:
-            error_msg = f"Failed to {'save' if file_path else 'serialize'} configuration to YAML"
-            raise ValueError(f"{error_msg}. Error: {str(e)}") from e
+            output_yaml_file = save_directory / "config.yaml"
+            self.to_yaml(output_yaml_file, **kwargs)
+        except ImportError:
+            # If PyYAML is not available, just skip YAML serialization
+            pass
 
     @classmethod
     def _convert_dict_values(
@@ -974,87 +923,104 @@ class MedicalModelConfig(BaseMedicalConfig):
         Returns:
             The converted dictionary with proper types
         """
-        if not isinstance(config_dict, dict):
-            return config_dict
-
         result: Dict[str, Any] = {}
+
         for key, value in config_dict.items():
             if value is None:
                 result[key] = None
                 continue
 
-            # Get the field type from the class annotations if not provided
-            current_field_type = field_type
-            if hasattr(cls, "__annotations__") and key in cls.__annotations__:
-                current_field_type = cls.__annotations__[key]
-
-            # Handle different types of values
-            if isinstance(value, dict):
-                result[key] = cls._convert_dict_values(value, current_field_type, key)
-            elif isinstance(value, list):
-                item_type = None
-                if (
-                    current_field_type
-                    and hasattr(current_field_type, "__args__")
-                    and current_field_type.__args__
-                ):
-                    item_type = current_field_type.__args__[0]
-
-                result[key] = [
-                    cls._convert_dict_values(
-                        v if isinstance(v, dict) else {"value": v},
-                        item_type,
-                        f"{key}[{i}]",
-                    ).get(
-                        "value", v
-                    )  # Extract the value if we wrapped it
-                    for i, v in enumerate(value)
-                ]
-            elif isinstance(value, str):
-                # Try to convert string to appropriate enum type
-                try:
-                    if (
-                        current_field_type
-                        and hasattr(current_field_type, "__origin__")
-                        and current_field_type.__origin__ == list
-                    ):
-                        item_type = (
-                            current_field_type.__args__[0]
-                            if current_field_type.__args__
-                            else None
-                        )
-                        if item_type:
-                            if item_type == MedicalSpecialty and hasattr(
-                                MedicalSpecialty, value.upper()
-                            ):
-                                result[key] = MedicalSpecialty[value.upper()]
-                            elif item_type == AnatomicalRegion and hasattr(
-                                AnatomicalRegion, value.upper()
-                            ):
-                                result[key] = AnatomicalRegion[value.upper()]
-                            elif item_type == ImagingModality and hasattr(
-                                ImagingModality, value.upper()
-                            ):
-                                result[key] = ImagingModality[value.upper()]
-                            elif item_type == EntityType and hasattr(EntityType, value):
-                                result[key] = EntityType[value]
-                            elif item_type == DocumentType and hasattr(
-                                DocumentType, value.upper()
-                            ):
-                                result[key] = DocumentType[value.upper()]
-                            elif item_type == RegulatoryStandard and hasattr(
-                                RegulatoryStandard, value.upper()
-                            ):
-                                result[key] = RegulatoryStandard[value.upper()]
-                            else:
-                                result[key] = value
-                        else:
-                            result[key] = value
-                    else:
-                        result[key] = value
-                except (KeyError, AttributeError):
-                    result[key] = value
-            else:
+            try:
+                result[key] = cls._convert_value(value, key, field_type, field_name)
+            except Exception as e:
+                warnings.warn(
+                    f"Error processing field '{key}' in {field_name or 'root'}: {str(e)}",
+                    UserWarning,
+                )
                 result[key] = value
 
         return result
+
+    @classmethod
+    def _convert_non_dict_input(cls, obj: Any) -> Dict[str, Any]:
+        """Helper method to handle non-dict input for _convert_dict_values."""
+        # Check for to_dict method in one step
+        to_dict = getattr(obj, "to_dict", None)
+        if to_dict is None or not callable(to_dict):
+            return {}
+
+        # Try to convert the object to a dictionary
+        try:
+            converted = to_dict()
+            # Ensure the converted value is a dictionary
+            if not isinstance(converted, dict):
+                return {}
+            return converted
+        except Exception:
+            # Ignore any exceptions during conversion
+            return {}
+
+    @classmethod
+    def _convert_value(
+        cls, value: Any, key: str, field_type: Optional[Type], field_name: str
+    ) -> Any:
+        """Convert a single value to its appropriate type."""
+        # Get the expected type for this field if available
+        current_field_type: Optional[Type] = None
+        if field_type and hasattr(field_type, "__annotations__"):
+            current_field_type = field_type.__annotations__.get(key)
+
+        # Handle nested dictionaries
+        if isinstance(value, dict):
+            return cls._convert_dict_values(
+                value,
+                current_field_type,
+                f"{field_name}.{key}" if field_name else key,
+            )
+
+        # Handle lists
+        if isinstance(value, list) and value:
+            return cls._convert_list_value(value, key, current_field_type, field_name)
+
+        return value
+
+    @classmethod
+    def _convert_list_value(
+        cls, value: List[Any], key: str, item_type: Optional[Type], field_name: str
+    ) -> List[Any]:
+        """Convert a list value to its appropriate type."""
+        if not item_type or not hasattr(item_type, "__args__"):
+            return value
+
+        item_type = item_type.__args__[0] if item_type.__args__ else None
+
+        # Handle list of dictionaries
+        if value and all(isinstance(item, dict) for item in value):
+            return [
+                cls._convert_dict_values(item, item_type, f"{field_name}.{key}[{i}]")
+                for i, item in enumerate(value)
+            ]
+
+        # Handle list of enums if item_type is an Enum
+        if (
+            item_type is not None
+            and isinstance(item_type, type)
+            and issubclass(item_type, Enum)
+        ):
+            converted_items = []
+            for item in value:
+                if isinstance(item, str):
+                    try:
+                        # Try to convert string to enum value
+                        converted_items.append(item_type[item.upper()])
+                    except (KeyError, AttributeError):
+                        warnings.warn(
+                            f"Invalid {item_type.__name__} value: {item}",
+                            UserWarning,
+                        )
+                        converted_items.append(item)
+                else:
+                    converted_items.append(item)
+            return converted_items
+
+        return value
