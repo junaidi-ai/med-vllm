@@ -43,6 +43,15 @@ class YAMLSerializer(ConfigSerializer):
     """
     
     @classmethod
+    def is_available(cls) -> bool:
+        """Check if YAML serialization is available (PyYAML is installed).
+        
+        Returns:
+            bool: True if PyYAML is available, False otherwise.
+        """
+        return PYYAML_AVAILABLE
+    
+    @classmethod
     @overload
     def to_yaml(
         cls,

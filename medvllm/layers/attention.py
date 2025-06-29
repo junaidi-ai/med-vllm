@@ -103,7 +103,6 @@ if HAS_TORCH:
 # Only define Attention class if PyTorch is available
 if HAS_TORCH:
     class Attention(nn.Module):
-
         def __init__(
             self,
             num_heads,
@@ -117,6 +116,10 @@ if HAS_TORCH:
             self.scale = scale
             self.num_kv_heads = num_kv_heads
             self.k_cache = self.v_cache = torch.tensor([])
+            self.context = get_context()
+                
+        def _reshape_output(self, output):
+            return output.reshape(-1, self.num_heads * self.head_dim)
 
         def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
             # Reshape tensors for attention computation
@@ -124,58 +127,54 @@ if HAS_TORCH:
             k = k.view(-1, self.num_kv_heads, self.head_dim)
             v = v.view(-1, self.num_kv_heads, self.head_dim)
         
-        # Get context for KV caching
-        context = get_context()
-        
-        if FLASH_ATTN_AVAILABLE:
-            # Use flash attention implementation if available
-            store_kvcache(k, v, self.k_cache, self.v_cache, context.slot_mapping)
+            if FLASH_ATTN_AVAILABLE:
+                # Use flash attention implementation if available
+                store_kvcache(k, v, self.k_cache, self.v_cache, self.context.slot_mapping)
+                
+                if self.context.is_prefill:
+                    # Prefill stage
+                    if self.context.block_tables is not None:  # prefix cache
+                        k, v = self.k_cache, self.v_cache
+                    output = flash_attn_varlen_func(
+                        q,
+                        k,
+                        v,
+                        max_seqlen_q=self.context.max_seqlen_q,
+                        cu_seqlens_q=self.context.cu_seqlens_q,
+                        max_seqlen_k=self.context.max_seqlen_k,
+                        cu_seqlens_k=self.context.cu_seqlens_k,
+                        softmax_scale=self.scale,
+                        causal=True,
+                        block_table=self.context.block_tables,
+                    )
+                else:  # decode
+                    # Decode stage
+                    output = flash_attn_with_kvcache(
+                        q.unsqueeze(1),
+                        self.k_cache,
+                        self.v_cache,
+                        cache_seqlens=self.context.context_lens,
+                        block_table=self.context.block_tables,
+                        softmax_scale=self.scale,
+                        causal=True,
+                    )
+            else:
+                # Fallback implementation when flash_attn is not available
+                # This is a simplified attention implementation for testing purposes
+                # It's not optimized for performance
+                
+                # Compute attention scores
+                attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+                
+                # Apply causal mask if needed
+                if self.context.is_prefill and self.context.max_seqlen_q > 1:
+                    mask = torch.triu(torch.ones(self.context.max_seqlen_q, self.context.max_seqlen_k, 
+                                              device=q.device), diagonal=1).bool()
+                    attn_scores = attn_scores.masked_fill(mask, float('-inf'))
+                
+                # Compute attention weights and output
+                attn_weights = torch.softmax(attn_scores, dim=-1)
+                output = torch.matmul(attn_weights, v)
             
-            if context.is_prefill:
-                # Prefill stage
-                if context.block_tables is not None:  # prefix cache
-                    k, v = self.k_cache, self.v_cache
-                output = flash_attn_varlen_func(
-                    q,
-                    k,
-                    v,
-                    max_seqlen_q=context.max_seqlen_q,
-                    cu_seqlens_q=context.cu_seqlens_q,
-                    max_seqlen_k=context.max_seqlen_k,
-                    cu_seqlens_k=context.cu_seqlens_k,
-                    softmax_scale=self.scale,
-                    causal=True,
-                    block_table=context.block_tables,
-                )
-            else:  # decode
-                # Decode stage
-                output = flash_attn_with_kvcache(
-                    q.unsqueeze(1),
-                    self.k_cache,
-                    self.v_cache,
-                    cache_seqlens=context.context_lens,
-                    block_table=context.block_tables,
-                    softmax_scale=self.scale,
-                    causal=True,
-                )
-        else:
-            # Fallback implementation when flash_attn is not available
-            # This is a simplified attention implementation for testing purposes
-            # It's not optimized for performance
-            
-            # Compute attention scores
-            attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-            
-            # Apply causal mask if needed
-            if context.is_prefill and context.max_seqlen_q > 1:
-                mask = torch.triu(torch.ones(context.max_seqlen_q, context.max_seqlen_k, 
-                                          device=q.device), diagonal=1).bool()
-                attn_scores = attn_scores.masked_fill(mask, float('-inf'))
-            
-            # Compute attention weights and output
-            attn_weights = torch.softmax(attn_scores, dim=-1)
-            output = torch.matmul(attn_weights, v)
-        
-        # Reshape output to match expected shape
-        output = output.reshape(-1, self.num_heads * self.head_dim)
-        return output
+            # Reshape output to match expected shape
+            return self._reshape_output(output)

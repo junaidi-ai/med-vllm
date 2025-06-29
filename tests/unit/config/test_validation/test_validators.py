@@ -5,6 +5,7 @@ This module contains unit tests for the validation functionality,
 including the MedicalConfigValidator and other validators.
 """
 
+from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
