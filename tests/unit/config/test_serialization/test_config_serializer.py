@@ -23,11 +23,13 @@ class TestConfigSerializer:
     class ConcreteSerializer(ConfigSerializer):
         """Concrete implementation of ConfigSerializer for testing."""
         
-        def _serialize_to_str(self, data: Any, **kwargs) -> str:
+        @classmethod
+        def _serialize_to_str(cls, data: Any, **kwargs) -> str:
             """Serialize data to a string (mock implementation)."""
             return "serialized_data"
             
-        def _deserialize_from_str(self, data: str, **kwargs) -> Any:
+        @classmethod
+        def _deserialize_from_str(cls, data: str, **kwargs) -> Any:
             """Deserialize data from a string (mock implementation)."""
             return {"deserialized": "data"}
     
