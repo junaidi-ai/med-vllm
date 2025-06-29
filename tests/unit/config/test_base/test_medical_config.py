@@ -2,6 +2,8 @@
 Tests for the base medical configuration classes.
 """
 
+import os
+import tempfile
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -13,9 +15,18 @@ class TestBaseMedicalConfig:
     """Test cases for BaseMedicalConfig class."""
     
     @pytest.fixture
-    def config(self) -> BaseMedicalConfig:
+    def temp_model_dir(self):
+        """Create a temporary directory for testing model paths."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield temp_dir
+    
+    @pytest.fixture
+    def config(self, temp_model_dir) -> BaseMedicalConfig:
         """Return a BaseMedicalConfig instance for testing."""
-        return BaseMedicalConfig()
+        # Create a dummy config.json file in the temp dir
+        with open(os.path.join(temp_model_dir, "config.json"), 'w') as f:
+            f.write('{"max_position_embeddings": 4096}')
+        return BaseMedicalConfig(model=temp_model_dir)
     
     def test_initialization(self, config: BaseMedicalConfig) -> None:
         """Test basic initialization."""
@@ -38,11 +49,16 @@ class TestBaseMedicalConfig:
         assert result["model_type"] == "test-model"
         assert result["custom_field"] == "value"
     
-    def test_from_dict(self) -> None:
+    def test_from_dict(self, temp_model_dir) -> None:
         """Test creation from dictionary."""
         # Given
+        # Create a dummy config.json file in the temp dir
+        with open(os.path.join(temp_model_dir, "config.json"), 'w') as f:
+            f.write('{"max_position_embeddings": 4096}')
+            
         data = {
             "model_type": "test-model",
+            "model": temp_model_dir,
             "custom_field": "value"
         }
         
@@ -51,6 +67,7 @@ class TestBaseMedicalConfig:
         
         # Then
         assert config.model_type == "test-model"
+        assert config.model == temp_model_dir
         assert getattr(config, "custom_field") == "value"
     
     def test_validate(self, config: BaseMedicalConfig) -> None:
