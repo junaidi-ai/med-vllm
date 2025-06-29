@@ -5,7 +5,9 @@ This module contains unit tests for the YAML serializer implementation,
 covering serialization and deserialization of configuration objects.
 """
 
+import builtins
 import os
+import sys
 import pytest
 import yaml
 from pathlib import Path
@@ -13,7 +15,7 @@ from tempfile import NamedTemporaryFile
 from typing import Any, Dict, List, Optional, Union
 from unittest.mock import MagicMock, patch
 
-from medvllm.medical.config.serialization.yaml_serializer import YAMLSerializer
+from medvllm.medical.config.serialization.yaml_serializer import YAMLSerializer, PYYAML_AVAILABLE
 
 # Sample configuration for testing
 SAMPLE_CONFIG = {
@@ -176,15 +178,55 @@ class TestYAMLSerializer:
 
     def test_pyyaml_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test behavior when PyYAML is not installed."""
-        # Given
-        monkeypatch.setattr("medvllm.medical.config.serialization.yaml_serializer.PYYAML_AVAILABLE", False)
-        
-        # When/Then
-        with pytest.raises(ImportError):
-            YAMLSerializer.to_yaml(SAMPLE_CONFIG)
-        
-        with pytest.raises(ImportError):
-            YAMLSerializer.from_yaml("key: value")
+        # Skip this test if PyYAML is not installed
+        if not PYYAML_AVAILABLE:
+            pytest.skip("PyYAML is not installed")
             
-        # Cleanup - restore the original value
-        monkeypatch.undo()
+        # Save original values
+        original_yaml = sys.modules.get('yaml')
+        original_serializer = sys.modules.get('medvllm.medical.config.serialization.yaml_serializer')
+        original_serialization = sys.modules.get('medvllm.medical.config.serialization')
+        
+        try:
+            # Mock the import to raise ImportError for 'yaml'
+            def mock_import(name, *args, **kwargs):
+                if name == 'yaml':
+                    raise ImportError("No module named 'yaml'")
+                return original_import(name, *args, **kwargs)
+            
+            # Save the original import
+            original_import = builtins.__import__
+            monkeypatch.setattr(builtins, '__import__', mock_import)
+            
+            # Remove the modules from sys.modules to force re-import
+            for mod in ['yaml', 'medvllm.medical.config.serialization.yaml_serializer', 
+                       'medvllm.medical.config.serialization']:
+                if mod in sys.modules:
+                    del sys.modules[mod]
+            
+            # Re-import the serialization module to trigger the import error handling
+            import medvllm.medical.config.serialization.yaml_serializer as yaml_serializer
+            
+            # The YAMLSerializer should be defined but raise ImportError when used
+            assert yaml_serializer.YAMLSerializer is not None
+            
+            # Test that the class itself raises ImportError when instantiated
+            with pytest.raises(ImportError, match="PyYAML is required for YAML serialization"):
+                yaml_serializer.YAMLSerializer()
+            
+            # Test that methods raise ImportError with the correct message
+            with pytest.raises(ImportError, match="PyYAML is required for YAML serialization"):
+                yaml_serializer.YAMLSerializer.to_yaml(SAMPLE_CONFIG)
+            
+            with pytest.raises(ImportError, match="PyYAML is required for YAML deserialization"):
+                yaml_serializer.YAMLSerializer.from_yaml("key: value")
+                
+        finally:
+            # Restore the original modules
+            monkeypatch.undo()
+            if original_yaml is not None:
+                sys.modules['yaml'] = original_yaml
+            if original_serializer is not None:
+                sys.modules['medvllm.medical.config.serialization.yaml_serializer'] = original_serializer
+            if original_serialization is not None:
+                sys.modules['medvllm.medical.config.serialization'] = original_serialization
