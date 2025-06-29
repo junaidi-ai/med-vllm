@@ -151,6 +151,111 @@ def get_dict_types(t: type) -> Optional[Tuple[type, type]]:
         return (args[0], args[1])
     return (args[0], Any)
 
+def is_basic_type(t: type) -> bool:
+    """Check if a type is a basic Python type.
+    
+    Basic types include: int, float, bool, str, and NoneType.
+    
+    Args:
+        t: The type to check
+        
+    Returns:
+        bool: True if the type is a basic type, False otherwise
+    """
+    basic_types = (int, float, bool, str, type(None))
+    return t in basic_types or t is Any or t is type(None)
+
+def convert_string_to_type(value: str, target_type: type) -> Any:
+    """Convert a string to the specified type.
+    
+    Args:
+        value: The string value to convert
+        target_type: The target type to convert to
+        
+    Returns:
+        The converted value
+        
+    Raises:
+        ValueError: If the conversion fails
+    """
+    if target_type is bool:
+        # Handle boolean values
+        if value.lower() in ('true', 't', 'yes', 'y', '1'):
+            return True
+        elif value.lower() in ('false', 'f', 'no', 'n', '0'):
+            return False
+        else:
+            raise ValueError(f"Cannot convert '{value}' to bool")
+    elif target_type is int:
+        return int(value)
+    elif target_type is float:
+        return float(value)
+    elif target_type is str:
+        return value
+    else:
+        raise ValueError(f"Unsupported target type: {target_type}")
+
+
+def validate_type(value: Any, type_hint: type) -> bool:
+    """Validate that a value matches a type hint.
+    
+    Args:
+        value: The value to validate
+        type_hint: The type hint to validate against
+        
+    Returns:
+        bool: True if the value matches the type hint, False otherwise
+    """
+    # Handle None case first
+    if value is None:
+        return type_hint is type(None) or (is_optional_type(type_hint) and get_optional_type(type_hint) is not None)
+    
+    # Handle basic types
+    if type_hint in (int, float, bool, str):
+        return isinstance(value, type_hint)
+    
+    # Handle Any type
+    if type_hint is Any:
+        return True
+    
+    # Handle Optional types
+    if is_optional_type(type_hint):
+        inner_type = get_optional_type(type_hint)
+        return validate_type(value, inner_type)
+    
+    # Handle Union types
+    if is_union_type(type_hint):
+        return any(validate_type(value, t) for t in get_union_types(type_hint))
+    
+    # Handle List types
+    if is_list_type(type_hint):
+        if not isinstance(value, (list, tuple)):
+            return False
+        item_type = get_list_item_type(type_hint)
+        return all(validate_type(item, item_type) for item in value)
+    
+    # Handle Dict types
+    if is_dict_type(type_hint):
+        if not isinstance(value, dict):
+            return False
+        key_type, value_type = get_dict_types(type_hint)
+        return all(
+            validate_type(k, key_type) and validate_type(v, value_type)
+            for k, v in value.items()
+        )
+    
+    # Handle other types using isinstance
+    try:
+        return isinstance(value, type_hint)
+    except TypeError:
+        # If isinstance fails, try to handle typing types
+        if hasattr(type_hint, '__origin__'):
+            if type_hint.__origin__ is Union:
+                return any(validate_type(value, t) for t in type_hint.__args__)
+            # Handle other typing types as needed
+            return True  # Default to True for complex types we can't check
+        return False
+
 def is_subclass_or_instance(obj: Any, class_or_tuple: Union[type, Tuple[type, ...]]) -> bool:
     """Safely check if an object is a subclass or instance of a class.
     
@@ -164,14 +269,19 @@ def is_subclass_or_instance(obj: Any, class_or_tuple: Union[type, Tuple[type, ..
         bool: True if obj is a subclass or instance of class_or_tuple
     """
     try:
-        if inspect.isclass(obj):
+        if isinstance(obj, type):
+            # For classes, use issubclass
             return issubclass(obj, class_or_tuple)
-        return isinstance(obj, class_or_tuple)
-    except TypeError:
-        # Handle typing types and other special cases
-        if hasattr(obj, '__origin__'):
-            if obj.__origin__ is Union:
-                return any(is_subclass_or_instance(arg, class_or_tuple) 
-                          for arg in getattr(obj, '__args__', ()))
-            return is_subclass_or_instance(obj.__origin__, class_or_tuple)
+        else:
+            # For instances, use isinstance
+            return isinstance(obj, class_or_tuple)
+    except (TypeError, AttributeError):
+        # Handle cases where the check isn't possible (like with typing types)
+        # For now, just return False to be safe
         return False
+    if hasattr(obj, '__origin__'):
+        if obj.__origin__ is Union:
+            return any(is_subclass_or_instance(arg, class_or_tuple) 
+                      for arg in getattr(obj, '__args__', ()))
+        return is_subclass_or_instance(obj.__origin__, class_or_tuple)
+    return False

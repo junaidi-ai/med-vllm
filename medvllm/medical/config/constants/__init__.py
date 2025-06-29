@@ -33,9 +33,10 @@ DEFAULT_MEDICAL_SPECIALTIES = [
     "cardiology",
     "dermatology",
     "endocrinology",
+    "family_medicine",  # Changed from general_practice to match MedicalSpecialty enum
     "gastroenterology",
-    "general_practice",
     "hematology",
+    "internal_medicine",
     "neurology",
     "oncology",
     "ophthalmology",
@@ -75,16 +76,17 @@ DEFAULT_IMAGING_MODALITIES = [
 # Default knowledge bases for entity linking
 DEFAULT_KNOWLEDGE_BASES = ["umls", "snomed_ct", "loinc", "rxnorm", "icd10"]
 
-# Default document types
+# Default document types - must match DocumentType enum values
 DEFAULT_DOCUMENT_TYPES = [
-    "progress_note",
-    "discharge_summary",
-    "consult_note",
-    "radiology_report",
-    "pathology_report",
-    "operative_note",
-    "admission_note",
-    "emergency_note",
+    "clinical_notes",
+    "radiology_reports",
+    "discharge_summaries",
+    "progress_notes",
+    "surgical_reports",
+    "pathology_reports",
+    "consult_notes",
+    "emergency_notes",
+    "admission_notes",
 ]
 
 # Default section headers in clinical documents
@@ -99,8 +101,19 @@ DEFAULT_SECTION_HEADERS = [
     "assessment_and_plan",
 ]
 
-# Default regulatory standards
-DEFAULT_REGULATORY_STANDARDS = ["hipaa", "gdpr", "hippa", "fda_21_cfr_part_11"]
+# Default regulatory standards - must match RegulatoryStandard enum values
+DEFAULT_REGULATORY_STANDARDS = [
+    "hipaa",
+    "gdpr",
+    "hl7",
+    "fda_510k",
+    "ce_mark",
+    "hitech",
+    "hitrust",
+    "nist",
+    "iso_13485",
+    "iso_14971"
+]
 
 # Clinical entity types
 DEFAULT_ENTITY_TYPES = [

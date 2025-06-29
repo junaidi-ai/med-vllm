@@ -370,6 +370,9 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         # Validate using Pydantic
         try:
+            # Create a copy of the current instance's attributes for validation
+            config_dict = {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+            
             # Create and validate schema - this will handle enum conversion
             validated_config = MedicalModelConfigSchema(**config_dict)
 

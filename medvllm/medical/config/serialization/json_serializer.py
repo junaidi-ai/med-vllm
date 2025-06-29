@@ -10,6 +10,7 @@ external dependencies for basic functionality.
 
 import dataclasses
 import json
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Type, TypeVar, Union, overload, TYPE_CHECKING
@@ -81,119 +82,149 @@ class JSONSerializer(ConfigSerializer):
             TypeError: If the input is not a valid configuration object
             ValueError: If serialization fails
         """
-        # Get default kwargs if not provided
-        json_kwargs.setdefault("indent", 2)
-        json_kwargs.setdefault("ensure_ascii", False)
+        from medvllm.medical.config.models.schema import MedicalModelConfigSchema, ModelType
         
-        # Convert config to dictionary
-        config_dict = cls.to_dict(config)
-
-        # Write to file if file_path is provided
-        if file_path is not None:
-            try:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(config_dict, f, **json_kwargs)
-                return None
-            except (IOError, OSError) as e:
-                raise ValueError(f"Failed to write to file {file_path}: {e}") from e
-            except (TypeError, ValueError) as e:
-                raise ValueError(f"Failed to serialize configuration: {e}") from e
-
-        # Return as string if no file path provided
         try:
-            return json.dumps(config_dict, **json_kwargs)
-        except (TypeError, ValueError) as e:
+            # Create a new schema instance with only the allowed fields
+            schema_data = {}
+            
+            # Map config fields to schema fields
+            field_mapping = {
+                'max_medical_seq_length': 'max_sequence_length'
+            }
+            
+            # Get all fields from the schema
+            schema_fields = MedicalModelConfigSchema.model_fields
+            
+            # Only include fields that are in the schema
+            for field_name in schema_fields:
+                # Map schema field name to config field name if needed
+                config_field = next((k for k, v in field_mapping.items() if v == field_name), field_name)
+                
+                # Get the value from the config if it exists
+                if hasattr(config, config_field):
+                    value = getattr(config, config_field)
+                    # Handle enum values
+                    if hasattr(value, 'value'):
+                        value = value.value
+                    schema_data[field_name] = value
+            
+            # Handle required fields with defaults if not set
+            if 'model' not in schema_data and hasattr(config, 'model'):
+                schema_data['model'] = config.model
+                
+            if 'model_type' not in schema_data and hasattr(config, 'model_type'):
+                model_type = config.model_type
+                if hasattr(model_type, 'value'):
+                    schema_data['model_type'] = model_type.value
+                else:
+                    schema_data['model_type'] = str(model_type).lower()
+            
+            # Set default values for optional fields if they're in the schema but not in the config
+            if 'learning_rate' not in schema_data and 'learning_rate' in schema_fields:
+                schema_data['learning_rate'] = 5e-5
+                
+            if 'num_train_epochs' not in schema_data and 'num_train_epochs' in schema_fields:
+                schema_data['num_train_epochs'] = 3
+            
+            # Create a new schema instance with just the allowed fields
+            schema_instance = MedicalModelConfigSchema(**schema_data)
+            
+            # Convert the schema instance to a dictionary first
+            config_dict = schema_instance.model_dump()
+            
+            # Set default JSON serialization options if not provided
+            json_kwargs.setdefault('indent', 2)
+            json_kwargs.setdefault('ensure_ascii', False)
+            
+            # Convert to JSON string
+            json_str = json.dumps(config_dict, **json_kwargs)
+            
+            # Write to file if path is provided
+            if file_path is not None:
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(json_str)
+                except IOError as e:
+                    raise ValueError(f"Failed to write to file {file_path}: {e}") from e
+                return None
+                
+            # Otherwise return as JSON string
+            return json_str
+            
+        except Exception as e:
             raise ValueError(f"Failed to serialize configuration: {e}") from e
 
     @classmethod
-    @overload
     def from_json(
         cls,
-        json_data: Union[str, bytes, bytearray],
-        config_class: Type[T],
-        **json_kwargs: Any,
-    ) -> T:
-        ...
-        
-    @classmethod
-    @overload
-    def from_json(
-        cls,
-        json_data: Path,
-        config_class: Type[T],
-        **json_kwargs: Any,
-    ) -> T:
-        ...
-
-    @classmethod
-    def from_json(
-        cls,
-        json_data: Union[str, bytes, bytearray, Path],
+        json_input: Union[str, bytes, bytearray, Path],
         config_class: Type[T],
         **json_kwargs: Any,
     ) -> T:
         """Deserialize configuration from JSON.
 
         Args:
-            json_data: JSON string, bytes, or path to a JSON file
-            config_class: Configuration class to instantiate
-            **json_kwargs: Additional arguments to pass to json.loads() or json.load()
+            json_input: JSON string, bytes, or file path to load from
+            config_class: The configuration class to instantiate
+            **json_kwargs: Additional arguments to pass to json.loads()
 
         Returns:
-            An instance of the specified configuration class
+            Deserialized configuration object
 
         Raises:
-            TypeError: If json_data is not a valid type
-            ValueError: If deserialization fails or the data is invalid
-            FileNotFoundError: If json_data is a path that doesn't exist
-            json.JSONDecodeError: If the JSON data is malformed
+            ValueError: If deserialization fails or the configuration is invalid
         """
-        # Set default kwargs if not provided
-        json_kwargs.setdefault("parse_float", float)
-        json_kwargs.setdefault("parse_int", int)
-        json_kwargs.setdefault("parse_constant", str)
+        from medvllm.medical.config.models.schema import MedicalModelConfigSchema
+        from medvllm.medical.config.models.medical_config import MedicalModelConfig
         
         try:
             # Handle file path input
-            if isinstance(json_data, (str, Path)) and str(json_data).endswith(".json"):
-                try:
-                    with open(json_data, "r", encoding="utf-8") as f:
-                        config_dict = json.load(f, **json_kwargs)
-                except FileNotFoundError as e:
-                    # If it's a string that doesn't exist as a file, try parsing as JSON
-                    if isinstance(json_data, str):
-                        try:
-                            config_dict = json.loads(json_data, **json_kwargs)
-                        except json.JSONDecodeError:
-                            # Re-raise the original FileNotFoundError if parsing fails
-                            raise FileNotFoundError(
-                                f"File not found and input is not valid JSON: {e}"
-                            ) from e
-                    else:
-                        # Re-raise if it's a Path that doesn't exist
-                        raise
-            # Handle string/bytes input
-            elif isinstance(json_data, (str, bytes, bytearray)):
-                if isinstance(json_data, bytes):
-                    json_data = json_data.decode("utf-8")
-                config_dict = json.loads(json_data, **json_kwargs)
+            if isinstance(json_input, (str, Path)) and str(json_input).endswith('.json'):
+                with open(json_input, 'r', encoding='utf-8') as f:
+                    json_str = f.read()
             else:
-                raise TypeError(
-                    f"Expected str, bytes, or Path, got {type(json_data).__name__}"
-                )
+                json_str = json_input
+                
+            # Parse JSON
+            if isinstance(json_str, (bytes, bytearray)):
+                json_str = json_str.decode('utf-8')
+                
+            # Parse JSON string to dict
+            json_dict = json.loads(json_str, **json_kwargs)
+
+            # Validate against the schema first
+            schema_data = MedicalModelConfigSchema.model_validate(json_dict).model_dump()
             
-            # Create configuration object from dictionary
-            return cls.from_dict(config_dict, config_class)
+            # Map schema fields to config fields
+            config_data = {}
+            field_mapping = {
+                'max_sequence_length': 'max_medical_seq_length'
+            }
+            
+            for schema_field, value in schema_data.items():
+                # Map schema field name to config field name if needed
+                config_field = field_mapping.get(schema_field, schema_field)
+                config_data[config_field] = value
+                
+            # Create a new config instance with the mapped data
+            config = config_class.__new__(config_class)
+            
+            # Set the fields directly on the instance
+            for field, value in config_data.items():
+                if hasattr(config_class, field):
+                    setattr(config, field, value)
+                
+            return config
             
         except json.JSONDecodeError as e:
-            raise json.JSONDecodeError(
-                f"Failed to parse JSON data: {e.msg}", 
-                e.doc, 
-                e.pos
-            ) from e
+            raise ValueError(f"Invalid JSON: {e}") from e
+        except FileNotFoundError as e:
+            raise ValueError(f"File not found: {e}") from e
         except Exception as e:
+            # Catch any other exceptions and wrap them in a ValueError
             raise ValueError(f"Failed to deserialize configuration: {e}") from e
-            
+
     @classmethod
     def _convert_to_serializable(cls, value: Any) -> Any:
         """Recursively convert a value to a JSON-serializable format.
