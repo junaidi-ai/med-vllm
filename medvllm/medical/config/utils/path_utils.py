@@ -27,10 +27,12 @@ def ensure_path(path: PathLike, must_exist: bool = False) -> Path:
         FileNotFoundError: If must_exist is True and path doesn't exist
         TypeError: If path is not a valid path-like object
     """
-    if not isinstance(path, (str, os.PathLike, Path)):
+    if isinstance(path, Path):
+        path_obj = path
+    elif isinstance(path, (str, os.PathLike)):
+        path_obj = Path(path).expanduser().absolute()
+    else:
         raise TypeError(f"Expected path-like object, got {type(path).__name__}")
-    
-    path_obj = Path(path).expanduser().absolute()
     
     if must_exist and not path_obj.exists():
         raise FileNotFoundError(f"Path does not exist: {path_obj}")
