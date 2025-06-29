@@ -1,6 +1,7 @@
 """
 Custom exceptions for configuration validation.
 """
+from typing import Any
 
 class ValidationError(ValueError):
     """Raised when a configuration validation fails."""

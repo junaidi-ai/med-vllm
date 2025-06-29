@@ -6,12 +6,22 @@ This package provides configuration management for medical models, including:
 
 from typing import Any, Dict, Optional, Type, TypeVar, Union
 
+# Import all submodules to ensure they are properly registered
+from . import base
+from . import constants
+from . import models
+from . import serialization
+from . import types
+from . import utils
+from . import validation
+from . import versioning
+
 # Import base configuration
 from .base import BaseMedicalConfig
 
 # Import constants
 from .constants import (
-    ANATOMICAL_REGIONS,
+    DEFAULT_ANATOMICAL_REGIONS as ANATOMICAL_REGIONS,
     DEFAULT_ANATOMICAL_REGIONS,
     DEFAULT_BATCH_SIZE,
     DEFAULT_DOCUMENT_TYPES,

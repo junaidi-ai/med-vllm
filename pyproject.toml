@@ -12,14 +12,18 @@ readme = "README.md"
 description = "a Nano vLLM fine-tuned for medical applications"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "torch>=2.4.0",
-    "triton>=3.0.0",
-    "transformers>=4.51.0",
-    "xxhash",
+    "xxhash>=3.4.1",
+    "pydantic>=2.0.0",
+    "typing-extensions>=4.0.0"
 ]
 
 [project.optional-dependencies]
-all = ["flash-attn"]
+all = [
+    "torch>=2.4.0",
+    "triton>=3.0.0",
+    "transformers>=4.51.0",
+    "flash-attn>=2.5.0"
+]
 test = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
@@ -40,8 +44,6 @@ dev = [
 [project.urls]
 Homepage="https://github.com/SHA888/med-vllm"
 
-[tool.setuptools]
-packages = ["medvllm"]
 
 [tool.mypy]
 python_version = "3.10"

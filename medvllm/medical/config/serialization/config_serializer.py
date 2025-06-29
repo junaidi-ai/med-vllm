@@ -11,7 +11,7 @@ import json
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, TypeVar, Union, cast, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Optional, Type, TypeVar, Union, cast, get_args, get_origin
 
 from pydantic import BaseModel
 
