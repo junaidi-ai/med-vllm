@@ -7,33 +7,23 @@ configuration objects and their serialized representations.
 
 from __future__ import annotations
 
-import dataclasses
 import json
+import logging
 import os
-from dataclasses import asdict, fields, is_dataclass
-from enum import Enum
 from pathlib import Path
 from typing import (
-    TYPE_CHECKING,
     Any,
     Dict,
     Optional,
     Type,
     TypeVar,
     Union,
-    cast,
-    get_args,
-    get_origin,
 )
 
-from pydantic import BaseModel
+logger = logging.getLogger(__name__)
 
 # Import the base configuration class
 from ..base import BaseMedicalConfig
-
-# Import the model configuration class with proper type checking
-if TYPE_CHECKING:
-    from ..models.medical_config import MedicalModelConfig
 
 # Type variable for generic configuration types
 T = TypeVar("T", bound=BaseMedicalConfig)
@@ -51,7 +41,8 @@ class ConfigSerializer:
         """Convert a configuration object to a dictionary.
 
         Args:
-            config: The configuration object to serialize (can be a dict, BaseMedicalConfig, or any object with to_dict())
+            config: The configuration object to serialize (can be a dict,
+                   BaseMedicalConfig, or any object with to_dict())
 
         Returns:
             A dictionary representation of the configuration
@@ -66,7 +57,8 @@ class ConfigSerializer:
             result = config.to_dict()
             if not isinstance(result, dict):
                 raise TypeError(
-                    f"to_dict() did not return a dictionary, got {type(result).__name__}"
+                    "to_dict() did not return a dictionary, "
+                    f"got {type(result).__name__}"
                 )
             return result
 
@@ -110,7 +102,8 @@ class ConfigSerializer:
 
             return output
 
-        raise TypeError(f"Cannot convert object of type {type(config)} to dictionary")
+        msg = f"Cannot convert object of type {type(config)} to dictionary"
+        raise TypeError(msg)
 
     @classmethod
     def _convert_to_serializable(
@@ -119,7 +112,7 @@ class ConfigSerializer:
         """Recursively convert an object to a serializable dictionary.
 
         Args:
-            obj: The object to convert (dict, list, tuple, set, or any other type)
+            obj: The object to convert (dict, list, tuple, set, etc.)
 
         Returns:
             A serializable representation of the object
@@ -155,16 +148,24 @@ class ConfigSerializer:
             try:
                 result = obj.to_dict()
                 return cls._convert_to_serializable(result)
-            except Exception:
-                pass
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.debug(
+                    "Failed to convert object to dict using to_dict(): %s",
+                    str(e),
+                    exc_info=True,
+                )
 
         # Handle Pydantic models
         if hasattr(obj, "model_dump") and callable(getattr(obj, "model_dump")):
             try:
                 result = obj.model_dump()
                 return cls._convert_to_serializable(result)
-            except Exception:
-                pass
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.debug(
+                    "Failed to convert Pydantic model to dict: %s",
+                    str(e),
+                    exc_info=True,
+                )
 
         # For any other type, convert to string
         return str(obj)
@@ -193,7 +194,8 @@ class ConfigSerializer:
             )
         ):
             raise TypeError(
-                f"config_class must be a subclass of BaseMedicalConfig, got {config_class}"
+                "config_class must be a subclass of BaseMedicalConfig, "
+                f"got {config_class}"
             )
 
         try:
@@ -209,7 +211,8 @@ class ConfigSerializer:
         """Convert configuration to a JSON string.
 
         Args:
-            config: The configuration to serialize (can be a config object or dict)
+            config: The configuration to serialize (can be a config
+                   object or dict)
             **kwargs: Additional arguments for json.dumps()
 
         Returns:
@@ -315,7 +318,8 @@ class ConfigSerializer:
         Returns:
             bool: True if the data can be serialized, False otherwise
         """
-        # Only allow None, basic types, dicts, objects with to_dict(), or BaseMedicalConfig
+        # Only allow None, basic types, dicts, objects with to_dict(), or
+        # BaseMedicalConfig
         if data is None or isinstance(data, (str, int, float, bool, dict)):
             return True
 
@@ -342,7 +346,8 @@ class ConfigSerializer:
         """Serialize data to a string or file.
 
         Args:
-            data: The data to serialize (can be a dict, BaseMedicalConfig, or any object with to_dict())
+            data: The data to serialize (can be a dict, BaseMedicalConfig,
+                or any object with to_dict())
             file_path: Optional file path to save the serialized data
             encoding: File encoding to use if saving to file
             **kwargs: Additional arguments for the serializer
@@ -356,7 +361,8 @@ class ConfigSerializer:
         """
         serialized: str = ""
 
-        # Check if the data is serializable - be very strict about what we accept
+        # Check if the data is serializable - be very strict about what we
+        # accept
         if data is None or isinstance(data, (int, float, bool)):
             serialized = str(data)
         elif isinstance(data, dict):
@@ -377,7 +383,8 @@ class ConfigSerializer:
             with open(data, "r", encoding=encoding) as f:
                 serialized = f.read()
         else:
-            raise TypeError(f"Unsupported type for serialization: {type(data)}")
+            msg = f"Unsupported type for serialization: {type(data)}"
+            raise TypeError(msg)
 
         # Handle file output if file_path is provided
         if file_path is not None:
@@ -405,7 +412,8 @@ class ConfigSerializer:
             **kwargs: Additional arguments for the deserializer
 
         Returns:
-            The deserialized data (dict or instance of config_class if provided)
+            The deserialized data (dict or instance of config_class
+            if provided)
 
         Raises:
             ValueError: If the input data cannot be deserialized
@@ -451,8 +459,9 @@ class ConfigSerializer:
                         return cast(T, result)
                     return cast(Dict[str, Any], result)
                 except OSError as e:
-                    # Raise with a simple error message to match test expectations
-                    raise OSError(f"Read error") from e
+                    # Raise with a simple error message to match test
+                    # expectations
+                    raise OSError("Error reading file") from e
             elif isinstance(data, bytes):
                 file_content = data.decode("utf-8")
                 result = cls._deserialize_from_str(file_content, **kwargs)
@@ -475,10 +484,11 @@ class ConfigSerializer:
                 return cast(Union[Dict[str, Any], T], result)
             except OSError as e:
                 # Raise with a simple error message to match test expectations
-                raise OSError(f"Read error") from e
+                raise OSError("Error reading file") from e
         elif isinstance(data, bytes):
             content = data.decode("utf-8")
             result = process_content(content)
             return cast(Union[Dict[str, Any], T], result)
 
-        raise TypeError(f"Unsupported data type for deserialization: {type(data)}")
+        msg = f"Unsupported data type for deserialization: {type(data)}"
+        raise TypeError(msg)

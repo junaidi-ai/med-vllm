@@ -2,29 +2,18 @@
 Medical model configuration module.
 
 This package provides configuration management for medical models, including:
+- Model configuration and validation
+- Serialization/deserialization
+- Versioning and compatibility
+- Type definitions and constants
 """
-
-from typing import Any, Dict, Optional, Type, TypeVar, Union
-
-# Import all submodules to ensure they are properly registered
-from . import (
-    base,
-    constants,
-    models,
-    serialization,
-    types,
-    utils,
-    validation,
-    versioning,
-)
 
 # Import base configuration
 from .base import BaseMedicalConfig
 
 # Import constants
-from .constants import DEFAULT_ANATOMICAL_REGIONS
-from .constants import DEFAULT_ANATOMICAL_REGIONS as ANATOMICAL_REGIONS
 from .constants import (
+    DEFAULT_ANATOMICAL_REGIONS,
     DEFAULT_BATCH_SIZE,
     DEFAULT_DOCUMENT_TYPES,
     DEFAULT_DOMAIN_ADAPTATION_LAMBDA,
@@ -46,9 +35,6 @@ from .constants import (
 # Import main configuration class
 from .models.medical_config import MedicalModelConfig
 
-# Import serialization
-from .serialization import ConfigSerializer, JSONSerializer, YAMLSerializer
-
 # Import types
 from .types import (
     AnatomicalRegion,
@@ -65,14 +51,7 @@ from .types import (
     MetricRange,
     ModelConfig,
     RegulatoryStandard,
-    validate_model_path,
 )
-
-# Import validation
-from .validation import MedicalConfigValidator
-
-# Import versioning utilities
-from .versioning import ConfigVersioner, ConfigVersionInfo, ConfigVersionStatus
 
 # Define public API
 __all__ = [

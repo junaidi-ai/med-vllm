@@ -7,8 +7,8 @@ including version checking and migration utilities.
 
 import warnings
 from dataclasses import dataclass
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from enum import Enum
+from typing import Any, Dict, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -88,7 +88,8 @@ class ConfigVersioner:
 
             if version_info.status == ConfigVersionStatus.UNSUPPORTED:
                 raise ValueError(
-                    f"Version {version} is no longer supported. {version_info.message}"
+                    f"Version {version} is no longer supported. "
+                    f"{version_info.message}"
                 )
             elif version_info.status == ConfigVersionStatus.DEPRECATED:
                 warnings.warn(

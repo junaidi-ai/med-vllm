@@ -17,10 +17,10 @@ class Scheduler:
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
 
-    def is_finished(self):
+    def is_finished(self) -> bool:
         return not self.waiting and not self.running
 
-    def add(self, seq: Sequence):
+    def add(self, seq: Sequence) -> None:
         self.waiting.append(seq)
 
     def schedule(self) -> tuple[list[Sequence], bool]:
@@ -61,13 +61,13 @@ class Scheduler:
         self.running.extendleft(reversed(scheduled_seqs))
         return scheduled_seqs, False
 
-    def preempt(self, seq: Sequence):
+    def preempt(self, seq: Sequence) -> None:
         seq.status = SequenceStatus.WAITING
         self.block_manager.deallocate(seq)
         self.waiting.appendleft(seq)
 
     def postprocess(self, seqs: list[Sequence], token_ids: list[int]) -> list[bool]:
-        finished = []
+        finished: list[bool] = []
         for seq, token_id in zip(seqs, token_ids):
             seq.append_token(token_id)
             if (

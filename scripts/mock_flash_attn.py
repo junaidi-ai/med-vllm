@@ -1,6 +1,6 @@
 """Mock implementation of flash_attn for testing purposes."""
 
-from typing import Any, Optional
+from typing import Any
 
 
 class MockFlashAttn:

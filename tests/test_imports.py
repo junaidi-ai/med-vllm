@@ -2,9 +2,7 @@
 
 import importlib
 import sys
-import warnings
 from pathlib import Path
-from typing import List, Set
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -64,9 +62,8 @@ def test_import_medical_model_config():
     # This will be skipped since it requires PyTorch
     with patch.dict("sys.modules"):
         try:
-            from medvllm.medical.config import MedicalModelConfig
-
-            assert MedicalModelConfig is not None
+            # Import is just for testing, no need to assign to a variable
+            from medvllm.medical.config import MedicalModelConfig  # noqa: F401
         except ImportError as e:
             if "torch" in str(e) or "transformers" in str(e):
                 pytest.skip("Skipping MedicalModelConfig as it requires PyTorch")
@@ -122,16 +119,18 @@ if __name__ == "__main__":
     # Test MedicalModelConfig specifically
     try:
         with patch.dict("sys.modules"):
-            from medvllm.medical.config import MedicalModelConfig
+            # Import is just for testing, no need to assign to a variable
+            import medvllm.medical.config  # noqa: F401
 
             results.append("✅ medvllm.medical.config.MedicalModelConfig")
     except ImportError as e:
         if "torch" in str(e) or "transformers" in str(e):
             results.append(
-                "⏭️ medvllm.medical.config.MedicalModelConfig (requires PyTorch)"
+                "⏭️ medvllm.medical.config.MedicalModelConfig " "(requires PyTorch)"
             )
         else:
             results.append(
-                f"❌ medvllm.medical.config.MedicalModelConfig ({str(e).split('(')[0]})"
+                "❌ medvllm.medical.config.MedicalModelConfig "
+                f"({str(e).split('(')[0]})"
             )
     print("\n".join(results))

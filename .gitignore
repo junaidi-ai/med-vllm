@@ -48,6 +48,9 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
+
+# Detect-secrets baseline file
+.secrets.baseline
 .pytest_cache/
 cover/
 

@@ -5,16 +5,7 @@ This module provides functions for validating configuration schemas.
 """
 
 import inspect
-from typing import (
-    Any,
-    Dict,
-    Optional,
-    Type,
-    Union,
-    get_args,
-    get_origin,
-    get_type_hints,
-)
+from typing import Any, Dict, Type, Union, get_origin, get_type_hints
 
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
@@ -81,7 +72,9 @@ def validate_config_schema(config: Any, config_class: Type[BaseModel]) -> Any:
                 continue
 
             # Handle nested models
-            if hasattr(field_type, "__base__") and issubclass(field_type, BaseModel):
+            has_base = hasattr(field_type, "__base__")
+            is_base_model = has_base and issubclass(field_type, BaseModel)
+            if is_base_model:
                 if field_value is not None:
                     if isinstance(field_value, dict):
                         # Recursively validate nested model
@@ -103,7 +96,8 @@ def validate_config_schema(config: Any, config_class: Type[BaseModel]) -> Any:
                     if not isinstance(field_value, list):
                         config[field_name] = list(field_value)
                 # For other generic types, skip direct type checking
-                # as we can't do isinstance() with subscripted generics in Python
+                # as we can't do isinstance() with
+                # subscripted generics in Python
                 continue
 
             # Check type
@@ -114,7 +108,8 @@ def validate_config_schema(config: Any, config_class: Type[BaseModel]) -> Any:
                         raise FieldTypeError(
                             "invalid type", field=field_name, value=field_value
                         )
-                # Only try conversion if types don't match and it's not a generic type
+                # Only try conversion if types don't match and
+                # it's not a generic type
                 elif not isinstance(field_value, field_type):
                     try:
                         config[field_name] = field_type(field_value)
@@ -179,7 +174,7 @@ def get_required_fields(config_class: Type[BaseModel]) -> Dict[str, type]:
     Returns:
         Dictionary mapping field names to their types
     """
-    from typing import Optional, Union, get_args, get_origin
+    from typing import get_args, get_origin
 
     # Get type hints and model fields based on Pydantic version
     type_hints = get_type_hints(config_class, include_extras=True)

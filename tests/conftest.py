@@ -1,16 +1,13 @@
 """Pytest configuration and fixtures."""
 
 import contextlib
-import importlib
 import os
 import sys
+import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, Union
 from unittest.mock import MagicMock, Mock
 
 import pytest
-
-# Import torch for type checking and mocking
 import torch
 
 # Import mock field function to handle description parameter
@@ -89,7 +86,7 @@ class MockTorch(ModuleMock):
             def to(self, *args, **kwargs):
                 return self
 
-            def cuda(self, *args, **kwargs):
+            def to_device(self, *args, **kwargs):
                 return self
 
             def eval(self, *args, **kwargs):
@@ -180,7 +177,7 @@ class MockTorch(ModuleMock):
     def is_grad_enabled(self):
         return False
 
-    def cuda(self, *args, **kwargs):
+    def to_device(self, *args, **kwargs):
         return self
 
     def float(self):
@@ -326,11 +323,6 @@ if not hasattr(torch, "utils"):
     torch.utils = MagicMock()
     torch.utils._pytree = MockPyTree()
 
-import os
-import tempfile
-
-import pytest
-
 
 @pytest.fixture
 def temp_model_dir():
@@ -339,7 +331,9 @@ def temp_model_dir():
         # Create a dummy config.json file
         config_path = os.path.join(tmpdir, "config.json")
         with open(config_path, "w") as f:
-            f.write('{"model_type":"bert","hidden_size":768,"num_hidden_layers":12}')
+            f.write(
+                '{"model_type":"bert",' '"hidden_size":768,' '"num_hidden_layers":12}'
+            )
         yield tmpdir
 
 
@@ -353,7 +347,8 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: mark test as slow to run")
     config.addinivalue_line(
         "markers",
-        "integration: mark test as integration test (slow, requires external services)",
+        "integration: mark test as integration test "
+        "(slow, requires external services)",
     )
 
 

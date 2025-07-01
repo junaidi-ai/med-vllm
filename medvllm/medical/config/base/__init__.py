@@ -5,24 +5,24 @@ This module provides the BaseMedicalConfig class which serves as the foundation
 for all medical model configurations in the medvllm library.
 """
 
-import dataclasses
-import json
-import os
+import logging
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, Dict, Optional
 
 from medvllm.config import Config
 
 CONFIG_VERSION = "1.0.0"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class BaseMedicalConfig(Config):
     """Base configuration class for medical models.
 
-    This class provides common functionality and fields for medical model configurations.
-    It inherits from the base Config class and adds medical-specific features.
+    This class provides common functionality and fields for medical model
+    configurations. It inherits from the base Config class and adds
+    medical-specific features.
 
     Attributes:
         config_version: Version of the configuration schema
@@ -77,7 +77,7 @@ class BaseMedicalConfig(Config):
         # Call parent's __post_init__ first
         try:
             super().__post_init__()
-        except AttributeError as e:
+        except AttributeError:
             # If parent's __post_init__ fails, we'll handle it in validate()
             pass
 
@@ -92,7 +92,9 @@ class BaseMedicalConfig(Config):
 
     def ensure_compatibility(self) -> bool:
         """Ensure the configuration is compatible with the current version."""
-        if not hasattr(self, "config_version") or self.config_version != CONFIG_VERSION:
+        has_version = hasattr(self, "config_version")
+        version_matches = has_version and self.config_version == CONFIG_VERSION
+        if not has_version or not version_matches:
             self._migrate_config()
             return False
         return True
@@ -116,7 +118,7 @@ class BaseMedicalConfig(Config):
         Returns:
             Dictionary containing all configuration parameters
         """
-        # Get all non-private attributes
+        # Create a dict of fields that don't start with underscore
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
     @classmethod
@@ -173,9 +175,12 @@ class BaseMedicalConfig(Config):
         """Validate the configuration."""
         # Check required fields
         required_fields = ["model_type"]
-        for field in required_fields:
-            if not hasattr(self, field) or getattr(self, field) is None:
-                raise ValueError(f"Missing required field: {field}")
+        missing_fields = []
+        for field_name in required_fields:
+            if not hasattr(self, field_name) or getattr(self, field_name) is None:
+                missing_fields.append(field_name)
+        if missing_fields:
+            raise ValueError(f"Missing required fields: {missing_fields}")
 
         # Try to set up hf_config if not already set
         if (
@@ -187,15 +192,22 @@ class BaseMedicalConfig(Config):
                 from transformers import AutoConfig
 
                 self.hf_config = AutoConfig.from_pretrained(self.model)
-                if hasattr(self, "max_model_len") and hasattr(
+                # Set max_model_len from model config if available
+                has_hf_config = hasattr(self, "hf_config")
+                has_position_embeddings = has_hf_config and hasattr(
                     self.hf_config, "max_position_embeddings"
-                ):
+                )
+                if has_hf_config and has_position_embeddings:
                     self.max_model_len = min(
                         self.max_model_len, self.hf_config.max_position_embeddings
                     )
-            except Exception:
-                # It's okay if we can't load the config, we'll just skip setting max_model_len
-                pass
+            except (AttributeError, TypeError, ValueError) as e:
+                # Skip setting max_model_len if we can't access the config attributes
+                logger.debug(
+                    "Could not set max_model_len from hf_config: %s",
+                    str(e),
+                    exc_info=True,
+                )
 
         # Call custom validation if implemented
         if hasattr(self, "_validate_custom"):

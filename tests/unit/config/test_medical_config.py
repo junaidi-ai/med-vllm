@@ -16,9 +16,11 @@ Test files:
 - test_medical_config_integration.py: Integration tests with real file operations
 """
 
+import json
 import os
 import sys
 import tempfile
+import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from unittest.mock import MagicMock, PropertyMock, patch

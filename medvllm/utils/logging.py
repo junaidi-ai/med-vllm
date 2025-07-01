@@ -33,14 +33,15 @@ def configure_logging(
 
     Args:
         level: The logging level (e.g., logging.INFO, logging.DEBUG).
-        log_file: Optional path to a log file. If None, logs will only go to stderr.
+        log_file: Optional path to a log file. If None, logs will only
+                 go to stderr.
     """
     log_config = {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
             "standard": {
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                "format": ("%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
                 "datefmt": "%Y-%m-%d %H:%M:%S",
             },
         },

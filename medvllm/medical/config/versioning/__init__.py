@@ -6,7 +6,7 @@ including version checking, migration, and compatibility handling.
 """
 
 from enum import Enum
-from typing import Dict, Optional, Type, TypeVar, Union
+from typing import Dict, Optional
 
 from pydantic import BaseModel
 
@@ -39,7 +39,9 @@ class ConfigVersioner:
         "0.1.0": ConfigVersionInfo(
             version="0.1.0",
             status=ConfigVersionStatus.DEPRECATED,
-            message="Initial release of medical configuration. Please upgrade to 1.0.0",
+            message=(
+                "Initial release of medical configuration. " "Please upgrade to 1.0.0"
+            ),
         ),
     }
 
@@ -50,7 +52,7 @@ class ConfigVersioner:
 
     @classmethod
     def check_version_compatibility(cls, version: str) -> bool:
-        """Check if a version is compatible and issue warnings if deprecated."""
+        """Check version compatibility and issue warnings if deprecated."""
         version_info = cls.get_version_info(version)
         if not version_info:
             raise ValueError(f"Unsupported configuration version: {version}")
@@ -59,13 +61,15 @@ class ConfigVersioner:
             import warnings
 
             warnings.warn(
-                f"Configuration version {version} is deprecated. {version_info.message}",
+                f"Configuration version {version} is deprecated. "
+                f"{version_info.message}",
                 DeprecationWarning,
                 stacklevel=2,
             )
         elif version_info.status == ConfigVersionStatus.UNSUPPORTED:
             raise ValueError(
-                f"Configuration version {version} is no longer supported. {version_info.message}"
+                f"Configuration version {version} is no longer "
+                f"supported. {version_info.message}"
             )
 
         return True

@@ -6,9 +6,8 @@ context of configuration management, including path resolution and validation.
 """
 
 import os
-import sys
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 PathLike = Union[str, os.PathLike, Path]
 
@@ -32,7 +31,8 @@ def ensure_path(path: PathLike, must_exist: bool = False) -> Path:
     elif isinstance(path, (str, os.PathLike)):
         path_obj = Path(path).expanduser().absolute()
     else:
-        raise TypeError(f"Expected path-like object, got {type(path).__name__}")
+        msg = f"Expected path-like object, got {type(path).__name__}"
+        raise TypeError(msg)
 
     if must_exist and not path_obj.exists():
         raise FileNotFoundError(f"Path does not exist: {path_obj}")

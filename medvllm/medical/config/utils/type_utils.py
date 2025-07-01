@@ -5,7 +5,6 @@ This module provides functions for working with Python type hints,
 especially in the context of configuration validation and processing.
 """
 
-import inspect
 import typing
 from typing import (
     Any,
@@ -13,10 +12,8 @@ from typing import (
     List,
     Optional,
     Tuple,
-    Type,
     TypeVar,
     Union,
-    _GenericAlias,
     get_args,
     get_origin,
 )
@@ -143,13 +140,14 @@ def is_dict_type(t: type) -> bool:
 
 
 def get_dict_types(t: type) -> Optional[Tuple[type, type]]:
-    """Get the key and value types from a Dict[K, V] or dict[K, V] type hint.
+    """Get key and value types from a Dict[K, V] or dict[K, V] type hint.
 
     Args:
         t: The dict type
 
     Returns:
-        A tuple of (key_type, value_type) if the input is a dict type, None otherwise
+        A tuple of (key_type, value_type) if the input is a dict type,
+        None otherwise
     """
     if not is_dict_type(t):
         return None
@@ -227,8 +225,8 @@ def convert_string_to_type(value: str, target_type: type) -> Any:
                     f"Expected a JSON object, got {type(parsed_dict).__name__}"
                 )
             return {
-                convert_string_to_type(str(k), key_type): convert_string_to_type(
-                    str(v), value_type
+                convert_string_to_type(str(k), key_type): (
+                    convert_string_to_type(str(v), value_type)
                 )
                 for k, v in parsed_dict.items()
             }
@@ -250,9 +248,9 @@ def validate_type(value: Any, type_hint: type) -> bool:
     """
     # Handle None case first
     if value is None:
-        return type_hint is type(None) or (
-            is_optional_type(type_hint) and get_optional_type(type_hint) is not None
-        )
+        is_optional = is_optional_type(type_hint)
+        has_optional_type = get_optional_type(type_hint) is not None
+        return type_hint is type(None) or (is_optional and has_optional_type)
 
     # Handle basic types
     if type_hint in (int, float, bool, str):

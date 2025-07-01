@@ -10,7 +10,7 @@ available, the YAMLSerializer class will not be usable.
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, TypeVar, Union, cast, overload
+from typing import Any, Dict, Optional, Type, TypeVar, Union
 
 from ..base import BaseMedicalConfig
 from .config_serializer import ConfigSerializer
@@ -18,7 +18,7 @@ from .config_serializer import ConfigSerializer
 # Try to import PyYAML
 try:
     import yaml
-    from yaml import SafeDumper, SafeLoader, YAMLError
+    from yaml import YAMLError
 
     PYYAML_AVAILABLE = True
 except ImportError:
@@ -116,7 +116,8 @@ if PYYAML_AVAILABLE:
                 return yaml_str
 
             except Exception as e:
-                raise ValueError(f"Failed to serialize configuration: {e}") from e
+                msg = f"Failed to serialize configuration: {e}"
+                raise ValueError(msg) from e
 
         @classmethod
         def from_yaml(
@@ -175,7 +176,8 @@ if PYYAML_AVAILABLE:
                         # Try to parse as YAML
                         config_dict = yaml.safe_load(yaml_str, **yaml_kwargs)
                     except yaml.YAMLError as e:
-                        # If it looks like a file path but doesn't exist, provide a better error
+                        # If it looks like a file path but doesn't exist,
+                        # provide a better error
                         if (
                             isinstance(yaml_data, str)
                             and len(yaml_data) < 260
@@ -186,7 +188,8 @@ if PYYAML_AVAILABLE:
                             )
                         raise ValueError(f"Invalid YAML: {e}")
 
-                # If we got here but config_dict is None, the YAML was empty or None
+                # If we got here but config_dict is None,
+                # the YAML was empty or None
                 if config_dict is None:
                     raise ValueError("Empty YAML content")
 

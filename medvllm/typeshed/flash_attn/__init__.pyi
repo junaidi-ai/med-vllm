@@ -8,9 +8,7 @@ def flash_attn_func(
     softmax_scale: Optional[float] = None,
     causal: bool = False,
     return_attn_probs: bool = False,
-) -> Tuple[Any, ...]:
-    ...
-
+) -> Tuple[Any, ...]: ...
 def flash_attn_varlen_func(
     q: Any,
     k: Any,
@@ -23,9 +21,7 @@ def flash_attn_varlen_func(
     softmax_scale: Optional[float] = None,
     causal: bool = False,
     return_attn_probs: bool = False,
-) -> Tuple[Any, ...]:
-    ...
-
+) -> Tuple[Any, ...]: ...
 def flash_attn_with_kvcache(
     q: Any,
     k_cache: Any,
@@ -35,5 +31,4 @@ def flash_attn_with_kvcache(
     cache_seqlens: Any,
     softmax_scale: Optional[float] = None,
     causal: bool = True,
-) -> Any:
-    ...
+) -> Any: ...

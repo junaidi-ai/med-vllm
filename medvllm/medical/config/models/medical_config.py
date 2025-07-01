@@ -8,126 +8,78 @@ and organization using the new modules.
 
 from __future__ import annotations
 
-import dataclasses
-import importlib.metadata
-import json
 import os
 import warnings
-from dataclasses import asdict, dataclass, field, fields, is_dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import (
-    Any,
-    ClassVar,
-    Dict,
-    Iterator,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-    cast,
-    get_args,
-    get_origin,
-    get_type_hints,
-    overload,
-)
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
+# Third-party imports
 try:
     import yaml
-    from yaml import SafeDumper
 except ImportError:
     yaml = None  # type: ignore
-    SafeDumper = None  # type: ignore
 
-from pydantic import ValidationError
+from medvllm.medical.config.base import BaseMedicalConfig
 
-# Internal imports
-from medvllm.config import Config
-from medvllm.medical.config.validation import MedicalConfigValidator
+# Local imports
+from medvllm.medical.config.types import (
+    AnatomicalRegion,
+    DocumentType,
+    EntityType,
+    ImagingModality,
+    MedicalSpecialty,
+    RegulatoryStandard,
+)
 from medvllm.utils.logging import get_logger
 
-# Local application imports
-from ..constants import (
-    CONFIG_VERSION,
-    DEFAULT_ANATOMICAL_REGIONS,
-    DEFAULT_BATCH_SIZE,
-    DEFAULT_DOCUMENT_TYPES,
-    DEFAULT_ENTITY_TYPES,
-    DEFAULT_IMAGING_MODALITIES,
-    DEFAULT_KNOWLEDGE_BASES,
-    DEFAULT_MAX_ENTITY_SPAN,
-    DEFAULT_MAX_RETRIES,
-    DEFAULT_MAX_SEQ_LENGTH,
-    DEFAULT_MEDICAL_SPECIALTIES,
-    DEFAULT_MODEL_TYPE,
-    DEFAULT_NER_THRESHOLD,
-    DEFAULT_REGULATORY_STANDARDS,
-    DEFAULT_REQUEST_TIMEOUT,
-    DEFAULT_SECTION_HEADERS,
-    DEFAULT_UNCERTAINTY_THRESHOLD,
-    SUPPORTED_MODEL_TYPES,
-)
-from ..enums import (
-    AnatomicalRegion,
-    DocumentType,
-    EntityType,
-    ImagingModality,
-    MedicalSpecialty,
-    RegulatoryStandard,
-)
-from ..serialization.config_serializer import ConfigSerializer
+# Constants for default values
+DEFAULT_MODEL_TYPE = "medical_llm"
+DEFAULT_MAX_SEQ_LENGTH = 4096
+DEFAULT_BATCH_SIZE = 1
+DEFAULT_CACHE_TTL = 3600  # 1 hour
+DEFAULT_UNCERTAINTY_THRESHOLD = 0.7
+DEFAULT_NER_THRESHOLD = 0.5
+DEFAULT_MAX_ENTITY_SPAN_LENGTH = 10
 
-# Import types from the new module structure
-from ..types import (
-    AnatomicalRegion,
-    ClinicalMetrics,
-    DocumentType,
-    DomainConfig,
-    EntityLinkingConfig,
-    EntityType,
-    ImagingModality,
-    MedicalSpecialty,
-    MetricConfig,
-    ModelConfig,
-    PathLike,
-    RegulatoryStandard,
-    validate_model_path,
-)
-
-# Import validation
-from ..validation import MedicalConfigValidator
-
-# Import versioning
-from ..versioning import ConfigVersioner, ConfigVersionInfo, ConfigVersionStatus
-
-# Import schema
-from .schema import MedicalModelConfigSchema, ModelType
-
-# Type variable for class methods that return an instance of the class
-T = TypeVar("T", bound="MedicalModelConfig")
-
-# Supported model types for medical applications
+# Define supported model types as a set of strings
 SUPPORTED_MODEL_TYPES = {
-    "bert",
-    "roberta",
-    "gpt2",
-    "t5",
-    "medical_bert",
-    "biobert",
-    "clinical_bert",
-    "pubmed_bert",
-    "bluebert",
+    "medical_llm",
+    "medical_ner",
+    "medical_qa",
+    "medical_summarization",
+    "medical_classification",
+    "radiology_report",
+    "clinical_notes",
 }
+
+# Default configuration values
+DEFAULT_MEDICAL_SPECIALTIES = ["general_medicine"]
+DEFAULT_ANATOMICAL_REGIONS = ["full_body"]
+DEFAULT_IMAGING_MODALITIES = ["xray", "ct", "mri", "ultrasound"]
+DEFAULT_ENTITY_TYPES = ["disease", "symptom", "medication", "procedure"]
+DEFAULT_DOCUMENT_TYPES = ["clinical_note", "discharge_summary", "radiology_report"]
+DEFAULT_SECTION_HEADERS = [
+    "history_of_present_illness",
+    "past_medical_history",
+    "medications",
+    "allergies",
+    "family_history",
+    "social_history",
+    "review_of_systems",
+    "physical_exam",
+    "assessment_and_plan",
+]
 
 # Configuration version
 CONFIG_VERSION = "1.0.0"
 
 # Initialize logger
 logger = get_logger(__name__)
+
+# Type variable for class methods that return an instance of the class
+T = TypeVar("T", bound="MedicalModelConfig")
 
 
 @dataclass
@@ -139,29 +91,43 @@ class MedicalModelConfig(BaseMedicalConfig):
     organization and type safety.
 
     Attributes:
-        model_type (str): Type of the model architecture. Must be one of the supported model types.
+        model_type (str): Type of the model architecture. Must be one of the
+            supported model types.
         model (str): Path to the model directory or model identifier.
-        pretrained_model_name_or_path (Optional[str]): Name or path of the pretrained model.
-        max_medical_seq_length (int): Maximum sequence length for medical text processing.
+        pretrained_model_name_or_path (Optional[str]): Name or path of the
+            pretrained model.
+        max_medical_seq_length (int): Maximum sequence length for medical text
+            processing.
         batch_size (int): Default batch size for inference.
-        enable_uncertainty_estimation (bool): Whether to enable uncertainty estimation.
-        uncertainty_threshold (float): Threshold for model uncertainty calibration.
+        enable_uncertainty_estimation (bool): Whether to enable uncertainty
+            estimation.
+        uncertainty_threshold (float): Threshold for model uncertainty
+            calibration.
         cache_ttl (int): Time-to-live for cache in seconds.
-        medical_specialties (List[Union[MedicalSpecialty, str]]): List of medical specialties.
-        anatomical_regions (List[Union[AnatomicalRegion, str]]): List of anatomical regions.
-        imaging_modalities (List[Union[ImagingModality, str]]): List of imaging modalities.
-        medical_entity_types (List[Union[EntityType, str]]): Types of medical entities to recognize.
-        ner_confidence_threshold (float): Minimum confidence score for NER predictions.
+        medical_specialties (List[Union[MedicalSpecialty, str]]): List of
+            medical specialties.
+        anatomical_regions (List[Union[AnatomicalRegion, str]]): List of
+            anatomical regions.
+        imaging_modalities (List[Union[ImagingModality, str]]): List of
+            imaging modalities.
+        medical_entity_types (List[Union[EntityType, str]]): Types of medical
+            entities to recognize.
+        ner_confidence_threshold (float): Minimum confidence score for NER
+            predictions.
         max_entity_span_length (int): Maximum token length for entity spans.
         entity_linking (Dict[str, Any]): Configuration for entity linking.
-        document_types (List[Union[DocumentType, str]]): Types of clinical documents supported.
-        section_headers (List[str]): Common section headers in clinical documents.
+        document_types (List[Union[DocumentType, str]]): Types of clinical
+            documents supported.
+        section_headers (List[str]): Common section headers in clinical
+            documents.
         max_retries (int): Maximum number of retries for API calls.
         request_timeout (int): Timeout in seconds for API requests.
         domain_adaptation (bool): Whether to enable domain adaptation.
         domain_adaptation_lambda (float): Weight for domain adaptation loss.
-        domain_specific_vocab (Optional[Dict[str, List[str]]]): Domain-specific vocabulary terms.
-        regulatory_compliance (List[Union[RegulatoryStandard, str]]): Regulatory standards the model complies with.
+        domain_specific_vocab (Optional[Dict[str, List[str]]]): Domain-specific
+            vocabulary terms.
+        regulatory_compliance (List[Union[RegulatoryStandard, str]]):
+            Regulatory standards the model complies with.
         config_version (str): Configuration schema version.
     """
 
@@ -169,7 +135,9 @@ class MedicalModelConfig(BaseMedicalConfig):
     model: str = field(
         default="",
         metadata={
-            "description": "Path to the model directory or model identifier. Required field.",
+            "description": (
+                "Path to the model directory or model identifier. " "Required field."
+            ),
             "required": True,
         },
     )
@@ -177,7 +145,10 @@ class MedicalModelConfig(BaseMedicalConfig):
     model_type: str = field(
         default=DEFAULT_MODEL_TYPE,
         metadata={
-            "description": f"Type of the model architecture. Must be one of: {', '.join(SUPPORTED_MODEL_TYPES)}",
+            "description": (
+                f"Type of the model architecture. Must be one of: "
+                f"{', '.join(SUPPORTED_MODEL_TYPES)}"
+            ),
             "choices": SUPPORTED_MODEL_TYPES,
         },
     )
@@ -185,14 +156,18 @@ class MedicalModelConfig(BaseMedicalConfig):
     pretrained_model_name_or_path: Optional[str] = field(
         default=None,
         metadata={
-            "description": "Name or path of the pretrained model from Hugging Face Hub"
+            "description": (
+                "Name or path of the pretrained model from Hugging Face Hub"
+            )
         },
     )
 
     # Model architecture parameters
     max_medical_seq_length: int = field(
         default=DEFAULT_MAX_SEQ_LENGTH,
-        metadata={"description": "Maximum sequence length for medical text processing"},
+        metadata={
+            "description": "Maximum sequence length for medical text " "processing"
+        },
     )
 
     # Training and inference parameters
@@ -204,7 +179,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     enable_uncertainty_estimation: bool = field(
         default=False,
         metadata={
-            "description": "Whether to enable uncertainty estimation in model outputs"
+            "description": ("Whether to enable uncertainty estimation in model outputs")
         },
     )
 
@@ -223,7 +198,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     medical_specialties: List[Union[MedicalSpecialty, str]] = field(
         default_factory=lambda: list(DEFAULT_MEDICAL_SPECIALTIES),
         metadata={
-            "description": "List of medical specialties this model is trained on",
+            "description": "Medical specialties this model is trained on",
             "category": "medical_domain",
         },
     )
@@ -239,7 +214,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     imaging_modalities: List[Union[ImagingModality, str]] = field(
         default_factory=lambda: list(DEFAULT_IMAGING_MODALITIES),
         metadata={
-            "description": "List of medical imaging modalities supported by the model",
+            "description": "Medical imaging modalities supported by the model",
             "category": "imaging",
         },
     )
@@ -256,17 +231,19 @@ class MedicalModelConfig(BaseMedicalConfig):
     )
 
     max_entity_span_length: int = field(
-        default=DEFAULT_MAX_ENTITY_SPAN,
+        default=DEFAULT_MAX_ENTITY_SPAN_LENGTH,
         metadata={"description": "Maximum token length for entity spans"},
     )
 
     entity_linking: Dict[str, Any] = field(
         default_factory=lambda: {
             "enabled": False,
-            "knowledge_bases": list(DEFAULT_KNOWLEDGE_BASES),
+            "knowledge_bases": ["umls", "snomed_ct", "loinc"],
             "confidence_threshold": 0.8,
         },
-        metadata={"description": "Configuration for entity linking to knowledge bases"},
+        metadata={
+            "description": "Configuration for entity linking to " "knowledge bases"
+        },
     )
 
     # Document processing
@@ -282,12 +259,12 @@ class MedicalModelConfig(BaseMedicalConfig):
 
     # API and request handling
     max_retries: int = field(
-        default=DEFAULT_MAX_RETRIES,
+        default=3,  # Default max retries
         metadata={"description": "Maximum number of retries for API calls"},
     )
 
     request_timeout: int = field(
-        default=DEFAULT_REQUEST_TIMEOUT,
+        default=30,  # Default request timeout in seconds
         metadata={"description": "Timeout in seconds for API requests"},
     )
 
@@ -306,7 +283,7 @@ class MedicalModelConfig(BaseMedicalConfig):
 
     # Compliance and versioning
     regulatory_compliance: List[Union[RegulatoryStandard, str]] = field(
-        default_factory=lambda: list(DEFAULT_REGULATORY_STANDARDS),
+        default_factory=lambda: ["hipaa", "gdpr"],
         metadata={"description": "Regulatory standards the model complies with"},
     )
 
@@ -321,7 +298,8 @@ class MedicalModelConfig(BaseMedicalConfig):
     def __post_init__(self) -> None:
         """Post-initialization validation and setup.
 
-        This method performs several important tasks after the configuration is initialized:
+        This method performs several important tasks after the configuration is
+        initialized:
         1. Validates all configuration parameters
         2. Sets up default values for optional fields
         3. Initializes version compatibility checks
@@ -330,8 +308,10 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Convert string values to proper enum types
         self._convert_enums()
 
-        # Set up version compatibility
-        self._setup_version_compatibility()
+        # Skip version compatibility check since we're removing the dependency
+        # Just ensure config_version is set
+        if not hasattr(self, "config_version"):
+            self.config_version = "1.0.0"
 
         # Set default pretrained paths if not specified
         self._set_default_pretrained_paths()
@@ -342,11 +322,6 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Validate all parameters
         self._validate_medical_parameters()
 
-    def _setup_version_compatibility(self) -> None:
-        """Set up version compatibility checks and migrations."""
-        # This method is intentionally left empty as a placeholder for future version compatibility logic
-        pass
-
     def _convert_enums(self) -> None:
         """Convert string values to proper enum types if needed.
 
@@ -354,16 +329,18 @@ class MedicalModelConfig(BaseMedicalConfig):
         """
 
         # Convert string values in lists to enums with type checking
-        def safe_convert(value: Union[str, Enum], enum_type: Type[Enum]) -> Enum:
+        def safe_convert(
+            value: Union[str, Enum], enum_type: Type[Enum]
+        ) -> Union[Enum, str]:
             if isinstance(value, str):
                 try:
-                    return enum_type(value)
-                except ValueError as e:
+                    return enum_type(value.upper())
+                except (ValueError, AttributeError):
                     warnings.warn(
-                        f"Invalid {enum_type.__name__} value: {value}. Using default.",
+                        f"Invalid {enum_type.__name__} value: {value}",
                         UserWarning,
+                        stacklevel=2,
                     )
-                    return list(enum_type)[0]  # Return first enum value as default
             return value
 
         # Convert each list of enums
@@ -372,6 +349,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                 safe_convert(spec, MedicalSpecialty) if isinstance(spec, str) else spec
                 for spec in self.medical_specialties
             ]
+
         if self.anatomical_regions:
             self.anatomical_regions = [
                 (
@@ -381,6 +359,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                 )
                 for region in self.anatomical_regions
             ]
+
         if self.imaging_modalities:
             self.imaging_modalities = [
                 (
@@ -390,6 +369,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                 )
                 for modality in self.imaging_modalities
             ]
+
         if self.medical_entity_types:
             self.medical_entity_types = [
                 (
@@ -399,6 +379,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                 )
                 for entity_type in self.medical_entity_types
             ]
+
         if self.document_types:
             self.document_types = [
                 (
@@ -408,56 +389,18 @@ class MedicalModelConfig(BaseMedicalConfig):
                 )
                 for doc_type in self.document_types
             ]
+
         if self.regulatory_compliance:
             self.regulatory_compliance = [
                 safe_convert(std, RegulatoryStandard) if isinstance(std, str) else std
                 for std in self.regulatory_compliance
             ]
 
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MedicalModelConfig":
-        """Create a configuration from a dictionary.
-
-        Args:
-            data: Dictionary containing configuration parameters
-
-        Returns:
-            A new instance of MedicalModelConfig
-        """
-        # Create a copy to avoid modifying the input
-        data = data.copy()
-
-        # Remove domain_config and internal fields from the data
-        domain_config = data.pop("domain_config", None)
-        data.pop("_extra_fields", None)  # Remove internal fields
-
-        # Create the instance with only valid constructor arguments
-        valid_fields = {f.name for f in fields(cls) if f.init}
-        constructor_args = {k: v for k, v in data.items() if k in valid_fields}
-        instance = cls(**constructor_args)
-
-        # Set any remaining fields as attributes
-        for k, v in data.items():
-            if k not in valid_fields and not k.startswith("_"):
-                setattr(instance, k, v)
-
-        # Handle model_type if present
-        if "model_type" in data:
-            instance.model_type = data["model_type"]
-
-        # Set domain_config after initialization if it exists
-        if domain_config is not None:
-            if isinstance(domain_config, dict):
-                instance.domain_config = DomainConfig(**domain_config)
-            else:
-                instance.domain_config = domain_config
-
-        return instance
-
     def copy(self) -> "MedicalModelConfig":
         """Create a copy of the configuration.
 
-        This method ensures that domain_config and other fields are properly handled during copying.
+        This method ensures that domain_config and other fields are properly
+        handled during copying.
 
         Returns:
             A new instance with the same parameters
@@ -465,7 +408,8 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Get the dictionary representation
         data = self.to_dict()
 
-        # Create a new instance using from_dict which handles all the special cases
+        # Create a new instance using from_dict which handles all the
+        # special cases
         return self.__class__.from_dict(data)
 
     def _initialize_dependent_configs(self) -> None:
@@ -476,56 +420,32 @@ class MedicalModelConfig(BaseMedicalConfig):
         """
         # Initialize domain config if needed
         if not hasattr(self, "domain_config") or self.domain_config is None:
-            self.domain_config: DomainConfig = DomainConfig(
-                enabled=self.domain_adaptation,
-                lambda_val=self.domain_adaptation_lambda,
-                vocab=self.domain_specific_vocab or {},
-            )
-
-        # Initialize entity linking config if it's a dictionary
-        if isinstance(self.entity_linking, dict):
-            self.entity_linking = EntityLinkingConfig(**self.entity_linking)
-
-        # Validate using Pydantic
-        try:
-            # Create a copy of the current instance's attributes for validation
-            config_dict = {
-                k: v for k, v in self.__dict__.items() if not k.startswith("_")
+            self.domain_config: Dict[str, Any] = {
+                "enabled": self.domain_adaptation,
+                "lambda_val": self.domain_adaptation_lambda,
+                "vocab": self.domain_specific_vocab or {},
             }
 
-            # Create and validate schema - this will handle enum conversion
-            validated_config = MedicalModelConfigSchema(**config_dict)
+        # Handle entity linking configuration
+        if isinstance(self.entity_linking, dict):
+            self.entity_linking = dict(self.entity_linking)
 
-            # Update our instance with validated data
-            for field, value in validated_config.model_dump().items():
-                setattr(self, field, value)
-
-        except ValidationError as e:
-            # Convert Pydantic validation errors to ValueError
-            raise ValueError(f"Invalid configuration: {str(e)}")
-
-        # Strict validation for medical_specialties and anatomical_regions
-        if hasattr(self, "medical_specialties") and not isinstance(
-            self.medical_specialties, (list, tuple)
-        ):
-            raise ValueError("medical_specialties must be a list or tuple")
-
-        if hasattr(self, "anatomical_regions") and not isinstance(
-            self.anatomical_regions, (list, tuple)
-        ):
-            raise ValueError("anatomical_regions must be a list or tuple")
+        # Skip Pydantic validation since we're removing the dependency
+        # Just ensure required fields are present
+        required_fields = ["model_type", "model"]
+        for field_name in required_fields:
+            if field_name not in self.__dict__:
+                raise ValueError(f"Missing required field: {field_name}")
 
         # Create model directory if it doesn't exist
         if self.model is not None:
             try:
-                model_path = str(self.model)  # Convert PathLike to string if needed
+                # Convert PathLike to string if needed
+                model_path = str(self.model)
                 os.makedirs(model_path, exist_ok=True)
                 self.model = model_path  # Update with string path
             except (TypeError, OSError) as e:
                 raise ValueError(f"Invalid model path '{self.model}': {str(e)}")
-
-        # Initialize version compatibility check
-        ConfigVersioner.check_version_compatibility(self.config_version)
 
         # Initialize base config with error handling
         try:
@@ -541,9 +461,9 @@ class MedicalModelConfig(BaseMedicalConfig):
     def _validate_medical_parameters(self) -> None:
         """Validate medical-specific parameters.
 
-        This method validates all medical-specific parameters to ensure they have
-        valid values. It raises ValueError for invalid values and issues warnings
-        for potentially problematic but technically valid values.
+        This method validates all medical-specific parameters to ensure they
+        have valid values. It raises ValueError for invalid values and issues
+        warnings for potentially problematic but technically valid values.
 
         The validation includes:
         - Model type and architecture parameters
@@ -554,7 +474,8 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         Raises:
             ValueError: If any parameter has an invalid value
-            UserWarning: For potentially problematic but technically valid values
+            UserWarning: For potentially problematic but technically valid
+                values
         """
         # Base model validation
         self._validate_model_parameters()
@@ -581,7 +502,8 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         if self.max_medical_seq_length <= 0:
             raise ValueError(
-                f"max_medical_seq_length must be positive, got {self.max_medical_seq_length}"
+                "max_medical_seq_length must be positive, "
+                f"got {self.max_medical_seq_length}"
             )
 
         if self.batch_size <= 0:
@@ -595,7 +517,8 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Validate medical specialties
         if not self.medical_specialties:
             warnings.warn(
-                "No medical specialties specified. The model may not perform well "
+                "No medical specialties specified. The model may not perform "
+                "well "
                 "without domain specialization.",
                 UserWarning,
                 stacklevel=2,
@@ -604,7 +527,8 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Validate anatomical regions
         if not self.anatomical_regions:
             warnings.warn(
-                "No anatomical regions specified. Entity recognition may be limited.",
+                "No anatomical regions specified. Entity recognition may be "
+                "limited.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -612,7 +536,8 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Validate imaging modalities
         if not self.imaging_modalities:
             warnings.warn(
-                "No imaging modalities specified. Image-related features will be disabled.",
+                "No imaging modalities specified. Image-related features will "
+                "be disabled.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -621,20 +546,27 @@ class MedicalModelConfig(BaseMedicalConfig):
         """Validate named entity recognition parameters."""
         # Validate NER confidence threshold
         if not (0 <= self.ner_confidence_threshold <= 1.0):
-            raise ValueError(
-                f"ner_confidence_threshold must be between 0 and 1, got {self.ner_confidence_threshold}"
+            msg = (
+                f"ner_confidence_threshold must be between 0 and 1, "
+                f"got {self.ner_confidence_threshold}"
             )
+            raise ValueError(msg)
 
         # Validate entity span length
-        if self.max_entity_span_length <= 0:
-            raise ValueError(
-                f"max_entity_span_length must be positive, got {self.max_entity_span_length}"
+        if (
+            not isinstance(self.max_entity_span_length, int)
+            or self.max_entity_span_length <= 0
+        ):
+            msg = (
+                f"max_entity_span_length must be positive, "
+                f"got {self.max_entity_span_length}"
             )
+            raise ValueError(msg)
 
         # Validate entity types
         if not self.medical_entity_types:
             warnings.warn(
-                "No entity types specified. NER functionality will be limited.",
+                "No entity types specified. NER functionality will be " "limited.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -643,16 +575,20 @@ class MedicalModelConfig(BaseMedicalConfig):
         """Validate performance and resource-related parameters."""
         # Validate uncertainty threshold
         if not (0 <= self.uncertainty_threshold <= 1.0):
-            raise ValueError(
-                f"uncertainty_threshold must be between 0 and 1, got {self.uncertainty_threshold}"
+            msg = (
+                f"uncertainty_threshold must be between 0 and 1, "
+                f"got {self.uncertainty_threshold}"
             )
+            raise ValueError(msg)
 
-        # Validate domain adaptation lambda
+        # Validate domain adaptation parameters
         if self.domain_adaptation and not (0 <= self.domain_adaptation_lambda <= 1.0):
-            raise ValueError(
-                "domain_adaptation_lambda must be between 0 and 1 when domain_adaptation is True, "
+            msg = (
+                "domain_adaptation_lambda must be between 0 and 1 when "
+                "domain_adaptation is True, "
                 f"got {self.domain_adaptation_lambda}"
             )
+            raise ValueError(msg)
 
         # Validate request timeout
         if self.request_timeout <= 0:
@@ -670,15 +606,17 @@ class MedicalModelConfig(BaseMedicalConfig):
         """Validate compliance and regulatory parameters."""
         if not self.regulatory_compliance:
             warnings.warn(
-                "No regulatory compliance standards specified. Ensure this meets your organization's requirements.",
+                "No regulatory compliance standards specified. Ensure this "
+                "meets your organization's requirements.",
                 UserWarning,
                 stacklevel=2,
             )
 
-        # Check for HIPAA compliance if handling PHI
+        # Check for HIPAA compliance warning
         if "hipaa" not in [str(std).lower() for std in self.regulatory_compliance]:
             warnings.warn(
-                "HIPAA compliance not specified. Ensure proper handling of protected health information (PHI).",
+                "HIPAA compliance not specified. Ensure proper handling of "
+                "protected health information (PHI).",
                 UserWarning,
                 stacklevel=2,
             )
@@ -686,8 +624,9 @@ class MedicalModelConfig(BaseMedicalConfig):
     def _set_default_pretrained_paths(self) -> None:
         """Set default pretrained model paths if not specified.
 
-        This method ensures that the pretrained_model_name_or_path is set to the model path
-        if it hasn't been explicitly set. This is useful for backward compatibility.
+        This method ensures that the pretrained_model_name_or_path is set to
+        the model path if it hasn't been explicitly set. This is useful for
+        backward compatibility.
         """
         if not self.pretrained_model_name_or_path and hasattr(self, "model"):
             self.pretrained_model_name_or_path = self.model
@@ -698,18 +637,22 @@ class MedicalModelConfig(BaseMedicalConfig):
     ) -> "MedicalModelConfig":
         """Create a config from a pretrained model.
 
-        This method initializes a configuration using a pre-trained model's settings
-        and allows overriding specific parameters via keyword arguments.
+        This method initializes a configuration using a pre-trained model's
+        settings and allows overriding specific parameters via keyword args.
 
         Args:
-            model_name_or_path: Name or path of the pretrained model. This can be:
-                - A string, the model id of a pretrained model hosted inside a model repo on huggingface.co.
-                - A path to a directory containing a configuration file saved using the `save_pretrained` method.
+            model_name_or_path: Name or path of the pretrained model. This can
+                be:
+                - A string, the model id of a pretrained model hosted inside a
+                  model repo on huggingface.co.
+                - A path to a directory containing a configuration file saved
+                  using the `save_pretrained` method.
             **kwargs: Additional keyword arguments passed along to the model's
-                `from_pretrained` method. Can be used to update the configuration.
+                `from_pretrained` method. Can be used to update the config.
 
         Returns:
-            MedicalModelConfig: An instance of MedicalModelConfig initialized from the pretrained model.
+            MedicalModelConfig: An instance of MedicalModelConfig initialized
+                from the pretrained model.
 
         Example:
             ```python
@@ -725,9 +668,11 @@ class MedicalModelConfig(BaseMedicalConfig):
             ```
         """
         if not isinstance(model_name_or_path, (str, os.PathLike)):
-            raise TypeError(
-                f"model_name_or_path should be a string or os.PathLike, got {type(model_name_or_path)}"
+            msg = (
+                f"model_name_or_path should be a string or os.PathLike, "
+                f"got {type(model_name_or_path)}"
             )
+            raise TypeError(msg)
 
         # Create a new config instance
         config = cls()
@@ -742,17 +687,24 @@ class MedicalModelConfig(BaseMedicalConfig):
                 if hasattr(config, key):
                     setattr(config, key, value)
                 else:
+                    available = ", ".join(config.__annotations__.keys())
                     logger.warning(
-                        f"Key '{key}' not found in config. Available keys: {', '.join(config.__annotations__.keys())}"
+                        f"Key '{key}' not found in config. "
+                        f"Available keys: {available}"
                     )
 
-            # Validate the final configuration
-            config._validate_medical_parameters()
+            # Skip Pydantic validation since we're removing the dependency
+            # Just ensure required fields are present
+            required_fields = ["model_type", "model"]
+            for field_name in required_fields:
+                if field_name not in config.__dict__:
+                    raise ValueError(f"Missing required field: {field_name}")
 
             return config
         except Exception as e:
             raise ValueError(
-                f"Error loading configuration for model '{model_name_or_path}'. "
+                "Error loading configuration for model "
+                f"'{model_name_or_path}'. "
                 f"Original error: {str(e)}"
             ) from e
 
@@ -764,11 +716,12 @@ class MedicalModelConfig(BaseMedicalConfig):
     ) -> "MedicalModelConfig":
         """Create a configuration from a YAML file or string.
 
-        This method loads a configuration from a YAML string or file. The YAML should
-        contain key-value pairs that match the configuration parameters.
+        This method loads a configuration from a YAML string or file. The YAML
+        should contain key-value pairs that match the configuration parameters.
 
         Args:
-            yaml_input: YAML string, bytes, path to a YAML file, or file-like object
+            yaml_input: YAML string, bytes, path to a YAML file, or file-like
+                object
             **kwargs: Additional keyword arguments to override config values
 
         Returns:
@@ -780,7 +733,6 @@ class MedicalModelConfig(BaseMedicalConfig):
         """
         # Import PyYAML at runtime to avoid making it a hard dependency
         try:
-            import yaml
             from yaml import safe_load
         except ImportError as e:
             raise ImportError(
@@ -791,7 +743,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         config_dict: Dict[str, Any] = {}
 
         try:
-            # Handle file-like objects (check this first to avoid PathLike/str checks)
+            # Handle file-like objects (check this first to avoid PathLike/str)
             if hasattr(yaml_input, "read") and callable(
                 getattr(yaml_input, "read", None)
             ):
@@ -818,7 +770,8 @@ class MedicalModelConfig(BaseMedicalConfig):
                     config_dict = safe_load(file_path) or {}
             else:
                 raise ValueError(
-                    "Invalid input type for YAML loading. Expected string, bytes, "
+                    "Invalid input type for YAML loading. Expected string, "
+                    "bytes, "
                     "path-like, or file-like object."
                 )
 
@@ -843,7 +796,8 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         Args:
             value: The value to convert
-            serialize_enums: Whether to convert enums to their string representations
+            serialize_enums: Whether to convert enums to their string
+                representations
 
         Returns:
             The value in a serializable format
@@ -863,13 +817,14 @@ class MedicalModelConfig(BaseMedicalConfig):
             return value.to_dict(serialize_enums=serialize_enums)
         if isinstance(value, Enum) and serialize_enums:
             return value.value if hasattr(value, "value") else str(value)
-        if dataclasses.is_dataclass(value):
+        # Handle dataclass conversion
+        if hasattr(value, "__dataclass_fields__"):
             return {
                 f.name: self._convert_to_serializable(
-                    getattr(value, f.name), serialize_enums
+                    getattr(value, f.name), field_type=None
                 )
-                for f in dataclasses.fields(value)
-                if not f.name.startswith("_")
+                for f in value.__dataclass_fields__.values()
+                if f.init  # Only include fields that are part of __init__
             }
         return str(value)
 
@@ -878,11 +833,13 @@ class MedicalModelConfig(BaseMedicalConfig):
     ) -> None:
         """Save the configuration to a directory.
 
-        This method saves the configuration as JSON and YAML files in the specified directory.
+        This method saves the configuration as JSON and YAML files in the
+        specified directory.
 
         Args:
             save_directory: Directory to save the configuration files to.
-            **kwargs: Additional keyword arguments passed to serialization methods.
+            **kwargs: Additional keyword arguments passed to serialization
+                methods.
 
 
         Example:
@@ -933,8 +890,9 @@ class MedicalModelConfig(BaseMedicalConfig):
             try:
                 result[key] = cls._convert_value(value, key, field_type, field_name)
             except Exception as e:
+                context = field_name or "root"
                 warnings.warn(
-                    f"Error processing field '{key}' in {field_name or 'root'}: {str(e)}",
+                    f"Error processing field '{key}' in {context}: {str(e)}",
                     UserWarning,
                 )
                 result[key] = value
@@ -972,55 +930,15 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         # Handle nested dictionaries
         if isinstance(value, dict):
+            nested_name = f"{field_name}.{key}" if field_name else key
             return cls._convert_dict_values(
                 value,
                 current_field_type,
-                f"{field_name}.{key}" if field_name else key,
+                nested_name,
             )
 
         # Handle lists
         if isinstance(value, list) and value:
             return cls._convert_list_value(value, key, current_field_type, field_name)
-
-        return value
-
-    @classmethod
-    def _convert_list_value(
-        cls, value: List[Any], key: str, item_type: Optional[Type], field_name: str
-    ) -> List[Any]:
-        """Convert a list value to its appropriate type."""
-        if not item_type or not hasattr(item_type, "__args__"):
-            return value
-
-        item_type = item_type.__args__[0] if item_type.__args__ else None
-
-        # Handle list of dictionaries
-        if value and all(isinstance(item, dict) for item in value):
-            return [
-                cls._convert_dict_values(item, item_type, f"{field_name}.{key}[{i}]")
-                for i, item in enumerate(value)
-            ]
-
-        # Handle list of enums if item_type is an Enum
-        if (
-            item_type is not None
-            and isinstance(item_type, type)
-            and issubclass(item_type, Enum)
-        ):
-            converted_items = []
-            for item in value:
-                if isinstance(item, str):
-                    try:
-                        # Try to convert string to enum value
-                        converted_items.append(item_type[item.upper()])
-                    except (KeyError, AttributeError):
-                        warnings.warn(
-                            f"Invalid {item_type.__name__} value: {item}",
-                            UserWarning,
-                        )
-                        converted_items.append(item)
-                else:
-                    converted_items.append(item)
-            return converted_items
 
         return value

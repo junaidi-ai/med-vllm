@@ -33,7 +33,8 @@ DEFAULT_MEDICAL_SPECIALTIES = [
     "cardiology",
     "dermatology",
     "endocrinology",
-    "family_medicine",  # Changed from general_practice to match MedicalSpecialty enum
+    # Changed from general_practice to match MedicalSpecialty enum
+    "family_medicine",
     "gastroenterology",
     "hematology",
     "internal_medicine",

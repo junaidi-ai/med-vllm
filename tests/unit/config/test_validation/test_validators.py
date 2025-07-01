@@ -6,7 +6,6 @@ including the MedicalConfigValidator and other validators.
 """
 
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,6 +16,9 @@ from medvllm.medical.config.validation.exceptions import (
 
 # Import the actual implementation
 from medvllm.medical.config.validation.validators import MedicalConfigValidator
+
+# Remove unused imports
+
 
 # Test data
 SAMPLE_CONFIG = {
@@ -95,7 +97,7 @@ class TestMedicalConfigValidator:
     def test_validate_entity_linking_missing_knowledge_bases(
         self, validator: MedicalConfigValidator
     ) -> None:
-        """Test validation when entity linking is enabled but no knowledge bases are specified."""
+        """Test validation when entity linking has no knowledge bases."""
         config = MockConfig(entity_linking={"enabled": True, "knowledge_bases": []})
         with pytest.raises(ValidationError, match="no knowledge bases are specified"):
             validator.validate_entity_linking(config)

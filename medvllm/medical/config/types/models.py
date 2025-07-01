@@ -3,7 +3,7 @@ Data models for configuration types.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 

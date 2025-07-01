@@ -1,5 +1,4 @@
-"""
-Tests for medical model configuration.
+"""Tests for medical model configuration.
 
 This module contains tests for the medical model configuration classes.
 """
@@ -7,8 +6,7 @@ This module contains tests for the medical model configuration classes.
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-from unittest.mock import MagicMock, PropertyMock, patch
+from typing import Any, Dict, Union
 
 import pytest
 
@@ -61,6 +59,14 @@ class MedicalModelConfig:
         else:
             self.anatomical_regions = list(anatomical_regions)
 
+        # Call validate to ensure the configuration is valid
+        try:
+            self.validate()
+        except ValueError as e:
+            # Only raise the error if we're not in the middle of from_pretrained
+            if not hasattr(self, "_skip_validation"):
+                raise
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the config to a dictionary."""
         return {
@@ -92,9 +98,8 @@ class MedicalModelConfig:
         return cls(**config_dict)
 
     def save_pretrained(self, save_directory: Union[str, Path], **kwargs) -> None:
-        """Save the config to a directory."""
-        import json
-        import os
+        """Mock save_pretrained method."""
+        # Remove unused imports
 
         if isinstance(save_directory, str):
             save_directory = Path(save_directory)
@@ -115,15 +120,20 @@ class MedicalModelConfig:
         if isinstance(pretrained_model_name_or_path, str) and not os.path.isdir(
             pretrained_model_name_or_path
         ):
-            # This would be a model name, but for testing we'll just return a default config
-            return cls()
+            # This would be a model name, but for testing we'll just return
+            # a default config
+            config = cls()
+            config._skip_validation = True
+            return config
 
         config_path = Path(pretrained_model_name_or_path) / "config.json"
 
         with open(config_path, "r", encoding="utf-8") as f:
             config_dict = json.load(f)
 
-        return cls.from_dict(config_dict)
+        config = cls(**config_dict)
+        config._skip_validation = True
+        return config
 
     def to_json_string(self) -> str:
         """Serialize this config to a JSON string."""
@@ -132,15 +142,16 @@ class MedicalModelConfig:
         return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
     def to_json_file(self, json_file_path: Union[str, Path]) -> None:
-        """Save this config to a JSON file."""
+        """Save the configuration to a JSON file."""
         with open(json_file_path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2, sort_keys=True)
 
     def validate(self) -> None:
         """Validate the configuration."""
-        if not self.medical_specialties and not self.anatomical_regions:
+        if not (self.medical_specialties or self.anatomical_regions):
             raise ValueError(
-                "At least one of medical_specialties or anatomical_regions must be provided"
+                "At least one of medical_specialties or anatomical_regions "
+                "must be provided"
             )
 
     def update_from_dict(self, config_dict: Dict[str, Any]) -> "MedicalModelConfig":
@@ -180,8 +191,8 @@ class TestMedicalModelConfig:
             "anatomical_regions": ["head", "chest"],
         }
 
-    def test_initialization(self, sample_config_data):
-        """Test that MedicalModelConfig initializes correctly with sample data."""
+    def test_initialization_with_sample_data(self, sample_config_data):
+        """Test MedicalModelConfig initialization with sample data."""
         # When
         config = MedicalModelConfig(**sample_config_data)
 
@@ -209,7 +220,7 @@ class TestMedicalModelConfig:
     def test_medical_specialties_handling(
         self, medical_specialties, expected, sample_config_data
     ):
-        """Test that medical_specialties handles different input formats correctly."""
+        """Test medical_specialties handles different input formats."""
         # Given
         sample_config_data = sample_config_data.copy()
         sample_config_data["medical_specialties"] = medical_specialties
@@ -234,7 +245,7 @@ class TestMedicalModelConfig:
     def test_anatomical_regions_handling(
         self, anatomical_regions, expected, sample_config_data
     ):
-        """Test that anatomical_regions handles different input formats correctly."""
+        """Test anatomical_regions handles different input formats."""
         # Given
         sample_config_data = sample_config_data.copy()
         sample_config_data["anatomical_regions"] = anatomical_regions
@@ -247,18 +258,32 @@ class TestMedicalModelConfig:
 
     def test_default_values(self, sample_config_data):
         """Test that default values are set correctly when not provided."""
-        # When
-        config = MedicalModelConfig()
+        # When - Create with required fields only
+        config = MedicalModelConfig(
+            medical_specialties=["general"], anatomical_regions=["general"]
+        )
 
-        # Then
+        # Then - Check default values
         assert config.model_type == "medical_llm"
         assert config.model_name_or_path == "medical-bert-base"
         assert config.vocab_size == 30522
         assert config.hidden_size == 768
         assert config.num_hidden_layers == 12
         assert config.num_attention_heads == 12
-        assert config.medical_specialties == []
-        assert config.anatomical_regions == []
+        assert config.medical_specialties == ["general"]
+        assert config.anatomical_regions == ["general"]
+        assert config.hidden_dropout_prob == 0.1
+        assert config.attention_probs_dropout_prob == 0.1
+        assert config.max_position_embeddings == 512
+        assert config.type_vocab_size == 2
+        assert config.initializer_range == 0.02
+        assert config.layer_norm_eps == 1e-12
+        assert config.pad_token_id == 0
+        assert config.position_embedding_type == "absolute"
+        assert config.use_cache is True
+        assert config.classifier_dropout == 0.1
+        assert config.num_labels == 2
+        assert config.problem_type == "single_label_classification"
 
     def test_override_defaults(self, sample_config_data):
         """Test that default values can be overridden."""
@@ -268,6 +293,7 @@ class TestMedicalModelConfig:
             "hidden_size": 1024,
             "num_hidden_layers": 24,
             "medical_specialties": ["neurology", "oncology"],
+            "anatomical_regions": ["brain", "spine"],
         }
 
         # When
@@ -278,6 +304,7 @@ class TestMedicalModelConfig:
         assert config.hidden_size == 1024
         assert config.num_hidden_layers == 24
         assert config.medical_specialties == ["neurology", "oncology"]
+        assert config.anatomical_regions == ["brain", "spine"]
 
     @pytest.fixture
     def config(self, sample_config_data: Dict[str, Any]) -> MedicalModelConfig:
@@ -323,7 +350,15 @@ class TestMedicalModelConfig:
 
     def test_validation(self, sample_config_data: Dict[str, Any]) -> None:
         """Test configuration validation."""
-        import json
+        # Test with empty config (should raise ValueError)
+        with pytest.raises(
+            ValueError,
+            match=(
+                "At least one of medical_specialties or anatomical_regions "
+                "must be provided"
+            ),
+        ):
+            MedicalModelConfig()
 
         # Test valid config
         config = MedicalModelConfig(**sample_config_data)
@@ -332,7 +367,10 @@ class TestMedicalModelConfig:
         # Test invalid config with no specialties or regions
         with pytest.raises(
             ValueError,
-            match="At least one of medical_specialties or anatomical_regions must be provided",
+            match=(
+                "At least one of medical_specialties or anatomical_regions "
+                "must be provided"
+            ),
         ):
             invalid_config = MedicalModelConfig(
                 medical_specialties=[], anatomical_regions=[]
@@ -343,18 +381,19 @@ class TestMedicalModelConfig:
         self, sample_config_data: Dict[str, Any]
     ) -> None:
         """Test validation of medical specialties."""
-        # This test is now a no-op since we don't validate against a fixed list of specialties
-        # in the mock implementation. In a real implementation, you would validate against
-        # a predefined list of allowed specialties.
+        # This test is now a no-op since we don't validate against a fixed
+        # list of specialties in the mock implementation. In a real
+        # implementation, you would validate against a fixed list of
+        # allowed specialties.
         pass
 
     def test_anatomical_regions_validation(
         self, sample_config_data: Dict[str, Any]
     ) -> None:
         """Test validation of anatomical regions."""
-        # This test is now a no-op since we don't validate against a fixed list of regions
-        # in the mock implementation. In a real implementation, you would validate against
-        # a predefined list of allowed regions.
+        # This test is now a no-op since we don't validate against a fixed
+        # list of regions in the mock implementation. In a real implementation,
+        # you would validate against a fixed list of allowed regions.
         pass
 
     def test_from_pretrained(
@@ -378,7 +417,7 @@ class TestMedicalModelConfig:
         assert "medical_llm" in json_str
 
     def test_to_json_file(self, config: MedicalModelConfig, tmp_path: Path) -> None:
-        """Test saving to JSON file."""
+        """Test saving configuration to a JSON file."""
         json_file = tmp_path / "config.json"
         config.to_json_file(json_file)
         assert json_file.exists()
@@ -401,6 +440,7 @@ class TestMedicalModelConfig:
 
         assert updated_config.hidden_size == 1024
         assert updated_config.num_hidden_layers == 24
-        # Original config should also be updated since we modify in place and return self
+        # Original config should also be updated since we modify in place
+        # and return self
         assert config.hidden_size == 1024
         assert config.num_hidden_layers == 24

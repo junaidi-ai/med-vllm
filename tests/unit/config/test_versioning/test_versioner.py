@@ -1,18 +1,11 @@
-"""
-Tests for the configuration versioning system.
-"""
-
-from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, patch
+"""Tests for the configuration versioning system."""
 
 import pytest
 
 # Import the actual implementation from the module where it's defined
 from medvllm.medical.config.versioning.config_versioner import (
     ConfigVersioner,
-    ConfigVersionInfo,
     ConfigVersionStatus,
-    _migrate_090_to_100,
 )
 
 
@@ -90,6 +83,11 @@ class TestConfigVersioner:
 
     def test_migrate_090_to_100(self) -> None:
         """Test the migration from 0.9.0 to 1.0.0."""
+        # Import the migration function locally
+        from medvllm.medical.config.versioning.config_versioner import (
+            _migrate_090_to_100,
+        )
+
         # Create a test config in the old format
         old_config = {"model_path": "/path/to/model", "other_setting": "value"}
 
@@ -99,7 +97,7 @@ class TestConfigVersioner:
         # Verify the migration
         assert "model_name_or_path" in migrated_config
         assert migrated_config["model_name_or_path"] == "/path/to/model"
-        assert "model_path" not in migrated_config  # Old field should be removed
-        assert (
-            migrated_config["other_setting"] == "value"
-        )  # Other settings should be preserved
+        # Old field should be removed
+        assert "model_path" not in migrated_config
+        # Other settings should be preserved
+        assert migrated_config["other_setting"] == "value"

@@ -5,7 +5,7 @@ This module contains various validators for configuration values.
 """
 
 import warnings
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING
 
 from .exceptions import FieldValueError, ValidationError
 
@@ -24,7 +24,8 @@ class MedicalConfigValidator:
             value: The value to validate
 
         Raises:
-            FieldValueError: If the value is not between 1 and 8 or is not an integer
+            FieldValueError: If the value is not between 1 and 8 or
+                           is not an integer
         """
         if value is None:
             raise FieldValueError(
@@ -51,10 +52,12 @@ class MedicalConfigValidator:
             config: The configuration object to validate
 
         Raises:
-            ValidationError: If entity linking is enabled but no knowledge bases are specified
+            ValidationError: If entity linking is enabled but no
+                           knowledge bases are specified
         """
         # If entity_linking is None or not present, it's valid
-        if not hasattr(config, "entity_linking") or config.entity_linking is None:
+        has_entity_linking = hasattr(config, "entity_linking")
+        if not has_entity_linking or config.entity_linking is None:
             return
 
         # If entity_linking is present but not a dictionary, it's invalid
@@ -73,7 +76,7 @@ class MedicalConfigValidator:
                 or not knowledge_bases
             ):
                 raise ValidationError(
-                    "Entity linking is enabled but no knowledge bases are specified",
+                    "Entity linking is enabled but no knowledge " "bases are specified",
                     field="entity_linking.knowledge_bases",
                 )
 
@@ -107,7 +110,10 @@ class MedicalConfigValidator:
             version: Version in which the parameter will be removed
             alternative: Alternative parameter or approach to use (optional)
         """
-        msg = f"'{param_name}' is deprecated and will be removed in version {version}."
+        msg = (
+            f"'{param_name}' is deprecated and will be removed in "
+            f"version {version}."
+        )
         if alternative:
             msg += f" Use '{alternative}' instead."
         warnings.warn(msg, DeprecationWarning, stacklevel=3)

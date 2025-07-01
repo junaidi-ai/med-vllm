@@ -3,13 +3,12 @@ MedVLLM - Medical Variant of the vLLM library for medical NLP tasks.
 """
 
 import importlib
-import sys
-from typing import TYPE_CHECKING, Any, Optional, TypeVar
+from typing import Any, TypeVar
 
 # Check for required dependencies
 HAS_TORCH = False
 try:
-    import torch
+    import torch  # noqa: F401
 
     HAS_TORCH = True
 except ImportError:

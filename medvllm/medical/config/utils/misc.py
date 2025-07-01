@@ -5,18 +5,14 @@ This module contains various utility functions that don't fit into
 the other utility categories but are still useful for configuration processing.
 """
 
-import copy
-import json
 from typing import (
     Any,
     Dict,
-    List,
     Mapping,
     Optional,
     Sequence,
     TypeVar,
     Union,
-    overload,
 )
 
 from pydantic import BaseModel
@@ -64,7 +60,9 @@ def get_nested_value(
     key_path: Union[str, Sequence[str]],
     default: Any = None,
 ) -> Any:
-    """Get a value from a nested dictionary using dot notation or path segments.
+    """Get a value from a nested dictionary.
+
+    Supports dot notation or path segments for nested access.
 
     Args:
         data: The dictionary or Pydantic model to get the value from
@@ -106,7 +104,8 @@ def set_nested_value(
         create_missing: If True, create missing intermediate dictionaries
 
     Raises:
-        KeyError: If create_missing is False and a key in the path doesn't exist
+        KeyError: If create_missing is False and a key in the path
+                 doesn't exist
     """
     if isinstance(key_path, str):
         keys = key_path.split(".")
