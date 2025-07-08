@@ -84,11 +84,12 @@ class MemoryManager:
 
         # Allocate KV cache
         shape = (2, num_layers, num_blocks, block_size, num_heads, head_dim)
-        self.kv_cache = torch.zeros(
+        kv_cache = torch.zeros(
             shape,
             dtype=self.runner.dtype,
             device=self.runner.device,
         )
+        self.kv_cache = kv_cache  # type: ignore[assignment]
 
     def setup_shared_memory(self, name: Optional[str] = None) -> None:
         """Set up shared memory for inter-process communication.
@@ -157,7 +158,7 @@ class MemoryManager:
 
         try:
             # Convert Pydantic models to dict if needed
-            if hasattr(data, "model_dump"):
+            if hasattr(data, "model_dump") and data is not None:
                 data = data.model_dump()
 
             # Serialize data to JSON

@@ -8,18 +8,70 @@ and organization using the new modules.
 
 from __future__ import annotations
 
+import json
 import os
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AnyStr,
+    Callable,
+    ClassVar,
+    Dict,
+    Generic,
+    List,
+    Literal,
+    Mapping,
+    NamedTuple,
+    Optional,
+    Protocol,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+    TypedDict,
+    TypeGuard,
+    TypeVar,
+    Union,
+    cast,
+    final,
+    get_args,
+    get_origin,
+    get_type_hints,
+    overload,
+    runtime_checkable,
+)
 
-# Third-party imports
+# Type variable for generic types
+T = TypeVar("T")
+
+# Import yaml with type checking
 try:
     import yaml
+    from yaml import CSafeDumper as SafeDumper
+    from yaml import CSafeLoader as SafeLoader
+    from yaml import dump as yaml_dump
+    from yaml import load as yaml_load
+    from yaml import safe_dump as yaml_safe_dump
+    from yaml import safe_load as yaml_safe_load
+    from yaml.constructor import ConstructorError as YAMLConstructorError
+    from yaml.error import MarkedYAMLError, YAMLError
+    from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
+    from yaml.representer import RepresenterError as YAMLRepresenterError
+    from yaml.resolver import Resolver as YAMLResolver
+    from yaml.scanner import ScannerError as YAMLScannerError
+    from yaml.serializer import Serializer as YAMLSerializer
+    from yaml.tokens import Token as YAMLToken
+    from yaml.tokens import TokenType as YAMLTokenType
+    from yaml.tokens import *  # noqa: F403
+
+    YAML_AVAILABLE = True
 except ImportError:
     yaml = None  # type: ignore
+    YAML_AVAILABLE = False
 
 from medvllm.medical.config.base import BaseMedicalConfig
 
@@ -343,19 +395,23 @@ class MedicalModelConfig(BaseMedicalConfig):
                     )
             return value
 
-        # Convert each list of enums
+        # Convert each list of enums to their string representations
         if self.medical_specialties:
             self.medical_specialties = [
-                safe_convert(spec, MedicalSpecialty) if isinstance(spec, str) else spec
+                (
+                    str(safe_convert(spec, MedicalSpecialty))
+                    if isinstance(spec, str)
+                    else str(spec.value) if hasattr(spec, "value") else str(spec)
+                )
                 for spec in self.medical_specialties
             ]
 
         if self.anatomical_regions:
             self.anatomical_regions = [
                 (
-                    safe_convert(region, AnatomicalRegion)
+                    str(safe_convert(region, AnatomicalRegion))
                     if isinstance(region, str)
-                    else region
+                    else str(region.value) if hasattr(region, "value") else str(region)
                 )
                 for region in self.anatomical_regions
             ]
@@ -363,9 +419,13 @@ class MedicalModelConfig(BaseMedicalConfig):
         if self.imaging_modalities:
             self.imaging_modalities = [
                 (
-                    safe_convert(modality, ImagingModality)
+                    str(safe_convert(modality, ImagingModality))
                     if isinstance(modality, str)
-                    else modality
+                    else (
+                        str(modality.value)
+                        if hasattr(modality, "value")
+                        else str(modality)
+                    )
                 )
                 for modality in self.imaging_modalities
             ]
@@ -373,9 +433,13 @@ class MedicalModelConfig(BaseMedicalConfig):
         if self.medical_entity_types:
             self.medical_entity_types = [
                 (
-                    safe_convert(entity_type, EntityType)
+                    str(safe_convert(entity_type, EntityType))
                     if isinstance(entity_type, str)
-                    else entity_type
+                    else (
+                        str(entity_type.value)
+                        if hasattr(entity_type, "value")
+                        else str(entity_type)
+                    )
                 )
                 for entity_type in self.medical_entity_types
             ]
@@ -383,16 +447,24 @@ class MedicalModelConfig(BaseMedicalConfig):
         if self.document_types:
             self.document_types = [
                 (
-                    safe_convert(doc_type, DocumentType)
+                    str(safe_convert(doc_type, DocumentType))
                     if isinstance(doc_type, str)
-                    else doc_type
+                    else (
+                        str(doc_type.value)
+                        if hasattr(doc_type, "value")
+                        else str(doc_type)
+                    )
                 )
                 for doc_type in self.document_types
             ]
 
         if self.regulatory_compliance:
             self.regulatory_compliance = [
-                safe_convert(std, RegulatoryStandard) if isinstance(std, str) else std
+                (
+                    str(safe_convert(std, RegulatoryStandard))
+                    if isinstance(std, str)
+                    else str(std.value) if hasattr(std, "value") else str(std)
+                )
                 for std in self.regulatory_compliance
             ]
 
@@ -625,208 +697,269 @@ class MedicalModelConfig(BaseMedicalConfig):
         """Set default pretrained model paths if not specified.
 
         This method ensures that the pretrained_model_name_or_path is set to
-        the model path if it hasn't been explicitly set. This is useful for
-        backward compatibility.
+        the model path if it hasn't been explicitly set.
         """
-        if not self.pretrained_model_name_or_path and hasattr(self, "model"):
+        if not self.pretrained_model_name_or_path and self.model:
             self.pretrained_model_name_or_path = self.model
 
     @classmethod
-    def from_pretrained(
-        cls: Type["MedicalModelConfig"], model_name_or_path: str, **kwargs: Any
-    ) -> "MedicalModelConfig":
-        """Create a config from a pretrained model.
-
-        This method initializes a configuration using a pre-trained model's
-        settings and allows overriding specific parameters via keyword args.
-
-        Args:
-            model_name_or_path: Name or path of the pretrained model. This can
-                be:
-                - A string, the model id of a pretrained model hosted inside a
-                  model repo on huggingface.co.
-                - A path to a directory containing a configuration file saved
-                  using the `save_pretrained` method.
-            **kwargs: Additional keyword arguments passed along to the model's
-                `from_pretrained` method. Can be used to update the config.
-
-        Returns:
-            MedicalModelConfig: An instance of MedicalModelConfig initialized
-                from the pretrained model.
-
-        Example:
-            ```python
-            # Load a pretrained model with default configuration
-            config = MedicalModelConfig.from_pretrained("bert-base-uncased")
-
-            # Load with custom parameters
-            config = MedicalModelConfig.from_pretrained(
-                "bert-base-uncased",
-                max_medical_seq_length=512,
-                enable_uncertainty_estimation=True
-            )
-            ```
-        """
-        if not isinstance(model_name_or_path, (str, os.PathLike)):
-            msg = (
-                f"model_name_or_path should be a string or os.PathLike, "
-                f"got {type(model_name_or_path)}"
-            )
-            raise TypeError(msg)
-
-        # Create a new config instance
-        config = cls()
-
-        try:
-            # Update with pretrained model path
-            config.model = str(model_name_or_path)
-            config.pretrained_model_name_or_path = str(model_name_or_path)
-
-            # Update with any provided kwargs
-            for key, value in kwargs.items():
-                if hasattr(config, key):
-                    setattr(config, key, value)
-                else:
-                    available = ", ".join(config.__annotations__.keys())
-                    logger.warning(
-                        f"Key '{key}' not found in config. "
-                        f"Available keys: {available}"
-                    )
-
-            # Skip Pydantic validation since we're removing the dependency
-            # Just ensure required fields are present
-            required_fields = ["model_type", "model"]
-            for field_name in required_fields:
-                if field_name not in config.__dict__:
-                    raise ValueError(f"Missing required field: {field_name}")
-
-            return config
-        except Exception as e:
-            raise ValueError(
-                "Error loading configuration for model "
-                f"'{model_name_or_path}'. "
-                f"Original error: {str(e)}"
-            ) from e
-
-    @classmethod
-    def from_yaml(
-        cls: Type["MedicalModelConfig"],
-        yaml_input: Union[str, bytes, os.PathLike, Any],
+    def _convert_to_serializable(
+        cls,
+        value: Any,
+        serialize_enums: bool = True,
         **kwargs: Any,
-    ) -> "MedicalModelConfig":
-        """Create a configuration from a YAML file or string.
-
-        This method loads a configuration from a YAML string or file. The YAML
-        should contain key-value pairs that match the configuration parameters.
-
-        Args:
-            yaml_input: YAML string, bytes, path to a YAML file, or file-like
-                object
-            **kwargs: Additional keyword arguments to override config values
-
-        Returns:
-            MedicalModelConfig: A new instance of MedicalModelConfig
-
-        Raises:
-            ImportError: If PyYAML is not installed
-            ValueError: If the YAML is invalid or missing required fields
-        """
-        # Import PyYAML at runtime to avoid making it a hard dependency
-        try:
-            from yaml import safe_load
-        except ImportError as e:
-            raise ImportError(
-                "PyYAML is required to load YAML configuration. "
-                "Please install it with: pip install pyyaml"
-            ) from e
-
-        config_dict: Dict[str, Any] = {}
-
-        try:
-            # Handle file-like objects (check this first to avoid PathLike/str)
-            if hasattr(yaml_input, "read") and callable(
-                getattr(yaml_input, "read", None)
-            ):
-                # For file-like objects, read and parse directly
-                content = yaml_input.read()
-                if isinstance(content, bytes):
-                    content = content.decode("utf-8")
-                config_dict = safe_load(content) or {}
-            # Handle string, bytes, or path-like input
-            elif isinstance(yaml_input, (str, bytes, os.PathLike)):
-                # Convert PathLike to string
-                file_path = (
-                    str(yaml_input) if hasattr(yaml_input, "__fspath__") else yaml_input
-                )
-
-                # Check if input is a file path (not a YAML string)
-                if isinstance(file_path, str) and os.path.isfile(file_path):
-                    with open(file_path, "r") as f:
-                        config_dict = safe_load(f) or {}
-                else:
-                    # Handle YAML string/bytes
-                    if isinstance(file_path, bytes):
-                        file_path = file_path.decode("utf-8")
-                    config_dict = safe_load(file_path) or {}
-            else:
-                raise ValueError(
-                    "Invalid input type for YAML loading. Expected string, "
-                    "bytes, "
-                    "path-like, or file-like object."
-                )
-
-            if not isinstance(config_dict, dict):
-                raise ValueError("YAML content must parse to a dictionary")
-
-            # Update with any overrides
-            if kwargs:
-                config_dict.update(kwargs)
-
-            return cls.from_dict(config_dict)
-
-        except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML: {str(e)}")
-        except (IOError, OSError) as e:
-            raise ValueError(f"Error reading YAML file: {str(e)}")
-        except Exception as e:
-            raise ValueError(f"Error loading YAML configuration: {str(e)}")
-
-    def _convert_to_serializable(self, value: Any, serialize_enums: bool = True) -> Any:
+    ) -> Union[None, str, int, float, bool, List[Any], Dict[str, Any]]:
         """Recursively convert a value to a serializable format.
 
+        This method handles conversion of various types to formats that can be
+        serialized to JSON or YAML, including:
+        - Basic types (None, str, int, float, bool)
+        - Collections (list, tuple, set, dict)
+        - Enums (converted to their values)
+        - Objects with to_dict() methods
+        - Objects with __dict__ attributes
+
         Args:
-            value: The value to convert
-            serialize_enums: Whether to convert enums to their string
-                representations
+            value: The value to convert to a serializable format
+            serialize_enums: If True, convert Enum values to their primitive values
+            **kwargs: Additional keyword arguments for custom serialization
 
         Returns:
-            The value in a serializable format
+            A value that can be serialized to JSON or YAML
+
+        Raises:
+            TypeError: If the value cannot be converted to a serializable format
         """
         if value is None:
             return None
+
         if isinstance(value, (str, int, float, bool)):
             return value
-        if isinstance(value, (list, tuple)):
-            return [self._convert_to_serializable(v, serialize_enums) for v in value]
+
         if isinstance(value, dict):
             return {
-                str(k): self._convert_to_serializable(v, serialize_enums)
+                str(k): cls._convert_to_serializable(v, serialize_enums, **kwargs)
                 for k, v in value.items()
             }
-        if hasattr(value, "to_dict"):
-            return value.to_dict(serialize_enums=serialize_enums)
-        if isinstance(value, Enum) and serialize_enums:
-            return value.value if hasattr(value, "value") else str(value)
-        # Handle dataclass conversion
-        if hasattr(value, "__dataclass_fields__"):
-            return {
-                f.name: self._convert_to_serializable(
-                    getattr(value, f.name), field_type=None
+
+        if isinstance(value, (list, tuple, set)):
+            return [
+                cls._convert_to_serializable(v, serialize_enums, **kwargs)
+                for v in value
+            ]
+
+        if serialize_enums and isinstance(value, Enum):
+            return value.value
+
+        if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+            dict_value = value.to_dict()
+            if not isinstance(dict_value, dict):
+                raise TypeError(
+                    f"to_dict() did not return a dictionary, got {type(dict_value).__name__}"
                 )
-                for f in value.__dataclass_fields__.values()
-                if f.init  # Only include fields that are part of __init__
-            }
-        return str(value)
+            return cls._convert_to_serializable(dict_value, serialize_enums, **kwargs)
+
+        if hasattr(value, "__dict__"):
+            return cls._convert_to_serializable(vars(value), serialize_enums, **kwargs)
+
+        try:
+            return str(value)
+        except Exception as e:
+            raise TypeError(
+                f"Cannot serialize value of type {type(value).__name__}: {str(e)}"
+            ) from e
+
+
+    @classmethod
+    def from_pretrained(
+        cls: Type[T],
+        pretrained_model_name_or_path: Union[str, os.PathLike],
+        cache_dir: Optional[Union[str, os.PathLike]] = None,
+        force_download: bool = False,
+        local_files_only: bool = False,
+        **kwargs: Any,
+    ) -> T:
+        """Load a pretrained model configuration.
+
+        Args:
+            pretrained_model_name_or_path: Either:
+                - A string, the model id of a pretrained model configuration hosted inside a model repo on huggingface.co.
+                  Valid model ids can be located at the root-level, like `bert-base-uncased`, or namespaced under a
+                  user or organization name, like `dbmdz/bert-base-german-cased`.
+                - A path to a directory containing a configuration file saved using the `save_pretrained` method, e.g.,
+                  `./my_model_directory/`.
+            cache_dir: Optional directory to store the pre-trained model configurations downloaded from huggingface.co.
+            force_download: Whether or not to force the (re-)download of the model weights and configuration files, overriding
+                the cached versions if they exist.
+            local_files_only: Whether or not to only look at local files (e.g., not try to download the model).
+            **kwargs: Additional keyword arguments passed along to the base class method.
+
+        Returns:
+            An instance of the configuration class.
+
+        Raises:
+            OSError: If the configuration file cannot be found or is not a valid JSON file.
+            ValueError: If the configuration file does not contain the required fields.
+        """
+        config_dict, kwargs = cls.get_config_dict(
+            pretrained_model_name_or_path,
+            cache_dir=cache_dir,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            **kwargs,
+        )
+
+        # Get the model type from the class if it exists, otherwise use the config dict
+        model_type = getattr(cls, "model_type", None)
+        if model_type is not None and "model_type" in config_dict and config_dict["model_type"] != model_type:
+            warnings.warn(
+                f"You are using a model of type {config_dict['model_type']} to instantiate a model of type "
+                f"{model_type}. This is not supported for all configurations of models and can produce errors.",
+                UserWarning,
+                stacklevel=2
+            )
+
+        # Use the class's from_dict method if it exists, otherwise create a new instance
+        if hasattr(cls, 'from_dict') and callable(cls.from_dict):
+            return cls.from_dict(config_dict, **kwargs)  # type: ignore[call-arg]
+        return cls(**config_dict, **kwargs)
+
+    @classmethod
+    def get_config_dict(
+        cls: Type[T],
+        pretrained_model_name_or_path: Union[str, os.PathLike],
+        cache_dir: Optional[Union[str, os.PathLike]] = None,
+        force_download: bool = False,
+        local_files_only: bool = False,
+        **kwargs: Any,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Get the configuration dictionary from a pretrained model.
+
+        Args:
+            pretrained_model_name_or_path: Either:
+                - A string, the model id of a pretrained model configuration hosted inside a model repo on huggingface.co.
+                  Valid model ids can be located at the root-level, like `bert-base-uncased`, or namespaced under a
+                  user or organization name, like `dbmdz/bert-base-german-cased`.
+                - A path to a directory containing a configuration file saved using the `save_pretrained` method, e.g.,
+                  `./my_model_directory/`.
+            cache_dir: Optional directory to store the pre-trained model configurations downloaded from huggingface.co.
+            force_download: Whether or not to force the (re-)download of the model weights and configuration files, overriding
+                the cached versions if they exist.
+            local_files_only: Whether or not to only look at local files (e.g., not try to download the model).
+            **kwargs: Additional keyword arguments passed along to the base class method.
+
+        Returns:
+            A tuple containing the configuration dictionary and the keyword arguments.
+
+        Raises:
+            OSError: If the configuration file cannot be found or is not a valid JSON file.
+            ValueError: If the configuration file does not contain the required fields.
+        """
+        config_dict: Dict[str, Any] = {}
+        kwargs = kwargs or {}
+
+        try:
+            # Check if the path exists and is a directory
+            if os.path.isdir(pretrained_model_name_or_path):
+                # Try to load from JSON config file first
+                json_config_file = os.path.join(
+                    pretrained_model_name_or_path, "config.json"
+                )
+                if os.path.exists(json_config_file):
+                    with open(json_config_file, "r", encoding="utf-8") as f:
+                        config_dict = json.load(f)
+                elif YAML_AVAILABLE:
+                    # Fall back to YAML if JSON doesn't exist and YAML is available
+                    yaml_config_file = os.path.join(
+                        pretrained_model_name_or_path, "config.yaml"
+                    )
+                    if os.path.exists(yaml_config_file):
+                        with open(yaml_config_file, "r", encoding="utf-8") as f:
+                            config_dict = yaml.safe_load(f) or {}
+                    else:
+                        raise FileNotFoundError(
+                            f"No config file found in {pretrained_model_name_or_path}. "
+                            "Expected to find either config.json or config.yaml."
+                        )
+                
+                # Process the configuration dictionary
+                if not isinstance(config_dict, dict):
+                    raise ValueError(f"Configuration file should contain a dictionary, got {type(config_dict)}")
+                
+                # Ensure model_type is set if not already present
+                if "model_type" not in config_dict and hasattr(cls, "model_type"):
+                    config_dict["model_type"] = cls.model_type
+                    
+                return config_dict, kwargs
+            
+            # If not a directory, try to load from Hugging Face Hub
+            try:
+                from huggingface_hub import hf_hub_download  # type: ignore[import]
+
+                # First try to get the config file directly
+                try:
+                    config_file = hf_hub_download(
+                        repo_id=str(pretrained_model_name_or_path),
+                        filename="config.json",
+                        cache_dir=str(cache_dir) if cache_dir else None,
+                        force_download=force_download,
+                        local_files_only=local_files_only,
+                    )
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        config_dict = json.load(f)
+                except Exception as e:
+                    if not YAML_AVAILABLE:
+                        raise
+                    # Fall back to YAML if JSON doesn't exist and YAML is available
+                    try:
+                        config_file = hf_hub_download(
+                            repo_id=str(pretrained_model_name_or_path),
+                            filename="config.yaml",
+                            cache_dir=str(cache_dir) if cache_dir else None,
+                            force_download=force_download,
+                            local_files_only=local_files_only,
+                        )
+                        with open(config_file, "r", encoding="utf-8") as f:
+                            config_dict = yaml.safe_load(f) or {}
+                    except Exception as yaml_err:
+                        raise FileNotFoundError(
+                            f"Could not find or load config.json or config.yaml in {pretrained_model_name_or_path} "
+                            f"on the Hugging Face Hub. Error: {str(yaml_err)}"
+                        ) from yaml_err
+                
+                # Process the configuration dictionary
+                if not isinstance(config_dict, dict):
+                    raise ValueError(f"Configuration file should contain a dictionary, got {type(config_dict)}")
+                
+                # Ensure model_type is set if not already present
+                if "model_type" not in config_dict and hasattr(cls, "model_type"):
+                    config_dict["model_type"] = cls.model_type
+                    
+                return config_dict, kwargs
+                
+            except ImportError as import_err:
+                raise ImportError(
+                    "The `huggingface_hub` package is required to load models from the Hub. "
+                    "Please install it with `pip install huggingface_hub`."
+                ) from import_err
+                
+        except Exception as e:
+            raise OSError(
+                f"Error loading configuration from {pretrained_model_name_or_path}: {str(e)}"
+            ) from e
+
+        # Ensure we have a valid config dictionary
+        if not isinstance(config_dict, dict):
+            raise ValueError(
+                f"Expected config to be a dictionary, got {type(config_dict).__name__}"
+            )
+
+        # Update with any overrides from kwargs
+        if kwargs:
+            config_dict.update(kwargs)
+
+        # Convert the config dictionary to a config object
+        return config_dict, kwargs
 
     def save_pretrained(
         self, save_directory: Union[str, os.PathLike], **kwargs: Any
@@ -834,111 +967,509 @@ class MedicalModelConfig(BaseMedicalConfig):
         """Save the configuration to a directory.
 
         This method saves the configuration as JSON and YAML files in the
-        specified directory.
+        specified directory. If the directory does not exist, it will be created.
 
         Args:
-            save_directory: Directory to save the configuration files to.
-            **kwargs: Additional keyword arguments passed to serialization
-                methods.
+            save_directory: Directory path where the configuration files will be saved.
+                Can be a string or a path-like object.
+            **kwargs: Additional keyword arguments passed to the serialization methods.
+                Common options include:
+                - indent: int - Number of spaces for indentation in the output files
+                - sort_keys: bool - Whether to sort dictionary keys in the output
+                - ensure_ascii: bool - If False, non-ASCII characters are output as-is
 
-
-        Example:
-            ```python
-            config = MedicalModelConfig()
-            config.save_pretrained("path/to/save")
-            ```
+        Raises:
+            OSError: If the directory cannot be created or is not writable
+            ValueError: If the save_directory is not a valid path
+            TypeError: If the configuration cannot be serialized to JSON or YAML
+            yaml.YAMLError: If there is an error during YAML serialization
         """
-        save_directory = Path(save_directory)
-        save_directory.mkdir(parents=True, exist_ok=True)
+        save_dir = Path(save_directory).resolve()
 
-        # Save as JSON
-        output_json_file = save_directory / "config.json"
-        self.to_json(output_json_file, **kwargs)
-
-        # Also save as YAML if available
+        # Create the directory if it doesn't exist
         try:
-            output_yaml_file = save_directory / "config.yaml"
-            self.to_yaml(output_yaml_file, **kwargs)
-        except ImportError:
-            # If PyYAML is not available, just skip YAML serialization
-            pass
+            save_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise OSError(f"Unable to create directory {save_dir}: {str(e)}") from e
 
-    @classmethod
-    def _convert_dict_values(
-        cls,
-        config_dict: Dict[str, Any],
-        field_type: Optional[Type] = None,
-        field_name: str = "",
-    ) -> Dict[str, Any]:
-        """Recursively convert dictionary values to appropriate types.
-
-        Args:
-            config_dict: The dictionary to convert values in
-            field_type: The expected type of the field (if known)
-            field_name: Name of the field being processed (for error messages)
-
-        Returns:
-            The converted dictionary with proper types
-        """
-        result: Dict[str, Any] = {}
-
-        for key, value in config_dict.items():
-            if value is None:
-                result[key] = None
-                continue
-
-            try:
-                result[key] = cls._convert_value(value, key, field_type, field_name)
-            except Exception as e:
-                context = field_name or "root"
-                warnings.warn(
-                    f"Error processing field '{key}' in {context}: {str(e)}",
-                    UserWarning,
-                )
-                result[key] = value
-
-        return result
-
-    @classmethod
-    def _convert_non_dict_input(cls, obj: Any) -> Dict[str, Any]:
-        """Helper method to handle non-dict input for _convert_dict_values."""
-        # Check for to_dict method in one step
-        to_dict = getattr(obj, "to_dict", None)
-        if to_dict is None or not callable(to_dict):
-            return {}
-
-        # Try to convert the object to a dictionary
-        try:
-            converted = to_dict()
-            # Ensure the converted value is a dictionary
-            if not isinstance(converted, dict):
-                return {}
-            return converted
-        except Exception:
-            # Ignore any exceptions during conversion
-            return {}
-
-    @classmethod
-    def _convert_value(
-        cls, value: Any, key: str, field_type: Optional[Type], field_name: str
-    ) -> Any:
-        """Convert a single value to its appropriate type."""
-        # Get the expected type for this field if available
-        current_field_type: Optional[Type] = None
-        if field_type and hasattr(field_type, "__annotations__"):
-            current_field_type = field_type.__annotations__.get(key)
-
-        # Handle nested dictionaries
-        if isinstance(value, dict):
-            nested_name = f"{field_name}.{key}" if field_name else key
-            return cls._convert_dict_values(
-                value,
-                current_field_type,
-                nested_name,
+        # Verify the directory is writable
+        if not os.access(save_dir, os.W_OK):
+            raise OSError(
+                f"Directory {save_dir} is not writable. "
+                "Check permissions and try again."
             )
 
-        # Handle lists
-        if isinstance(value, list) and value:
-            return cls._convert_list_value(value, key, current_field_type, field_name)
+        # Get the configuration as a serializable dictionary
+        try:
+            config_dict = self.to_dict()
+            serialized = self._convert_to_serializable(
+                config_dict, serialize_enums=True
+            )
+            if not isinstance(serialized, dict):
+                raise TypeError(
+                    f"Serialized config must be a dictionary, got {type(serialized).__name__}"
+                )
+        except Exception as e:
+            raise TypeError(
+                f"Failed to convert configuration to dictionary: {str(e)}"
+            ) from e
 
+        # Save as JSON
+        json_path = save_dir / "config.json"
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    serialized,
+                    f,
+                    indent=kwargs.pop("indent", 2),
+                    ensure_ascii=kwargs.pop("ensure_ascii", False),
+                    sort_keys=kwargs.pop("sort_keys", True),
+                    **kwargs,
+                )
+        except (TypeError, OverflowError) as e:
+            raise TypeError(
+                f"Failed to serialize configuration to JSON: {str(e)}"
+            ) from e
+        except OSError as e:
+            raise OSError(
+                f"Failed to write configuration to {json_path}: {str(e)}"
+            ) from e
+
+        # Save as YAML if available
+        if YAML_AVAILABLE:
+            yaml_path = save_dir / "config.yaml"
+            try:
+                with open(yaml_path, "w", encoding="utf-8") as f:
+                    yaml.dump(
+                        serialized,
+                        f,
+                        default_flow_style=False,
+                        allow_unicode=True,
+                        sort_keys=kwargs.get("sort_keys", True),
+                        **{
+                            k: v
+                            for k, v in kwargs.items()
+                            if k not in ["indent", "ensure_ascii"]
+                        },
+                    )
+            except yaml.YAMLError as e:
+                # Don't fail if YAML serialization fails, just log a warning
+                warnings.warn(
+                    f"Failed to save YAML configuration: {str(e)}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+
+        logger.info(f"Configuration saved in {save_dir}")
+
+
+def to_yaml(
+    self,
+    file_path: Optional[Union[str, Path]] = None,
+    **kwargs: Any,
+) -> Optional[str]:
+    """Serialize the configuration to a YAML string or file.
+
+    This method converts the configuration to a YAML-formatted string. If a file path
+    is provided, it will also save the YAML to that file.
+
+    Args:
+        file_path: Optional path where to save the YAML file. If None, the YAML
+            string will be returned instead of being written to a file.
+        **kwargs: Additional keyword arguments passed to `yaml.dump()`.
+            Common options include:
+            - default_flow_style: bool - If False, uses block style for better readability
+            - sort_keys: bool - Whether to sort dictionary keys
+            - width: int - Maximum line width
+            - indent: int - Number of spaces for indentation
+
+    Returns:
+        The YAML string if file_path is None, otherwise None
+
+    Raises:
+        ImportError: If PyYAML is not installed
+        ValueError: If the configuration cannot be serialized or file cannot be written
+        TypeError: If the configuration contains unserializable types
+        yaml.YAMLError: If there is an error during YAML serialization
+        OSError: If there is an error writing to the file
+
+    Example:
+        ```python
+        # Get YAML as a string
+        yaml_str = config.to_yaml()
+
+        # Save YAML to a file
+        config.to_yaml("config.yaml")
+        ```
+    """
+    if not YAML_AVAILABLE:
+        raise ImportError(
+            "PyYAML is required to use to_yaml(). "
+            "Please install it with: pip install pyyaml"
+        )
+
+    try:
+        # Convert the config to a serializable dictionary
+        config_dict = self.to_dict()
+        serialized = self._convert_to_serializable(config_dict)
+
+        # Set default YAML serialization options if not provided
+        yaml_kwargs = {
+            "default_flow_style": False,
+            "allow_unicode": True,
+            "sort_keys": kwargs.pop("sort_keys", True),
+            "width": kwargs.pop("width", 80),
+            "indent": kwargs.pop("indent", 2),
+        }
+        yaml_kwargs.update(kwargs)  # Allow overriding defaults
+
+        # Generate YAML string
+        try:
+            yaml_str = yaml.dump(serialized, **yaml_kwargs)
+        except yaml.YAMLError as e:
+            if hasattr(e, "problem_mark"):
+                mark = e.problem_mark
+                raise yaml.YAMLError(
+                    f"YAML serialization error at position (line {mark.line + 1}, "
+                    f"column {mark.column + 1}): {str(e)}"
+                ) from e
+            raise
+
+        if not isinstance(yaml_str, str):
+            raise ValueError("Failed to generate YAML string")
+
+        # Write to file if path is provided
+        if file_path is not None:
+            file_path = Path(file_path)
+            try:
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(yaml_str)
+                return None
+            except (IOError, OSError) as e:
+                raise OSError(f"Failed to write YAML to {file_path}: {str(e)}") from e
+
+        return yaml_str
+
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Failed to serialize configuration to YAML: {str(e)}") from e
+    except Exception as e:
+        # Reraise any unhandled exceptions with additional context
+        raise type(e)(f"Error in to_yaml(): {str(e)}") from e
+
+
+def to_json(
+    self,
+    file_path: Optional[Union[str, Path]] = None,
+    **kwargs: Any,
+) -> Optional[str]:
+    """Serialize the configuration to a JSON string or file.
+
+    Args:
+        file_path: Optional path to save the JSON file. If None, returns the JSON string.
+        **kwargs: Additional keyword arguments passed to json.dump()
+
+    Returns:
+        The JSON string if file_path is None, otherwise None
+
+    Raises:
+        ValueError: If the configuration cannot be serialized or file cannot be written
+        TypeError: If the configuration contains unserializable types
+    """
+    try:
+        # Convert the config to a serializable dictionary
+        config_dict = self.to_dict()
+        serialized = self._convert_to_serializable(config_dict)
+
+        # Default JSON serialization parameters
+        json_kwargs = {
+            "ensure_ascii": False,
+            "indent": 2,
+            "sort_keys": True,
+        }
+        json_kwargs.update(kwargs)  # Allow overriding defaults
+
+        # Generate JSON string
+        json_str = json.dumps(serialized, **json_kwargs)
+
+        # Write to file if path is provided
+        if file_path is not None:
+            try:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(json_str)
+                return None
+            except IOError as e:
+                raise ValueError(
+                    f"Failed to write JSON to {file_path}: {str(e)}"
+                ) from e
+
+        return json_str
+
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Failed to serialize configuration to JSON: {str(e)}") from e
+
+
+@classmethod
+def _convert_dict_values(
+    cls,
+    config_dict: Dict[str, Any],
+    field_type: Optional[Type[Any]] = None,
+    field_name: str = "",
+) -> Dict[str, Any]:
+    """Recursively convert dictionary values to appropriate types.
+
+    Args:
+        config_dict: The dictionary to convert values in
+        field_type: The expected type of the field (if known)
+        field_name: Name of the field being processed (for error messages)
+
+    Returns:
+        The converted dictionary with proper types
+
+    Raises:
+        TypeError: If the input is not a dictionary
+        ValueError: If a value cannot be converted to the expected type
+    """
+    if not isinstance(config_dict, dict):
+        if config_dict is None:
+            return {}
+        raise TypeError(f"Expected a dictionary, got {type(config_dict).__name__}")
+
+    converted: Dict[str, Any] = {}
+
+    # Get the field type for the dictionary values if available
+    value_type: Optional[Type[Any]] = None
+    if field_type and hasattr(field_type, "__args__") and len(field_type.__args__) > 1:  # type: ignore
+        value_type = field_type.__args__[1]  # type: ignore
+
+    for key, value in config_dict.items():
+        if not isinstance(key, str):
+            warnings.warn(
+                f"Non-string key '{key}' found in dictionary, converting to string",
+                stacklevel=2,
+            )
+            str_key = str(key)
+        else:
+            str_key = key
+
+        # Get the specific field type for this key if available
+        key_field_type: Optional[Type[Any]] = None
+        if field_type and hasattr(field_type, "__annotations__"):
+            key_field_type = field_type.__annotations__.get(key)
+
+        try:
+            converted[str_key] = cls._convert_value(
+                value, key, key_field_type or value_type, field_name
+            )
+        except (ValueError, TypeError) as e:
+            warning_msg = (
+                f"Could not convert {field_name}.{key}: {e}"
+                if field_name
+                else f"Could not convert {key}: {e}"
+            )
+            warnings.warn(warning_msg, stacklevel=2)
+            converted[str_key] = value
+
+    return converted
+
+
+@classmethod
+def _convert_non_dict_input(cls, obj: Any) -> Dict[str, Any]:
+    """Helper method to handle non-dict input for _convert_dict_values.
+
+    Args:
+        obj: The input object to convert to a dictionary
+
+    Returns:
+        A dictionary representation of the input object
+
+    Raises:
+        TypeError: If the input cannot be converted to a dictionary
+    """
+    if obj is None:
+        return {}
+    if isinstance(obj, (str, int, float, bool)):
+        return {"value": obj}
+    if isinstance(obj, (list, tuple)):
+        return {str(i): v for i, v in enumerate(obj)}
+    if hasattr(obj, "__dict__"):
+        return {k: v for k, v in vars(obj).items() if not k.startswith("_")}
+    if hasattr(obj, "to_dict") and callable(obj.to_dict):
+        result = obj.to_dict()
+        if not isinstance(result, dict):
+            raise TypeError(
+                f"to_dict() did not return a dictionary, got {type(result).__name__}"
+            )
+        return result
+    return {"value": obj}
+
+
+@classmethod
+def _convert_value(
+    cls,
+    value: Any,
+    key: str,
+    field_type: Optional[Type[Any]] = None,
+    field_name: str = "",
+) -> Any:
+    """Convert a single value to its appropriate type.
+
+    Args:
+        value: The value to convert
+        key: The dictionary key this value belongs to
+        field_type: The expected type of the field (if known)
+        field_name: Name of the field being processed (for error messages)
+
+    Returns:
+        The converted value with the appropriate type
+
+    Raises:
+        ValueError: If the value cannot be converted to the target type
+        TypeError: If the value is of an incompatible type
+    """
+    # If no type information is available, return as is
+    if field_type is None:
         return value
+
+    # Get the expected type for this field if available
+    current_field_type: Optional[Type[Any]] = None
+    if hasattr(field_type, "__annotations__"):
+        current_field_type = field_type.__annotations__.get(key, field_type)
+    else:
+        current_field_type = field_type
+
+    # Handle None values
+    if value is None:
+        return None
+
+    # Handle nested dictionaries
+    if isinstance(value, dict):
+        nested_name = f"{field_name}.{key}" if field_name else key
+        return cls._convert_dict_values(
+            value,
+            current_field_type,
+            nested_name,
+        )
+
+    # Handle lists and tuples
+    if isinstance(value, (list, tuple)):
+        return cls._convert_list_value(value, current_field_type, field_name)
+
+    # Handle enum types
+    if (
+        current_field_type
+        and isinstance(value, str)
+        and hasattr(current_field_type, "__members__")
+    ):
+        try:
+            return current_field_type[value.upper()]
+        except (KeyError, AttributeError):
+            # If we can't convert to enum, try the string value as is
+            pass
+
+    # Handle boolean strings
+    if current_field_type is bool and isinstance(value, str):
+        normalized = value.lower().strip()
+        if normalized in ("true", "1", "yes", "y"):
+            return True
+        if normalized in ("false", "0", "no", "n"):
+            return False
+
+    # Handle numeric strings
+    if current_field_type in (int, float) and isinstance(value, str):
+        try:
+            return current_field_type(value)
+        except (ValueError, TypeError):
+            pass
+
+    # Handle basic type conversion if the value isn't already the right type
+    if current_field_type and not isinstance(value, current_field_type):
+        try:
+            return current_field_type(value)
+        except (TypeError, ValueError) as e:
+            error_msg = (
+                f"Could not convert value '{value}' to type "
+                f"{getattr(current_field_type, '__name__', str(current_field_type))}"
+            )
+            if field_name:
+                error_msg += f" for field '{field_name}.{key}'"
+            else:
+                error_msg += f" for key '{key}'"
+            raise ValueError(error_msg) from e
+
+    return value
+
+
+@classmethod
+def _convert_list_value(
+    cls,
+    value: Any,
+    field_name: str,
+    field_type: Optional[Type[Any]] = None,
+) -> List[Any]:
+    """Convert a list value to the appropriate type.
+
+        Args:
+            value: The value to convert
+            field_name: The name of the field being converted (for error messages)
+            field_type: The expected type of the list elements
+
+    Returns:
+            The converted list
+
+    Raises:
+            ValueError: If the value cannot be converted to a list
+            TypeError: If the list elements cannot be converted to the expected type
+    """
+    if value is None:
+        return []
+
+    # Handle string input
+    if isinstance(value, str):
+        try:
+            # Try to parse as JSON
+            parsed = json.loads(value)
+            if isinstance(parsed, (list, tuple)):
+                value = parsed
+            else:
+                value = [parsed]  # Single value wrapped in a list
+        except json.JSONDecodeError:
+            value = [value]  # Treat as single-element list
+
+    # Handle non-sequence input
+    if not isinstance(value, (list, tuple)):
+        if field_type is not None and not isinstance(field_type, type):
+            # Handle generic types like List[int]
+            if hasattr(field_type, "__origin__") and field_type.__origin__ in (
+                list,
+                List,
+            ):
+                inner_type = field_type.__args__[0] if field_type.__args__ else Any
+                return [cls._convert_value(value, f"{field_name}[0]", inner_type)]
+        return [value]  # Wrap single value in a list
+
+    # Get the inner type if this is a List[type] or list[type] annotation
+    inner_type: Type[Any] = Any  # Default to Any if type can't be determined
+    if field_type is not None:
+        if hasattr(field_type, "__origin__") and field_type.__origin__ in (
+            list,
+            List,
+            tuple,
+            Tuple,
+        ):
+            if hasattr(field_type, "__args__") and field_type.__args__:
+                inner_type = field_type.__args__[0]
+        elif isinstance(field_type, type) and field_type in (list, List, tuple, Tuple):
+            inner_type = Any
+
+    # Convert each item in the list
+    converted: List[Any] = []
+    for i, item in enumerate(value):
+        try:
+            converted_item = cls._convert_value(item, f"{field_name}[{i}]", inner_type)
+            converted.append(converted_item)
+        except (ValueError, TypeError) as e:
+            warnings.warn(f"Could not convert {field_name}[{i}]: {e}", stacklevel=2)
+            converted.append(item)
+
+    return converted

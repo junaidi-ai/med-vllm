@@ -35,9 +35,9 @@ class SamplingManager:
 
     def process_logits(
         self,
-        logits: TensorT,
-        input_ids: Optional[TensorT] = None,
-    ) -> TensorT:
+        logits: "TensorT",
+        input_ids: Optional["TensorT"] = None,
+    ) -> "TensorT":
         """Process logits before sampling.
 
         Args:
@@ -47,14 +47,24 @@ class SamplingManager:
         Returns:
             Processed logits ready for sampling.
         """
-        if self.logits_processor is not None:
-            return self.logits_processor(logits, input_ids)
-        return logits
+        if self.logits_processor is None:
+            return logits
+
+        # Process logits with the processor
+        if input_ids is not None:
+            result = self.logits_processor(logits, input_ids)
+        else:
+            result = self.logits_processor(logits, None)
+
+        # Ensure the result is a tensor of the correct type
+        if not isinstance(result, torch.Tensor):
+            return torch.tensor(result, device=logits.device, dtype=logits.dtype)
+        return result
 
     def sample(
         self,
         logits: "TensorT",
-        seqs: List[SequenceT],
+        seqs: List[Any],  # Using Any to avoid circular imports with SequenceT
     ) -> List[int]:
         """Sample tokens from logits.
 
@@ -65,22 +75,34 @@ class SamplingManager:
         Returns:
             A list of sampled token IDs, one for each sequence in the batch.
         """
+        # Ensure logits is a tensor on the correct device
         if not isinstance(logits, torch.Tensor):
-            raise TypeError(f"Expected logits to be a torch.Tensor, got {type(logits)}")
+            logits_tensor = torch.tensor(logits, device=self.runner.device)
+        else:
+            logits_tensor = logits
 
         # Get the last token logits for each sequence
-        last_logits = logits[:, -1, :]
+        last_logits = logits_tensor[:, -1, :]
 
         # Process logits if a processor is set
         processed_logits = self.process_logits(last_logits)
 
-        # Get temperatures from sequences
-        temperatures = [s.sampling_params.temperature for s in seqs]
+        # Get temperatures from sequences with proper fallback
+        temperatures: List[float] = []
+        for seq in seqs:
+            if hasattr(seq, "sampling_params") and hasattr(
+                seq.sampling_params, "temperature"
+            ):
+                temp = seq.sampling_params.temperature
+                temperatures.append(float(temp) if temp is not None else 1.0)
+            else:
+                temperatures.append(1.0)  # Default temperature
 
         # Sample tokens using the runner's sampler
         sampled = self.runner.sampler(processed_logits, temperatures)
 
         # Convert to list of integers
+        token_ids: List[int] = []
         if isinstance(sampled, torch.Tensor):
             token_ids = sampled.tolist()
         elif isinstance(sampled, (list, tuple)):
@@ -99,7 +121,7 @@ class SamplingManager:
 
     def prepare_temperature(
         self, temperature: Optional[float] = None
-    ) -> Optional["TensorT"]:
+    ) -> Optional[torch.Tensor]:
         """Prepare temperature tensor for sampling.
 
         Args:

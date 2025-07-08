@@ -37,29 +37,39 @@ class ModelManager:
         Returns:
             The loaded model.
         """
+        from torch.nn import Module
+        from transformers import AutoModelForCausalLM
+
         from medvllm.utils.loader import load_model
 
         # Set default device and dtype
         device = kwargs.pop("device", self.runner.device)
         dtype = kwargs.pop("torch_dtype", self.runner.dtype)
 
-        # Load the model using the actual function signature from loader.py
-        model = load_model(
-            model=model_name_or_path,  # First argument is the model
-            path=model_name_or_path,  # Second argument is the path
+        # Load the model using AutoModelForCausalLM
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=True,
+            torch_dtype=dtype,
+            device_map="auto" if str(device) == "cuda" else None,
+            **kwargs,
         )
 
-        # Move model to the specified device
-        model = model.to(device)
+        # If not using device_map, move model to the specified device
+        if str(device) != "cuda" or not hasattr(model, "hf_device_map"):
+            model = model.to(device)
 
         # Store the model and its config
         self.model = model
         self._model_config = getattr(model, "config", None)
+        if self._model_config is None:
+            raise ValueError("Model configuration not found after loading")
 
         # Set model to evaluation mode
         model.eval()
 
-        return model
+        # Cast to Module to satisfy the return type
+        return Module(model)
 
     def prepare_inputs(
         self,
@@ -133,8 +143,18 @@ class ModelManager:
         self.runner.past_key_values = past_key_values
 
     @property
-    def model_config(self) -> PretrainedConfigT:
-        """Get the model configuration."""
-        if self._model_config is None and self.model is not None:
-            self._model_config = getattr(self.model, "config", None)
+    def model_config(self) -> "PretrainedConfigT":
+        """Get the model configuration.
+
+        Returns:
+            The model configuration.
+
+        Raises:
+            RuntimeError: If the model configuration is not loaded.
+        """
+        if self._model_config is None:
+            if self.model is not None:
+                self._model_config = getattr(self.model, "config", None)
+            if self._model_config is None:
+                raise RuntimeError("Model configuration not loaded")
         return self._model_config
