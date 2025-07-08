@@ -1,6 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+    cast,
+)
 
 import torch
 from torch import Tensor
@@ -9,6 +20,10 @@ from .types import *
 
 if TYPE_CHECKING:
     from .base import ModelRunner
+    from .types import _Tensor
+else:
+    # Create a dummy _Tensor type for runtime that's compatible with torch.Tensor
+    _Tensor = Tensor
 
 
 class SamplingManager:
@@ -35,9 +50,15 @@ class SamplingManager:
 
     def process_logits(
         self,
-        logits: "TensorT",
-        input_ids: Optional["TensorT"] = None,
-    ) -> "TensorT":
+        logits: Union[torch.Tensor, "_Tensor"],
+        input_ids: Optional[Union[torch.Tensor, "_Tensor"]] = None,
+    ) -> torch.Tensor:
+        # Import _Tensor here to avoid circular imports
+        from .types import _Tensor
+
+        # Import the actual _Tensor type for runtime checks
+        if not TYPE_CHECKING:
+            _Tensor = torch.Tensor  # type: ignore[misc, assignment]
         """Process logits before sampling.
 
         Args:
@@ -47,23 +68,51 @@ class SamplingManager:
         Returns:
             Processed logits ready for sampling.
         """
-        if self.logits_processor is None:
-            return logits
-
-        # Process logits with the processor
-        if input_ids is not None:
-            result = self.logits_processor(logits, input_ids)
+        # Convert input to torch.Tensor if needed
+        if not isinstance(logits, (torch.Tensor, _Tensor)):
+            logits_tensor = torch.tensor(logits, device=self.runner.device)
         else:
-            result = self.logits_processor(logits, None)
+            logits_tensor = logits
+
+        if self.logits_processor is None:
+            return logits_tensor  # type: ignore[return-value]
+
+        # Prepare input_ids for the processor
+        input_ids_tensor: Optional[Union[torch.Tensor, _Tensor]] = None
+        if input_ids is not None:
+            if not isinstance(input_ids, (torch.Tensor, _Tensor)):
+                input_ids_tensor = torch.tensor(input_ids, device=self.runner.device)
+            else:
+                input_ids_tensor = input_ids
+
+        if self.logits_processor is None:
+            return logits_tensor  # type: ignore[return-value]
+
+        # Convert tensors to the expected _Tensor type if needed
+        def to_tensort(t: Union[torch.Tensor, _Tensor]) -> _Tensor:
+            if isinstance(t, _Tensor) or not hasattr(_Tensor, "_as_tensor"):
+                return t  # type: ignore[return-value]
+            return _Tensor(t)  # type: ignore[call-arg]
+
+        # Process the logits with the processor
+        if input_ids_tensor is not None:
+            result = self.logits_processor(
+                to_tensort(logits_tensor), to_tensort(input_ids_tensor)
+            )
+        else:
+            # For the None case, we need to handle it specially since we can't convert None to _Tensor
+            result = self.logits_processor(to_tensort(logits_tensor), None)  # type: ignore[call-arg]
 
         # Ensure the result is a tensor of the correct type
         if not isinstance(result, torch.Tensor):
-            return torch.tensor(result, device=logits.device, dtype=logits.dtype)
+            return torch.tensor(
+                result, device=logits_tensor.device, dtype=logits_tensor.dtype
+            )
         return result
 
     def sample(
         self,
-        logits: "TensorT",
+        logits: Union[torch.Tensor, "TensorT"],
         seqs: List[Any],  # Using Any to avoid circular imports with SequenceT
     ) -> List[int]:
         """Sample tokens from logits.

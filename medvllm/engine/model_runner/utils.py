@@ -6,12 +6,12 @@ import sys
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Dict,
     Generator,
     List,
     Optional,
     Tuple,
+    Type,
     TypeVar,
     Union,
     cast,
@@ -153,7 +153,11 @@ def synchronize() -> None:
         torch.cuda.synchronize()
 
 
-def all_reduce(tensor: Tensor, op: ReductionOp = "sum") -> Tensor:
+# Define a type for reduction operations
+ReductionOpStr = Literal["sum", "mean", "min", "max"]
+
+
+def all_reduce(tensor: Tensor, op: ReductionOpStr = "sum") -> Tensor:
     """All-reduce operation across all processes.
 
     Args:
@@ -166,18 +170,20 @@ def all_reduce(tensor: Tensor, op: ReductionOp = "sum") -> Tensor:
     if not is_distributed():
         return tensor
 
-    op = op.lower()
+    # Convert the operation to the appropriate ReduceOp
     if op == "sum":
-        op = torch.distributed.ReduceOp.SUM
+        reduce_op = torch.distributed.ReduceOp.SUM
     elif op == "mean":
-        op = torch.distributed.ReduceOp.SUM
+        reduce_op = torch.distributed.ReduceOp.SUM
         tensor = tensor.clone() / get_world_size()
     elif op == "min":
-        op = torch.distributed.ReduceOp.MIN
+        reduce_op = torch.distributed.ReduceOp.MIN
     elif op == "max":
-        op = torch.distributed.ReduceOp.MAX
+        reduce_op = torch.distributed.ReduceOp.MAX
     else:
+        # This should never happen because of the Literal type,
+        # but we keep it as a safeguard
         raise ValueError(f"Unsupported reduction operation: {op}")
 
-    torch.distributed.all_reduce(tensor, op=op)
+    torch.distributed.all_reduce(tensor, op=reduce_op)
     return tensor

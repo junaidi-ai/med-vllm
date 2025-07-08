@@ -75,7 +75,7 @@ if TYPE_CHECKING:
     DataLoaderT: TypeAlias = DataLoader[Any]
     TensorDictT: TypeAlias = Dict[str, "TensorT"]
     BatchT: TypeAlias = Dict[str, Union["TensorT", List[Any]]]
-    LogitsProcessorT: TypeAlias = Callable[["TensorT", "TensorT"], "TensorT"]
+    LogitsProcessorT: TypeAlias = Callable[["TensorT", Optional["TensorT"]], "TensorT"]
     PastKeyValuesT: TypeAlias = Optional[Tuple[Tuple["TensorT", ...], ...]]
     CUDAGraphsT: TypeAlias = Dict[int, "CUDAGraphT"]
     GraphVarsT: TypeAlias = Dict[str, "TensorT"]

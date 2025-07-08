@@ -769,7 +769,6 @@ class MedicalModelConfig(BaseMedicalConfig):
                 f"Cannot serialize value of type {type(value).__name__}: {str(e)}"
             ) from e
 
-
     @classmethod
     def from_pretrained(
         cls: Type[T],
@@ -811,16 +810,20 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         # Get the model type from the class if it exists, otherwise use the config dict
         model_type = getattr(cls, "model_type", None)
-        if model_type is not None and "model_type" in config_dict and config_dict["model_type"] != model_type:
+        if (
+            model_type is not None
+            and "model_type" in config_dict
+            and config_dict["model_type"] != model_type
+        ):
             warnings.warn(
                 f"You are using a model of type {config_dict['model_type']} to instantiate a model of type "
                 f"{model_type}. This is not supported for all configurations of models and can produce errors.",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
 
         # Use the class's from_dict method if it exists, otherwise create a new instance
-        if hasattr(cls, 'from_dict') and callable(cls.from_dict):
+        if hasattr(cls, "from_dict") and callable(cls.from_dict):
             return cls.from_dict(config_dict, **kwargs)  # type: ignore[call-arg]
         return cls(**config_dict, **kwargs)
 
@@ -881,17 +884,19 @@ class MedicalModelConfig(BaseMedicalConfig):
                             f"No config file found in {pretrained_model_name_or_path}. "
                             "Expected to find either config.json or config.yaml."
                         )
-                
+
                 # Process the configuration dictionary
                 if not isinstance(config_dict, dict):
-                    raise ValueError(f"Configuration file should contain a dictionary, got {type(config_dict)}")
-                
+                    raise ValueError(
+                        f"Configuration file should contain a dictionary, got {type(config_dict)}"
+                    )
+
                 # Ensure model_type is set if not already present
                 if "model_type" not in config_dict and hasattr(cls, "model_type"):
                     config_dict["model_type"] = cls.model_type
-                    
+
                 return config_dict, kwargs
-            
+
             # If not a directory, try to load from Hugging Face Hub
             try:
                 from huggingface_hub import hf_hub_download  # type: ignore[import]
@@ -926,23 +931,25 @@ class MedicalModelConfig(BaseMedicalConfig):
                             f"Could not find or load config.json or config.yaml in {pretrained_model_name_or_path} "
                             f"on the Hugging Face Hub. Error: {str(yaml_err)}"
                         ) from yaml_err
-                
+
                 # Process the configuration dictionary
                 if not isinstance(config_dict, dict):
-                    raise ValueError(f"Configuration file should contain a dictionary, got {type(config_dict)}")
-                
+                    raise ValueError(
+                        f"Configuration file should contain a dictionary, got {type(config_dict)}"
+                    )
+
                 # Ensure model_type is set if not already present
                 if "model_type" not in config_dict and hasattr(cls, "model_type"):
                     config_dict["model_type"] = cls.model_type
-                    
+
                 return config_dict, kwargs
-                
+
             except ImportError as import_err:
                 raise ImportError(
                     "The `huggingface_hub` package is required to load models from the Hub. "
                     "Please install it with `pip install huggingface_hub`."
                 ) from import_err
-                
+
         except Exception as e:
             raise OSError(
                 f"Error loading configuration from {pretrained_model_name_or_path}: {str(e)}"

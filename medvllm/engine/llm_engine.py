@@ -99,23 +99,8 @@ class LLMEngine:
         if not seqs:
             return [], 0
 
-        # Prepare inputs for the model
-        input_sequences: List[List[int]] = []
-        for seq in seqs:
-            # Ensure both prompt and completion tokens are lists of integers
-            prompt_tokens = (
-                seq.prompt_token_ids if hasattr(seq, "prompt_token_ids") else []
-            )
-            completion_tokens = (
-                seq.completion_token_ids if hasattr(seq, "completion_token_ids") else []
-            )
-            input_sequences.append(prompt_tokens + completion_tokens)
-
-        # Convert to tensor and move to device
-        input_tensor = torch.tensor(input_sequences, device=self.model_runner.device)
-
-        # Run the model
-        output_token_ids = self.model_runner.run(input_tensor, is_prefill=is_prefill)
+        # Run the model with the sequences directly
+        output_token_ids = self.model_runner.run(seqs, is_prefill=is_prefill)
 
         # Initialize with empty lists for each sequence
         processed_token_ids: List[List[int]] = []
@@ -297,11 +282,13 @@ class LLMEngine:
             output, num_tokens = self.step()
 
             # Update progress bar if enabled
-            if use_tqdm:
+            if use_tqdm and pbar is not None:
                 if num_tokens > 0:
                     prefill_throughput = num_tokens / (perf_counter() - t)
                 else:
                     decode_throughput = -num_tokens / (perf_counter() - t)
+
+                # Only update postfix if pbar is not None
                 pbar.set_postfix(
                     {
                         "Prefill": f"{int(prefill_throughput)}tok/s",
@@ -314,7 +301,7 @@ class LLMEngine:
                 for seq_id, token_ids in output:
                     if seq_id is not None and token_ids is not None:
                         seq_outputs[seq_id] = token_ids
-                        if use_tqdm:
+                        if use_tqdm and pbar is not None:
                             pbar.update(1)
         # Convert sequence outputs to the final result format
         final_outputs = []
@@ -328,7 +315,7 @@ class LLMEngine:
             )
 
         # Clean up and return
-        if use_tqdm:
+        if use_tqdm and pbar is not None:
             pbar.close()
 
         return final_outputs

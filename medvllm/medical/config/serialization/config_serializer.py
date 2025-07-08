@@ -11,14 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    Optional,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import Any, Dict, Optional, Type, TypeVar, Union
 
 logger = logging.getLogger(__name__)
 

@@ -6,12 +6,7 @@ the configuration system, including type conversion, path handling, and
 other helper functions.
 """
 
-from .misc import (
-    deep_update,
-    filter_none_values,
-    get_nested_value,
-    set_nested_value,
-)
+from .misc import deep_update, filter_none_values, get_nested_value, set_nested_value
 from .path_utils import ensure_path, find_config_file, resolve_config_path
 from .type_utils import (
     get_dict_types,

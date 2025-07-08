@@ -27,7 +27,7 @@ class ModelManager:
         self.model: Optional[Module] = None
         self._model_config: Optional[PretrainedConfigT] = None
 
-    def load_model(self, model_name_or_path: str, **kwargs: Any) -> Module:
+    def load_model(self, model_name_or_path: str, **kwargs: Any) -> Any:  # type: ignore[override]
         """Load the model from the registry, hub, or local path.
 
         This method first tries to load the model from the registry. If the model is not found,
@@ -46,7 +46,9 @@ class ModelManager:
         """
         from torch.nn import Module
         from transformers import AutoModelForCausalLM
+
         from medvllm.utils.loader import load_model
+
         from .registry import registry
 
         # Set default device and dtype
@@ -61,7 +63,7 @@ class ModelManager:
                 torch_dtype=dtype,
                 trust_remote_code=True,
                 device_map="auto" if str(device) == "cuda" else None,
-                **kwargs
+                **kwargs,
             )
         except (KeyError, RuntimeError) as e:
             # Fall back to direct loading if not in registry or loading fails
@@ -73,11 +75,11 @@ class ModelManager:
                     device_map="auto" if str(device) == "cuda" else None,
                     **kwargs,
                 )
-                
+
                 # If not using device_map, move model to the specified device
                 if str(device) != "cuda" or not hasattr(model, "hf_device_map"):
                     model = model.to(device)
-                    
+
             except Exception as inner_e:
                 raise RuntimeError(
                     f"Failed to load model '{model_name_or_path}'. "
@@ -85,16 +87,24 @@ class ModelManager:
                 ) from inner_e
 
         # Store the model and its config
-        self.model = model
+        self.model = model  # type: ignore[assignment]
         self._model_config = getattr(model, "config", None)
         if self._model_config is None:
             raise ValueError("Model configuration not found after loading")
 
-        # Set model to evaluation mode
-        model.eval()
+        # Set model to evaluation mode if it has eval() method
+        if hasattr(model, "eval") and callable(model.eval):
+            model.eval()
+        elif (
+            hasattr(model, "module")
+            and hasattr(model.module, "eval")
+            and callable(model.module.eval)
+        ):
+            # Handle case where model is wrapped in DataParallel or similar
+            model.module.eval()
 
-        # Cast to Module to satisfy the return type
-        return Module(model)
+        # Return the model as is, since we've already stored it in self.model
+        return model
 
     def prepare_inputs(
         self,

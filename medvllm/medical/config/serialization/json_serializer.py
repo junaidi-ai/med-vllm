@@ -12,15 +12,7 @@ import dataclasses
 import json
 import logging
 from enum import Enum
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Dict, List, Type, TypeVar, Union
 
 # Import the base configuration class
 from ..base import BaseMedicalConfig
@@ -106,9 +98,7 @@ class JSONSerializer(ConfigSerializer):
             ValueError: If deserialization fails or the configuration
                        is invalid
         """
-        from medvllm.medical.config.models.schema import (
-            MedicalModelConfigSchema,
-        )
+        from medvllm.medical.config.models.schema import MedicalModelConfigSchema
 
         try:
             # Parse JSON string to dict

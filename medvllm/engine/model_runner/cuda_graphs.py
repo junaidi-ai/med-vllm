@@ -72,10 +72,21 @@ class CUDAGraphManager:
         # Create and capture the graph
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, pool=self.graph_pool):
-            self.runner._run_model_impl(input_ids, positions, is_prefill)
+            # Ensure tensors are on the correct device and type
+            input_ids_t = input_ids.to(device=self.runner.device)
+            positions_t = positions.to(device=self.runner.device)
+
+            # Convert to _Tensor if needed (for type checking)
+            if hasattr(input_ids_t, "_as_tensor") and callable(input_ids_t._as_tensor):
+                input_ids_t = input_ids_t._as_tensor()
+            if hasattr(positions_t, "_as_tensor") and callable(positions_t._as_tensor):
+                positions_t = positions_t._as_tensor()
+
+            # Run the model with type ignore since we've handled the conversion
+            self.runner._run_model_impl(input_ids_t, positions_t, is_prefill)  # type: ignore[arg-type]
 
         # Store the graph and its metadata
-        self.graphs[batch_size] = graph
+        self.graphs[batch_size] = graph  # type: ignore[assignment]
         self.graph_bs.append(batch_size)
         self.graph_bs.sort()
 
@@ -106,8 +117,22 @@ class CUDAGraphManager:
                     .expand(batch_size, -1)
                 )
 
-                # Run the model
-                self.runner._run_model_impl(input_ids, positions, is_prefill)
+                # Ensure tensors are on the correct device and type
+                input_ids_t = input_ids.to(device=self.runner.device)
+                positions_t = positions.to(device=self.runner.device)
+
+                # Convert to _Tensor if needed (for type checking)
+                if hasattr(input_ids_t, "_as_tensor") and callable(
+                    input_ids_t._as_tensor
+                ):
+                    input_ids_t = input_ids_t._as_tensor()
+                if hasattr(positions_t, "_as_tensor") and callable(
+                    positions_t._as_tensor
+                ):
+                    positions_t = positions_t._as_tensor()
+
+                # Run the model with type ignore since we've handled the conversion
+                self.runner._run_model_impl(input_ids_t, positions_t, is_prefill)  # type: ignore[arg-type]
 
             # Synchronize to ensure all operations are complete
             torch.cuda.synchronize()

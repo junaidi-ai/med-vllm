@@ -5,15 +5,7 @@ This module contains various utility functions that don't fit into
 the other utility categories but are still useful for configuration processing.
 """
 
-from typing import (
-    Any,
-    Dict,
-    Mapping,
-    Optional,
-    Sequence,
-    TypeVar,
-    Union,
-)
+from typing import Any, Dict, Mapping, Optional, Sequence, TypeVar, Union
 
 from pydantic import BaseModel
 
