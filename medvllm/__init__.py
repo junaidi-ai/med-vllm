@@ -3,19 +3,25 @@ MedVLLM - Medical Variant of the vLLM library for medical NLP tasks.
 """
 
 import importlib
+import sys
 from typing import Any, TypeVar
 
 # Check for required dependencies
 HAS_TORCH = False
 try:
     import torch  # noqa: F401
-
     HAS_TORCH = True
 except ImportError:
     pass
 
 # Define a type variable for generic type hints
 T = TypeVar("T")
+
+# CLI entry point
+def main():
+    """Entry point for the medvllm CLI."""
+    from .cli import cli
+    sys.exit(cli())
 
 
 class DummyModule:

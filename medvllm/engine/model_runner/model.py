@@ -28,36 +28,61 @@ class ModelManager:
         self._model_config: Optional[PretrainedConfigT] = None
 
     def load_model(self, model_name_or_path: str, **kwargs: Any) -> Module:
-        """Load the model from a checkpoint or hub.
+        """Load the model from the registry, hub, or local path.
+
+        This method first tries to load the model from the registry. If the model is not found,
+        it falls back to loading from the Hugging Face Hub or local path.
 
         Args:
-            model_name_or_path: Path to the model or model name.
+            model_name_or_path: Name of the model in the registry, or path/identifier for direct loading.
             **kwargs: Additional arguments to pass to the model loader.
 
         Returns:
             The loaded model.
+
+        Raises:
+            RuntimeError: If the model cannot be loaded.
+            ValueError: If the model configuration is invalid.
         """
         from torch.nn import Module
         from transformers import AutoModelForCausalLM
-
         from medvllm.utils.loader import load_model
+        from .registry import registry
 
         # Set default device and dtype
         device = kwargs.pop("device", self.runner.device)
         dtype = kwargs.pop("torch_dtype", self.runner.dtype)
 
-        # Load the model using AutoModelForCausalLM
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            trust_remote_code=True,
-            torch_dtype=dtype,
-            device_map="auto" if str(device) == "cuda" else None,
-            **kwargs,
-        )
-
-        # If not using device_map, move model to the specified device
-        if str(device) != "cuda" or not hasattr(model, "hf_device_map"):
-            model = model.to(device)
+        try:
+            # Try to load from registry first
+            model = registry.load_model(
+                model_name_or_path,
+                device=device,
+                torch_dtype=dtype,
+                trust_remote_code=True,
+                device_map="auto" if str(device) == "cuda" else None,
+                **kwargs
+            )
+        except (KeyError, RuntimeError) as e:
+            # Fall back to direct loading if not in registry or loading fails
+            try:
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_name_or_path,
+                    trust_remote_code=True,
+                    torch_dtype=dtype,
+                    device_map="auto" if str(device) == "cuda" else None,
+                    **kwargs,
+                )
+                
+                # If not using device_map, move model to the specified device
+                if str(device) != "cuda" or not hasattr(model, "hf_device_map"):
+                    model = model.to(device)
+                    
+            except Exception as inner_e:
+                raise RuntimeError(
+                    f"Failed to load model '{model_name_or_path}'. "
+                    f"Registry error: {str(e)}, Direct load error: {str(inner_e)}"
+                ) from inner_e
 
         # Store the model and its config
         self.model = model

@@ -7,7 +7,8 @@ from typing import Any, List, Optional, Tuple, Union
 import torch
 import torch.multiprocessing as mp
 from tqdm import tqdm
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoTokenizer
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from medvllm.config import Config
 from medvllm.engine.model_runner.base import ModelRunner
