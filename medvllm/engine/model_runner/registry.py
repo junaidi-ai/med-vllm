@@ -4,13 +4,41 @@ Model Registry for managing and loading different model types.
 This module provides a thread-safe registry for managing various model types,
 including medical models like BioBERT and ClinicalBERT, with support for
 model loading, caching, and metadata management.
+
+Example:
+    ```python
+    # Get the registry instance
+    registry = get_registry()
+
+    # Register a new model
+    registry.register(
+        name="my-model",
+        model_type=ModelType.BIOMEDICAL,
+        model_class=AutoModel,
+        config_class=AutoConfig,
+        description="My custom biomedical model",
+        tags=["custom", "biomedical"]
+    )
+
+    # Load a model
+    model = registry.load_model("biobert-base-cased-v1.2")
+
+    # List all registered models
+    models = registry.list_models()
+    ```
+
+Thread Safety:
+    All public methods are thread-safe. The registry uses a reentrant lock
+    to ensure thread safety during concurrent access.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import asdict, dataclass, field
 from enum import Enum, auto
+from pathlib import Path
 from typing import (
     Any,
     ClassVar,
@@ -29,7 +57,17 @@ import torch
 from torch import nn
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 
+from .exceptions import (
+    ModelInitializationError,
+    ModelLoadingError,
+    ModelNotFoundError,
+    ModelRegistrationError,
+    ModelRegistryError,
+    ModelValidationError,
+)
 from .types import PretrainedConfigT
+
+logger = logging.getLogger(__name__)
 
 # Type variable for model types
 M = TypeVar("M", bound=PreTrainedModel)
@@ -87,13 +125,35 @@ class ModelRegistry(Generic[M]):
 
     This class implements the singleton pattern to ensure there's only one registry instance.
     It provides methods for registering, retrieving, and managing models with their metadata.
+
+    The registry is thread-safe and can be used in concurrent applications. All public methods
+    are protected by a reentrant lock to ensure thread safety.
+
+    Example:
+        ```python
+        # Get the registry instance
+        registry = ModelRegistry()
+
+        # Register a new model
+        registry.register(
+            name="my-model",
+            model_type=ModelType.BIOMEDICAL,
+            model_class=AutoModel,
+            config_class=AutoConfig,
+            description="My custom model",
+            tags=["custom"]
+        )
+
+        # Load a model
+        model = registry.load_model("my-model")
+        ```
     """
 
-    _instance: ClassVar[Optional[ModelRegistry]] = None
-    _lock: ClassVar[threading.Lock] = threading.Lock()
+    _instance: ClassVar[Optional["ModelRegistry"]] = None
+    _lock: ClassVar[threading.RLock] = threading.RLock()
     _initialized: bool = False  # Track initialization state
 
-    def __new__(cls) -> ModelRegistry:
+    def __new__(cls) -> "ModelRegistry":
         with cls._lock:
             if cls._instance is None:
                 instance = super().__new__(cls)
@@ -108,8 +168,45 @@ class ModelRegistry(Generic[M]):
             self._initialized = True
             self._register_default_models()
 
+    def _validate_model_name(self, name: str) -> None:
+        """Validate the model name.
+
+        Args:
+            name: The model name to validate.
+
+        Raises:
+            ModelValidationError: If the name is invalid.
+        """
+        if not name or not isinstance(name, str):
+            raise ModelValidationError("Model name must be a non-empty string")
+
+        if not all(c.isalnum() or c in ".-_" for c in name):
+            raise ModelValidationError(
+                "Model name can only contain alphanumeric characters, '.', '-', and '_'",
+                model_name=name,
+            )
+
+    def _validate_model_type(self, model_type: ModelType) -> None:
+        """Validate the model type.
+
+        Args:
+            model_type: The model type to validate.
+
+        Raises:
+            ModelValidationError: If the model type is invalid.
+        """
+        if not isinstance(model_type, ModelType):
+            raise ModelValidationError(
+                f"Invalid model type: {model_type}. Must be an instance of ModelType"
+            )
+
     def _register_default_models(self) -> None:
-        """Register default models with the registry."""
+        """Register default models with the registry.
+
+        This method is called during initialization to register commonly used models.
+        If registration of a default model fails, the error is logged but does not
+        prevent the registry from being used.
+        """
         default_models = [
             {
                 "name": "biobert-base-cased-v1.2",
@@ -135,11 +232,12 @@ class ModelRegistry(Generic[M]):
                     description=model_info_typed["description"],
                     tags=model_info_typed["tags"],
                 )
-            except Exception as e:
-                import warnings
-
-                warnings.warn(
-                    f"Failed to register default model {model_info['name']}: {e}"
+                logger.info("Registered default model: %s", model_info_typed["name"])
+            except ModelRegistryError as e:
+                logger.warning(
+                    "Failed to register default model %s: %s",
+                    model_info.get("name", "unknown"),
+                    str(e),
                 )
 
     def register(
@@ -154,33 +252,67 @@ class ModelRegistry(Generic[M]):
     ) -> None:
         """Register a new model with the registry.
 
+        This method is thread-safe and will skip registration if a model with the same
+        name already exists.
+
         Args:
-            name: Unique name for the model.
+            name: Unique name for the model. Must be a non-empty string containing only
+                alphanumeric characters, '.', '-', or '_'.
             model_type: Type of the model (e.g., BIOMEDICAL, CLINICAL).
-            model_class: The model class to use for instantiation.
-            config_class: The config class to use for the model.
+            model_class: The model class to use for instantiation. If None, AutoModel will be used.
+            config_class: The config class to use for the model. If None, AutoConfig will be used.
             description: Optional description of the model.
-            tags: Optional list of tags for the model.
+            tags: Optional list of tags for categorizing the model.
             **parameters: Additional parameters to pass to the model during loading.
 
-        Note:
-            If the model is already registered, this method will skip the registration
-            and return without raising an error.
+        Raises:
+            ModelValidationError: If the model name or type is invalid.
+            ModelRegistrationError: If there's an error during registration.
+
+        Example:
+            ```python
+            registry = get_registry()
+            registry.register(
+                name="my-model",
+                model_type=ModelType.BIOMEDICAL,
+                model_class=AutoModel,
+                config_class=AutoConfig,
+                description="My custom model",
+                tags=["custom", "biomedical"],
+                trust_remote_code=True
+            )
+            ```
         """
         with self._lock:
-            if name in self._models:
-                # Skip if already registered
-                return
+            try:
+                # Input validation
+                self._validate_model_name(name)
+                self._validate_model_type(model_type)
 
-            self._models[name] = ModelMetadata(
-                name=name,
-                model_type=model_type,
-                model_class=model_class,
-                config_class=config_class,
-                description=description,
-                tags=tags or [],
-                parameters=parameters or {},
-            )
+                # Skip if already registered
+                if name in self._models:
+                    logger.debug("Model '%s' is already registered, skipping", name)
+                    return
+
+                # Create and store model metadata
+                self._models[name] = ModelMetadata(
+                    name=name,
+                    model_type=model_type,
+                    model_class=model_class,
+                    config_class=config_class,
+                    description=description,
+                    tags=tags or [],
+                    parameters=parameters or {},
+                )
+
+                logger.info("Registered model: %s (type: %s)", name, model_type.name)
+
+            except ModelValidationError:
+                raise  # Re-raise validation errors
+            except Exception as e:
+                raise ModelRegistrationError(
+                    f"Failed to register model: {str(e)}", model_name=name, error=str(e)
+                ) from e
 
     def unregister(self, name: str) -> None:
         """Unregister a model from the registry.
@@ -189,18 +321,22 @@ class ModelRegistry(Generic[M]):
             name: Name of the model to unregister.
 
         Raises:
-            KeyError: If the model is not found in the registry.
+            ModelNotFoundError: If the model is not found in the registry.
         """
         with self._lock:
             if name not in self._models:
-                raise KeyError(f"Model '{name}' not found in registry")
+                raise ModelNotFoundError(
+                    f"Cannot unregister: model not found in registry", model_name=name
+                )
 
             # Remove from cache if loaded
             if name in self._model_cache:
                 del self._model_cache[name]
+                logger.debug("Removed model '%s' from cache", name)
 
             # Remove from registry
             del self._models[name]
+            logger.info("Unregistered model: %s", name)
 
     def get_metadata(self, name: str) -> ModelMetadata:
         """Get metadata for a registered model.
@@ -212,11 +348,13 @@ class ModelRegistry(Generic[M]):
             The model's metadata.
 
         Raises:
-            KeyError: If the model is not found in the registry.
+            ModelNotFoundError: If the model is not found in the registry.
         """
         with self._lock:
             if name not in self._models:
-                raise KeyError(f"Model '{name}' not found in registry")
+                raise ModelNotFoundError(
+                    f"Model not found in registry", model_name=name
+                )
             return self._models[name]
 
     def list_models(
@@ -260,9 +398,14 @@ class ModelRegistry(Generic[M]):
     ) -> M:
         """Load a model by name.
 
+        This method is thread-safe and supports loading both registered models and
+        directly from the Hugging Face Hub. Loaded models are cached for future use.
+
         Args:
-            name: Name of the model to load.
-            config_or_device: Either a model configuration or a device specification.
+            name: Name or path of the model to load. Can be a registered model name
+                or a Hugging Face model identifier.
+            config: Optional model configuration. If None, will be loaded from the
+                registered config class or AutoConfig.
             device: Device to load the model onto. If None, will use the default device.
             **kwargs: Additional arguments to pass to the model's from_pretrained method.
 
@@ -270,8 +413,21 @@ class ModelRegistry(Generic[M]):
             The loaded model instance.
 
         Raises:
-            KeyError: If the model is not found in the registry.
-            RuntimeError: If there's an error loading the model.
+            ModelNotFoundError: If the model is not found in the registry or Hub.
+            ModelLoadingError: If there's an error loading the model.
+            ModelInitializationError: If the model cannot be initialized.
+
+        Example:
+            ```python
+            # Load a registered model
+            model = registry.load_model("biobert-base-cased-v1.2")
+
+            # Load a model from Hugging Face Hub
+            model = registry.load_model("bert-base-uncased")
+
+            # Load with custom device
+            model = registry.load_model("biobert-base-cased-v1.2", device="cuda:0")
+            ```
         """
         # Handle the case where the second argument is a device (for backward compatibility)
         if (
@@ -283,36 +439,104 @@ class ModelRegistry(Generic[M]):
             # assume it's a device
             device = config  # type: ignore[assignment]
             config = None
-        # Get model metadata
+
         try:
-            metadata = self.get_metadata(name)
-        except KeyError as e:
-            # If model is not registered but is a valid model identifier, try to load it directly
+            # Try to get model metadata from registry
             try:
-                model = AutoModel.from_pretrained(name, **kwargs)
-                if device is not None:
-                    model = model.to(device)
-                return model
-            except Exception as inner_e:
-                raise RuntimeError(
-                    f"Failed to load model '{name}'. It's not registered in the registry "
-                    f"and couldn't be loaded directly: {str(inner_e)}"
-                ) from e
+                metadata = self.get_metadata(name)
+                logger.debug("Found model '%s' in registry", name)
+            except ModelNotFoundError:
+                # If model is not registered but is a valid model identifier, try to load it directly
+                logger.debug("Model '%s' not in registry, attempting direct load", name)
+                return self._load_directly(name, device, **kwargs)
 
-        # Check cache first
-        if name in self._model_cache:
-            return self._model_cache[name]
+            # Check cache first
+            if name in self._model_cache:
+                logger.debug("Returning cached model: %s", name)
+                return self._model_cache[name]
 
-        # Prepare model arguments
-        model_args = metadata.parameters.copy()
-        model_args.update(kwargs)
+            # Prepare model arguments
+            model_args = metadata.parameters.copy()
+            model_args.update(kwargs)
 
-        # Load config if not provided
-        if config is None and metadata.config_class:
-            config = metadata.config_class.from_pretrained(name, **model_args)
+            # Load and return the model
+            model = self._load_model_with_metadata(
+                name, metadata, config, device, model_args
+            )
+            return model
 
-        # Load the model
+        except ModelLoadingError:
+            raise  # Re-raise loading errors
+        except Exception as e:
+            raise ModelLoadingError(
+                f"Unexpected error loading model '{name}': {str(e)}",
+                model_name=name,
+                error=str(e),
+            ) from e
+
+    def _load_directly(
+        self,
+        name: str,
+        device: Optional[Union[str, torch.device]] = None,
+        **kwargs: Any,
+    ) -> M:
+        """Load a model directly from Hugging Face Hub.
+
+        Args:
+            name: Model identifier from Hugging Face Hub.
+            device: Device to load the model onto.
+            **kwargs: Additional arguments for from_pretrained.
+
+        Returns:
+            The loaded model.
+
+        Raises:
+            ModelLoadingError: If the model cannot be loaded.
+        """
         try:
+            logger.info("Loading model directly from Hub: %s", name)
+            model = AutoModel.from_pretrained(name, **kwargs)
+            if device is not None:
+                model = model.to(device)
+            return model
+        except Exception as e:
+            raise ModelLoadingError(
+                f"Failed to load model '{name}' from Hugging Face Hub: {str(e)}",
+                model_name=name,
+                error=str(e),
+            ) from e
+
+    def _load_model_with_metadata(
+        self,
+        name: str,
+        metadata: ModelMetadata,
+        config: Optional[PretrainedConfig],
+        device: Optional[Union[str, torch.device]],
+        model_args: Dict[str, Any],
+    ) -> M:
+        """Load a model using its metadata.
+
+        Args:
+            name: Name of the model to load.
+            metadata: The model's metadata.
+            config: Optional model configuration.
+            device: Device to load the model onto.
+            model_args: Additional model arguments.
+
+        Returns:
+            The loaded model.
+
+        Raises:
+            ModelInitializationError: If the model cannot be initialized.
+        """
+        try:
+            # Load config if not provided
+            if config is None and metadata.config_class:
+                logger.debug("Loading config for model: %s", name)
+                config = metadata.config_class.from_pretrained(name, **model_args)
+
+            # Load the model
+            logger.info("Loading model: %s", name)
             if metadata.model_class:
                 model = metadata.model_class.from_pretrained(
                     name, config=config, **model_args
@@ -331,7 +555,11 @@ class ModelRegistry(Generic[M]):
             return model
 
         except Exception as e:
-            raise RuntimeError(f"Failed to load model '{name}': {str(e)}") from e
+            raise ModelInitializationError(
+                f"Failed to initialize model '{name}': {str(e)}",
+                model_name=name,
+                error=str(e),
+            ) from e
 
     def clear_cache(self) -> None:
         """Clear the model cache.
@@ -341,12 +569,47 @@ class ModelRegistry(Generic[M]):
         with self._lock:
             self._model_cache.clear()
 
+    def clear(self) -> None:
+        """Clear all models and cache from the registry.
 
-# Create a global instance of the registry
-registry: ModelRegistry[PreTrainedModel] = ModelRegistry()
+        This is primarily useful for testing to ensure a clean state between tests.
+        """
+        with self._lock:
+            self._models.clear()
+            self._model_cache.clear()
 
-# Register default models
-registry._register_default_models()
+
+def get_registry() -> "ModelRegistry[PreTrainedModel]":
+    """Get or create the global model registry instance.
+
+    This function ensures that the registry is properly initialized with default models
+    and provides a single point of access to the registry instance.
+
+    Returns:
+        The global ModelRegistry instance.
+
+    Example:
+        ```python
+        registry = get_registry()
+        model = registry.load_model("biobert-base-cased-v1.2")
+        ```
+    """
+    # This ensures thread-safe lazy initialization of the registry
+    if ModelRegistry._instance is None or not hasattr(
+        ModelRegistry._instance, "_initialized"
+    ):
+        with ModelRegistry._lock:
+            if ModelRegistry._instance is None or not hasattr(
+                ModelRegistry._instance, "_initialized"
+            ):
+                registry: ModelRegistry = ModelRegistry()
+                registry._register_default_models()
+    return cast("ModelRegistry[PreTrainedModel]", ModelRegistry._instance)
+
+
+# Create a global instance of the registry for backward compatibility
+# Prefer using get_registry() in new code
+registry: ModelRegistry[PreTrainedModel] = get_registry()
 
 # Export common types
 __all__ = ["ModelType", "ModelMetadata", "ModelRegistry", "registry"]
