@@ -5,10 +5,26 @@ This module provides functions for validating configuration schemas.
 """
 
 import inspect
-from typing import Any, Dict, Type, Union, get_origin, get_type_hints
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Mapping,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
+from pydantic.fields import FieldInfo
+
+# Type variable for Pydantic models
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 from medvllm.medical.config.validation.exceptions import (
     FieldTypeError,
@@ -18,7 +34,7 @@ from medvllm.medical.config.validation.exceptions import (
 )
 
 
-def validate_config_schema(config: Any, config_class: Type[BaseModel]) -> Any:
+def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
     """Validate a configuration object against its schema.
 
     Args:
@@ -31,25 +47,29 @@ def validate_config_schema(config: Any, config_class: Type[BaseModel]) -> Any:
     Raises:
         SchemaValidationError: If validation fails
     """
-    if not isinstance(config, config_class):
-        if not isinstance(config, dict):
-            config = config.dict() if hasattr(config, "dict") else dict(config)
+    if config is None:
+        raise SchemaValidationError("Configuration cannot be None")
 
-        # First check for missing required fields
+    # Convert to dict if it's a model instance
+    if isinstance(config, BaseModel):
+        config = config.dict()
+    elif not isinstance(config, dict):
+        raise SchemaValidationError(
+            f"Expected dict or BaseModel, got {type(config).__name__}"
+        )
+
+    try:
+        # Check for missing required fields
         required_fields = get_required_fields(config_class)
-        missing = [field for field in required_fields if field not in config]
+        missing = [field for field, _ in required_fields.items() if field not in config]
         if missing:
             raise RequiredFieldError(
-                f"Missing required field(s): {', '.join(missing)}",
+                f"Missing required fields: {', '.join(missing)}",
                 field=missing[0] if len(missing) == 1 else None,
             )
 
         # Get model fields
-        model_fields = (
-            config_class.model_fields
-            if hasattr(config_class, "model_fields")
-            else config_class.__fields__
-        )
+        model_fields = get_model_fields(config_class)
 
         # Validate field types before Pydantic validation
         for field_name, field_value in config.items():
@@ -59,72 +79,67 @@ def validate_config_schema(config: Any, config_class: Type[BaseModel]) -> Any:
             field = model_fields[field_name]
 
             # Skip None values for optional fields
-            if field_value is None and not field.is_required():
+            if field_value is None and not is_field_required(field):
                 continue
 
             # Get the field type annotation
-            field_type = (
-                field.annotation if hasattr(field, "annotation") else field.outer_type_
-            )
+            field_type = get_field_type(field)
 
             # Skip if we can't determine the type
             if field_type is None or field_type == inspect.Parameter.empty:
                 continue
 
             # Handle nested models
-            has_base = hasattr(field_type, "__base__")
-            is_base_model = has_base and issubclass(field_type, BaseModel)
-            if is_base_model:
-                if field_value is not None:
-                    if isinstance(field_value, dict):
-                        # Recursively validate nested model
-                        config[field_name] = validate_config_schema(
-                            field_value, field_type
-                        )
+            if (
+                inspect.isclass(field_type)
+                and issubclass(field_type, BaseModel)
+                and isinstance(field_value, dict)
+            ):
+                # Recursively validate nested models
+                validate_config_schema(field_value, field_type)
                 continue
 
-            # Handle subscripted generic types (List, Dict, etc.)
+            # Handle lists of models
             origin = get_origin(field_type)
-            if origin is not None:
-                # For List types, verify the input is iterable
-                if origin == list:
-                    if not isinstance(field_value, (list, tuple, set)):
-                        raise FieldTypeError(
-                            "invalid type", field=field_name, value=field_value
-                        )
-                    # Convert to list if it's a set or tuple
-                    if not isinstance(field_value, list):
-                        config[field_name] = list(field_value)
-                # For other generic types, skip direct type checking
-                # as we can't do isinstance() with
-                # subscripted generics in Python
-                continue
+            if origin is not None and issubclass(origin, list):
+                args = get_args(field_type)
+                if (
+                    args
+                    and len(args) == 1
+                    and inspect.isclass(args[0])
+                    and issubclass(args[0], BaseModel)
+                    and isinstance(field_value, list)
+                ):
+                    for item in field_value:
+                        if isinstance(item, dict):
+                            validate_config_schema(item, args[0])
 
-            # Check type
-            try:
-                # Handle boolean validation
-                if field_type == bool:
-                    if not isinstance(field_value, bool):
-                        raise FieldTypeError(
-                            "invalid type", field=field_name, value=field_value
-                        )
-                # Only try conversion if types don't match and
-                # it's not a generic type
-                elif not isinstance(field_value, field_type):
-                    try:
-                        config[field_name] = field_type(field_value)
-                    except (ValueError, TypeError) as e:
-                        raise FieldTypeError(
-                            f"Invalid type for field '{field_name}': {str(e)}",
-                            field=field_name,
-                            value=field_value,
-                        )
-            except (ValueError, TypeError) as e:
+        # Validate using Pydantic
+        return config_class(**config)
+
+    except PydanticValidationError as e:
+        # Convert Pydantic validation errors to our custom exceptions
+        for error in e.errors():
+            error_type = error["type"]
+            msg = error["msg"]
+            field = ".".join(str(loc) for loc in error["loc"])
+
+            if error_type == "value_error.missing":
+                raise RequiredFieldError(
+                    f"Missing required field: {field}", field=field
+                ) from e
+            elif error_type.startswith("type_error"):
                 raise FieldTypeError(
-                    f"Invalid type for field '{field_name}': {str(e)}",
-                    field=field_name,
-                    value=field_value,
-                )
+                    f"Invalid type for field '{field}': {msg}",
+                    field=field,
+                    value=error.get("input"),
+                ) from e
+            elif error_type.startswith("value_error"):
+                raise FieldValueError(
+                    f"Invalid value for field '{field}': {msg}",
+                    field=field,
+                    value=error.get("input"),
+                ) from e
 
         # Validate field values
         if "age" in config and config["age"] is not None and config["age"] < 0:
@@ -165,7 +180,30 @@ def validate_config_schema(config: Any, config_class: Type[BaseModel]) -> Any:
     return config
 
 
-def get_required_fields(config_class: Type[BaseModel]) -> Dict[str, type]:
+def is_field_required(field: Any) -> bool:
+    """Check if a field is required in a version-agnostic way."""
+    if hasattr(field, "is_required"):  # Pydantic v2
+        return field.is_required()
+    return getattr(field, "required", False)  # type: ignore  # Pydantic v1
+
+
+def get_field_type(field: Any) -> Optional[type]:
+    """Get the type of a field in a version-agnostic way."""
+    if hasattr(field, "annotation"):  # Pydantic v2
+        return field.annotation
+    return getattr(field, "outer_type_", None)  # type: ignore  # Pydantic v1
+
+
+def get_model_fields(model_class: Type[BaseModel]) -> Dict[str, Any]:
+    """Get model fields in a version-agnostic way."""
+    if hasattr(model_class, "model_fields"):  # Pydantic v2
+        return model_class.model_fields  # type: ignore
+    elif hasattr(model_class, "__fields__"):  # Pydantic v1
+        return model_class.__fields__  # type: ignore
+    return {}
+
+
+def get_required_fields(config_class: Type[ModelT]) -> Dict[str, type]:
     """Get a dictionary of required fields and their types for a config class.
 
     Args:
@@ -174,39 +212,26 @@ def get_required_fields(config_class: Type[BaseModel]) -> Dict[str, type]:
     Returns:
         Dictionary mapping field names to their types
     """
-    from typing import get_args, get_origin
-
-    # Get type hints and model fields based on Pydantic version
     type_hints = get_type_hints(config_class, include_extras=True)
-    model_fields = (
-        config_class.model_fields
-        if hasattr(config_class, "model_fields")
-        else config_class.__fields__
-    )
-
-    required_fields = {}
+    model_fields = get_model_fields(config_class)
+    result: Dict[str, type] = {}
 
     for field_name, field in model_fields.items():
-        # Check if field is required based on Pydantic version
-        is_required = (
-            field.is_required() if hasattr(field, "is_required") else field.required
-        )
+        if not is_field_required(field):
+            continue
 
-        if is_required:
-            # Get field type from annotation or type_hints
-            field_type = getattr(field, "annotation", None)
-            if field_type is None or field_type == inspect.Parameter.empty:
-                field_type = type_hints.get(field_name, Any)
+        # Get field type from annotation or type hints
+        field_type = get_field_type(field)
+        if field_type is None or field_type == inspect.Parameter.empty:
+            field_type = type_hints.get(field_name, Any)
 
-            # Handle Optional and Union types
-            origin = get_origin(field_type)
-            if origin is Union:
-                # For Optional[Type], extract the actual type
-                args = get_args(field_type)
-                if type(None) in args:
-                    # This is an Optional type, skip it as it's not required
-                    continue
+        # Handle Optional and Union types
+        origin = get_origin(field_type)
+        if origin is Union:
+            args = get_args(field_type)
+            if type(None) in args:  # Skip Optional fields
+                continue
 
-            required_fields[field_name] = field_type
+        result[field_name] = field_type
 
-    return required_fields
+    return result

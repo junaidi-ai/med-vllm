@@ -2,13 +2,13 @@
 Custom exceptions for configuration validation.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 
 class ValidationError(ValueError):
     """Raised when a configuration validation fails."""
 
-    def __init__(self, message: str, field: str = None, value: Any = None):
+    def __init__(self, message: str, field: Optional[str] = None, value: Any = None):
         """Initialize validation error.
 
         Args:

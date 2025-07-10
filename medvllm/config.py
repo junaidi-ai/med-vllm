@@ -18,6 +18,20 @@ class Config:
     kvcache_block_size: int = 256
     num_kvcache_blocks: int = -1
 
+    @classmethod
+    def from_dict(cls, config_dict: dict) -> "Config":
+        """Create a Config instance from a dictionary.
+
+        Args:
+            config_dict: Dictionary containing configuration parameters
+
+        Returns:
+            A new Config instance
+        """
+        # Filter out None values to use defaults for missing keys
+        filtered_dict = {k: v for k, v in config_dict.items() if v is not None}
+        return cls(**filtered_dict)
+
     def __post_init__(self):
         assert os.path.isdir(self.model)
         assert self.kvcache_block_size % 256 == 0

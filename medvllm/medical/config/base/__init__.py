@@ -7,11 +7,14 @@ for all medical model configurations in the medvllm library.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Type, TypeVar
 
 from medvllm.config import Config
 
 CONFIG_VERSION = "1.0.0"
+
+# Type variable for class methods that return an instance of the class
+T = TypeVar("T", bound="BaseMedicalConfig")
 
 logger = logging.getLogger(__name__)
 
@@ -122,14 +125,14 @@ class BaseMedicalConfig(Config):
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BaseMedicalConfig":
+    def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
         """Create a configuration from a dictionary.
 
         Args:
             data: Dictionary containing configuration parameters
 
         Returns:
-            New instance of the configuration
+            New instance of the configuration with the correct type
         """
         # Create a copy of the data to avoid modifying the input
         data_copy = data.copy()
@@ -193,14 +196,25 @@ class BaseMedicalConfig(Config):
 
                 self.hf_config = AutoConfig.from_pretrained(self.model)
                 # Set max_model_len from model config if available
-                has_hf_config = hasattr(self, "hf_config")
-                has_position_embeddings = has_hf_config and hasattr(
-                    self.hf_config, "max_position_embeddings"
-                )
-                if has_hf_config and has_position_embeddings:
-                    self.max_model_len = min(
-                        self.max_model_len, self.hf_config.max_position_embeddings
-                    )
+                if hasattr(self, "hf_config") and self.hf_config is not None:
+                    try:
+                        # Use getattr with a default to safely access the attribute
+                        max_pos_embeddings = getattr(
+                            self.hf_config, "max_position_embeddings", None
+                        )
+                        if max_pos_embeddings is not None and hasattr(
+                            self, "max_model_len"
+                        ):
+                            self.max_model_len = min(
+                                self.max_model_len, max_pos_embeddings
+                            )
+                    except (AttributeError, TypeError, ValueError) as e:
+                        # Log the error but don't fail
+                        logger.debug(
+                            "Could not set max_model_len from hf_config: %s",
+                            str(e),
+                            exc_info=True,
+                        )
             except (AttributeError, TypeError, ValueError) as e:
                 # Skip setting max_model_len if we can't access the config attributes
                 logger.debug(

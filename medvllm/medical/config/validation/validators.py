@@ -55,21 +55,21 @@ class MedicalConfigValidator:
             ValidationError: If entity linking is enabled but no
                            knowledge bases are specified
         """
-        # If entity_linking is None or not present, it's valid
-        has_entity_linking = hasattr(config, "entity_linking")
-        if not has_entity_linking or config.entity_linking is None:
+        # Use getattr with a default value to safely access entity_linking
+        entity_linking = getattr(config, "entity_linking", None)
+        if entity_linking is None:
             return
 
         # If entity_linking is present but not a dictionary, it's invalid
-        if not isinstance(config.entity_linking, dict):
+        if not isinstance(entity_linking, dict):
             raise ValidationError(
                 "Entity linking configuration must be a dictionary",
                 field="entity_linking",
             )
 
         # Check if entity linking is enabled and has knowledge bases
-        if config.entity_linking.get("enabled", False):
-            knowledge_bases = config.entity_linking.get("knowledge_bases")
+        if entity_linking.get("enabled", False):
+            knowledge_bases = entity_linking.get("knowledge_bases")
             if (
                 not knowledge_bases
                 or not isinstance(knowledge_bases, list)
@@ -90,19 +90,18 @@ class MedicalConfigValidator:
         Raises:
             ValidationError: If any validation fails
         """
-        if (
-            hasattr(config, "tensor_parallel_size")
-            and config.tensor_parallel_size is not None
-        ):
-            cls.validate_tensor_parallel_size(config.tensor_parallel_size)
+        # Use getattr to safely access attributes
+        tensor_parallel_size = getattr(config, "tensor_parallel_size", None)
+        if tensor_parallel_size is not None:
+            cls.validate_tensor_parallel_size(tensor_parallel_size)
 
-        if hasattr(config, "entity_linking") and config.entity_linking.get(
-            "enabled", False
-        ):
+        # Check if entity_linking exists and is enabled
+        entity_linking = getattr(config, "entity_linking", None)
+        if isinstance(entity_linking, dict) and entity_linking.get("enabled", False):
             cls.validate_entity_linking(config)
 
     @staticmethod
-    def warn_deprecated(param_name: str, version: str, alternative: str = None) -> None:
+    def warn_deprecated(param_name: str, version: str, alternative: str = "") -> None:
         """Log a deprecation warning for a parameter.
 
         Args:

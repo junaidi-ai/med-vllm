@@ -8,7 +8,7 @@ including version checking and migration utilities.
 import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional, TypeVar
+from typing import Any, Callable, Dict, Optional, Type, TypeVar, Union
 
 T = TypeVar("T")
 
@@ -28,7 +28,7 @@ class ConfigVersionInfo:
     version: str
     status: ConfigVersionStatus
     message: str = ""
-    migration_func: Optional[callable] = None
+    migration_func: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
 
 
 class ConfigVersioner:

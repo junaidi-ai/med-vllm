@@ -47,7 +47,7 @@ class MedicalModelConfigSchema(BaseModel):
     model: str = Field(
         ...,
         description="Path to the model directory or model identifier.",
-        example="bert-base-uncased",
+        examples=["bert-base-uncased"],
     )
 
     model_type: str = Field(

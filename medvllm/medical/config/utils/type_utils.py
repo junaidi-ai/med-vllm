@@ -175,12 +175,12 @@ def is_basic_type(t: type) -> bool:
     return t in basic_types or t is Any or t is type(None)
 
 
-def convert_string_to_type(value: str, target_type: type) -> Any:
+def convert_string_to_type(value: str, target_type: type | None) -> Any:
     """Convert a string to the specified type.
 
     Args:
         value: The string value to convert
-        target_type: The target type to convert to
+        target_type: The target type to convert to, or None to return the value as-is
 
     Returns:
         The converted value
@@ -188,7 +188,7 @@ def convert_string_to_type(value: str, target_type: type) -> Any:
     Raises:
         ValueError: If the conversion fails
     """
-    if not isinstance(value, str):
+    if target_type is None or not isinstance(value, str):
         return value
 
     if target_type is str:
@@ -217,7 +217,13 @@ def convert_string_to_type(value: str, target_type: type) -> Any:
     elif is_dict_type(target_type):
         import json
 
-        key_type, value_type = get_dict_types(target_type)
+        dict_types = get_dict_types(target_type)
+        if dict_types is None:
+            raise ValueError(
+                f"Could not determine key and value types for dict type: {target_type}"
+            )
+
+        key_type, value_type = dict_types
         try:
             parsed_dict = json.loads(value)
             if not isinstance(parsed_dict, dict):
@@ -263,7 +269,9 @@ def validate_type(value: Any, type_hint: type) -> bool:
     # Handle Optional types
     if is_optional_type(type_hint):
         inner_type = get_optional_type(type_hint)
-        return validate_type(value, inner_type)
+        if inner_type is not None:  # Check if inner_type is not None before using it
+            return validate_type(value, inner_type)
+        return value is None
 
     # Handle Union types
     if is_union_type(type_hint):
@@ -274,13 +282,18 @@ def validate_type(value: Any, type_hint: type) -> bool:
         if not isinstance(value, (list, tuple)):
             return False
         item_type = get_list_item_type(type_hint)
+        if item_type is None:
+            return True  # If we can't determine the item type, accept any items
         return all(validate_type(item, item_type) for item in value)
 
     # Handle Dict types
     if is_dict_type(type_hint):
         if not isinstance(value, dict):
             return False
-        key_type, value_type = get_dict_types(type_hint)
+        dict_types = get_dict_types(type_hint)
+        if dict_types is None:
+            return True  # If we can't determine the key/value types, accept any dict
+        key_type, value_type = dict_types
         return all(
             validate_type(k, key_type) and validate_type(v, value_type)
             for k, v in value.items()
@@ -292,7 +305,7 @@ def validate_type(value: Any, type_hint: type) -> bool:
     except TypeError:
         # If isinstance fails, try to handle typing types
         if hasattr(type_hint, "__origin__"):
-            if type_hint.__origin__ is Union:
+            if type_hint.__origin__ is Union and hasattr(type_hint, "__args__"):
                 return any(validate_type(value, t) for t in type_hint.__args__)
             # Handle other typing types as needed
             return True  # Default to True for complex types we can't check
