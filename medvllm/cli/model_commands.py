@@ -61,13 +61,41 @@ def register(
         model_type_enum = ModelType[model_type_str.upper()]
 
         # Register the model with the registry
+        # Get tags as list of strings
+        tag_list = list(tags) if tags else None
+
+        # Extract and validate loader if it exists in params_dict
+        loader = None
+        if params_dict and "loader" in params_dict:
+            loader_str = params_dict.pop("loader")
+            if isinstance(loader_str, str):
+                try:
+                    # Try to import the loader class dynamically
+                    from importlib import import_module
+
+                    module_path, class_name = loader_str.rsplit(".", 1)
+                    module = import_module(module_path)
+                    loader = getattr(module, class_name)
+                    if not (isinstance(loader, type) and hasattr(loader, "load_model")):
+                        console.print(
+                            f"[yellow]Warning: {loader_str} is not a valid loader class, ignoring[/]"
+                        )
+                        loader = None
+                except (ImportError, AttributeError, ValueError) as e:
+                    console.print(
+                        f"[yellow]Warning: Could not load loader {loader_str}: {e}, ignoring[/]"
+                    )
+                    loader = None
+
+        # Register the model with explicit parameters
         registry.register(
             name=name,
             model_type=model_type_enum,
             model_class=None,  # Will be loaded from path
             config_class=None,  # Will be inferred
             description=description or "",
-            tags=list(tags) if tags else None,
+            tags=tag_list,
+            loader=loader,
             **params_dict,
         )
         console.print(f"[green]✓[/] Registered model: {name}")

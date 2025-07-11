@@ -1,0 +1,31 @@
+# Default configurations for medical models
+
+biobert:
+  model_type: biomedical
+  name: biobert-base
+  description: BioBERT v1.1 - Biomedical Language Model
+  tags: [biomedical, biobert, pretrained]
+  loader: BioBERTLoader
+  parameters:
+    num_labels: 2  # Default binary classification
+    output_hidden_states: true
+    output_attentions: false
+    return_dict: true
+    torchscript: false
+    torch_dtype: float32
+    use_cache: true
+
+clinical_bert:
+  model_type: clinical
+  name: clinical-bert-base
+  description: Clinical BERT - Pretrained on clinical notes
+  tags: [clinical, bert, pretrained]
+  loader: ClinicalBERTLoader
+  parameters:
+    num_labels: 2  # Default binary classification
+    output_hidden_states: true
+    output_attentions: false
+    return_dict: true
+    torchscript: false
+    torch_dtype: float32
+    use_cache: true

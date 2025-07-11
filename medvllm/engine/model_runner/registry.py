@@ -46,6 +46,7 @@ from typing import (
     Generic,
     List,
     Optional,
+    Tuple,
     Type,
     TypeVar,
     Union,
@@ -54,8 +55,18 @@ from typing import (
 )
 
 import torch
+import yaml
 from torch import nn
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
+
+# Import medical model loaders
+try:
+    from medvllm.models import BioBERTLoader, ClinicalBERTLoader
+    from medvllm.models.medical_models import MedicalModelLoader
+
+    MEDICAL_MODELS_AVAILABLE = True
+except ImportError:
+    MEDICAL_MODELS_AVAILABLE = False
 
 from .exceptions import (
     ModelInitializationError,
@@ -123,6 +134,9 @@ class ModelRegistry(Generic[M]):
     """
     A thread-safe registry for managing model loading and instantiation.
 
+    This registry supports both standard and medical models, with specialized
+    loading for medical models like BioBERT and ClinicalBERT.
+
     This class implements the singleton pattern to ensure there's only one registry instance.
     It provides methods for registering, retrieving, and managing models with their metadata.
 
@@ -131,21 +145,28 @@ class ModelRegistry(Generic[M]):
 
     Example:
         ```python
-        # Get the registry instance
-        registry = ModelRegistry()
+        from transformers import AutoModel, AutoConfig
+        from medvllm.engine.model_runner.registry import get_registry
+        from medvllm.engine.model_runner.types import ModelType
 
-        # Register a new model
+        # Get the registry instance
+        registry = get_registry()
+
+        # Register a model
         registry.register(
-            name="my-model",
+            name="example-model",
             model_type=ModelType.BIOMEDICAL,
             model_class=AutoModel,
             config_class=AutoConfig,
-            description="My custom model",
-            tags=["custom"]
+            description="Example model registration",
+            tags=["example", "test"],
+            # Additional parameters for model loading
+            trust_remote_code=True,
+            device_map="auto"
         )
 
-        # Load a model
-        model = registry.load_model("my-model")
+        # Load the registered model
+        model = registry.load_model("example-model")
         ```
     """
 
@@ -165,6 +186,7 @@ class ModelRegistry(Generic[M]):
         if not hasattr(self, "_initialized") or not self._initialized:
             self._models: Dict[str, ModelMetadata] = {}
             self._model_cache: Dict[str, M] = {}
+            self._loaders: Dict[str, Type[MedicalModelLoader]] = {}
             self._initialized = True
             self._register_default_models()
 
@@ -207,6 +229,17 @@ class ModelRegistry(Generic[M]):
         If registration of a default model fails, the error is logged but does not
         prevent the registry from being used.
         """
+        try:
+            # Register medical models if available
+            if MEDICAL_MODELS_AVAILABLE:
+                self._register_medical_models()
+
+            # Load any additional model configurations
+            self._load_model_configs()
+
+        except Exception as e:
+            logger.error(f"Failed to register default models: {e}", exc_info=True)
+
         default_models = [
             {
                 "name": "biobert-base-cased-v1.2",
@@ -248,6 +281,7 @@ class ModelRegistry(Generic[M]):
         config_class: Optional[Type[PretrainedConfig]] = None,
         description: str = "",
         tags: Optional[List[str]] = None,
+        loader: Optional[Type[MedicalModelLoader]] = None,
         **parameters: Any,
     ) -> None:
         """Register a new model with the registry.
@@ -263,6 +297,7 @@ class ModelRegistry(Generic[M]):
             config_class: The config class to use for the model. If None, AutoConfig will be used.
             description: Optional description of the model.
             tags: Optional list of tags for categorizing the model.
+            loader: Specialized loader for medical models.
             **parameters: Additional parameters to pass to the model during loading.
 
         Raises:
@@ -295,6 +330,10 @@ class ModelRegistry(Generic[M]):
                     return
 
                 # Create and store model metadata
+                params = parameters or {}
+                if loader is not None:
+                    params["loader"] = loader
+
                 self._models[name] = ModelMetadata(
                     name=name,
                     model_type=model_type,
@@ -302,7 +341,7 @@ class ModelRegistry(Generic[M]):
                     config_class=config_class,
                     description=description,
                     tags=tags or [],
-                    parameters=parameters or {},
+                    parameters=params,
                 )
 
                 logger.info("Registered model: %s (type: %s)", name, model_type.name)
@@ -389,6 +428,178 @@ class ModelRegistry(Generic[M]):
         with self._lock:
             return name in self._models
 
+    def _register_medical_models(self) -> None:
+        """Register medical models with the registry.
+
+        This method registers default medical models like BioBERT and ClinicalBERT
+        if they are available in the environment.
+        """
+        if not MEDICAL_MODELS_AVAILABLE:
+            logger.warning("Medical models are not available. Skipping registration.")
+            return
+
+        medical_models = [
+            {
+                "name": "biobert-base",
+                "model_type": ModelType.BIOMEDICAL,
+                "description": "BioBERT v1.1 - Biomedical Language Model",
+                "tags": ["biomedical", "biobert", "pretrained"],
+                "loader": BioBERTLoader,
+                "parameters": {
+                    "num_labels": 2,
+                    "output_hidden_states": True,
+                    "output_attentions": False,
+                    "return_dict": True,
+                    "torchscript": False,
+                    "torch_dtype": "float32",
+                    "use_cache": True,
+                },
+            },
+            {
+                "name": "clinical-bert-base",
+                "model_type": ModelType.CLINICAL,
+                "description": "Clinical BERT - Pretrained on clinical notes",
+                "tags": ["clinical", "bert", "pretrained"],
+                "loader": ClinicalBERTLoader,
+                "parameters": {
+                    "num_labels": 2,
+                    "output_hidden_states": True,
+                    "output_attentions": False,
+                    "return_dict": True,
+                    "torchscript": False,
+                    "torch_dtype": "float32",
+                    "use_cache": True,
+                },
+            },
+        ]
+
+        for model_info in medical_models:
+            try:
+                # Safely extract and convert parameters
+                params: Dict[str, Any] = {}
+                if "parameters" in model_info and isinstance(
+                    model_info["parameters"], dict
+                ):
+                    params = {str(k): v for k, v in model_info["parameters"].items()}
+
+                # Get loader if it exists
+                loader = model_info.get("loader")
+
+                # Create model metadata with type-safe conversions
+                metadata = ModelMetadata(
+                    name=str(model_info.get("name", "")),
+                    model_type=ModelType(
+                        model_info.get("model_type", ModelType.GENERIC)
+                    ),
+                    description=str(model_info.get("description", "")),
+                    tags=(
+                        [str(tag) for tag in model_info["tags"]]
+                        if "tags" in model_info
+                        and isinstance(model_info["tags"], (list, tuple, set))
+                        else []
+                    ),
+                    parameters=params,
+                )
+
+                # Store the model metadata
+                self._models[metadata.name] = metadata
+
+                # Store the loader separately if provided and is the correct type
+                if loader is not None and isinstance(loader, type):
+                    self._loaders[metadata.name] = loader
+
+                logger.info(
+                    "Registered medical model: %s", model_info.get("name", "unknown")
+                )
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to register medical model %s: %s",
+                    model_info.get("name", "unknown"),
+                    str(e),
+                    exc_info=True,
+                )
+
+    def _load_model_configs(self) -> None:
+        """Load model configurations from YAML files."""
+        try:
+            config_path = Path(__file__).parent.parent.parent / "configs" / "models"
+            if not config_path.exists():
+                return
+
+            for config_file in config_path.glob("*.yaml"):
+                try:
+                    with open(config_file, "r") as f:
+                        configs = yaml.safe_load(f) or {}
+
+                    for model_id, model_info in configs.items():
+                        try:
+                            self.register(
+                                name=model_info.get("name", model_id),
+                                model_type=ModelType[
+                                    model_info.get("model_type", "GENERIC").upper()
+                                ],
+                                description=model_info.get("description", ""),
+                                tags=model_info.get("tags", []),
+                                **model_info.get("parameters", {}),
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to load model config {model_id}: {e}"
+                            )
+
+                except Exception as e:
+                    logger.warning(f"Failed to parse config file {config_file}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error loading model configurations: {e}", exc_info=True)
+
+    def _load_medical_model(
+        self,
+        name: str,
+        metadata: ModelMetadata,
+        device: Optional[Union[str, torch.device]] = None,
+        **kwargs: Any,
+    ) -> M:
+        """Load a medical model using its specialized loader.
+
+        Args:
+            name: Name of the model to load.
+            metadata: The model's metadata.
+            device: Device to load the model onto.
+            **kwargs: Additional arguments for model loading.
+
+        Returns:
+            The loaded model.
+
+        Raises:
+            ModelLoadingError: If the model cannot be loaded.
+        """
+        if not MEDICAL_MODELS_AVAILABLE:
+            raise ModelLoadingError(
+                "Medical models are not available. Make sure to install the required dependencies.",
+                model_name=name,
+            )
+
+        try:
+            # Get the loader class from metadata
+            loader_class = getattr(metadata, "loader", None)
+            if not loader_class or not issubclass(loader_class, MedicalModelLoader):
+                raise ModelLoadingError(
+                    f"No valid loader found for medical model {name}", model_name=name
+                )
+
+            # Load the model using the specialized loader
+            model, _ = loader_class.load_model(device=device, **kwargs)
+            return model
+
+        except Exception as e:
+            raise ModelLoadingError(
+                f"Failed to load medical model {name}: {str(e)}",
+                model_name=name,
+                error=str(e),
+            ) from e
+
     def load_model(
         self,
         name: str,
@@ -401,16 +612,19 @@ class ModelRegistry(Generic[M]):
         This method is thread-safe and supports loading both registered models and
         directly from the Hugging Face Hub. Loaded models are cached for future use.
 
+        For medical models, it uses specialized loaders to handle model-specific
+        configurations and requirements.
+
         Args:
             name: Name or path of the model to load. Can be a registered model name
                 or a Hugging Face model identifier.
             config: Optional model configuration. If None, will be loaded from the
                 registered config class or AutoConfig.
-            device: Device to load the model onto. If None, will use the default device.
+            device: Device to load the model onto.
             **kwargs: Additional arguments to pass to the model's from_pretrained method.
 
         Returns:
-            The loaded model instance.
+            The loaded model.
 
         Raises:
             ModelNotFoundError: If the model is not found in the registry or Hub.
@@ -419,41 +633,48 @@ class ModelRegistry(Generic[M]):
 
         Example:
             ```python
-            # Load a registered model
-            model = registry.load_model("biobert-base-cased-v1.2")
-
-            # Load a model from Hugging Face Hub
-            model = registry.load_model("bert-base-uncased")
+            # Load a registered medical model
+            model = registry.load_model("biobert-base")
 
             # Load with custom device
-            model = registry.load_model("biobert-base-cased-v1.2", device="cuda:0")
+            model = registry.load_model("clinical-bert-base", device="cuda:0")
+
+            # Load with custom parameters
+            model = registry.load_model("biobert-base", num_labels=3)
             ```
         """
-        # Handle the case where the second argument is a device (for backward compatibility)
-        if (
-            config is not None
-            and not isinstance(config, PretrainedConfig)
-            and device is None
-        ):
-            # If the second argument is not a PretrainedConfig and device is None,
-            # assume it's a device
-            device = config  # type: ignore[assignment]
-            config = None
-
         try:
-            # Try to get model metadata from registry
-            try:
-                metadata = self.get_metadata(name)
-                logger.debug("Found model '%s' in registry", name)
-            except ModelNotFoundError:
-                # If model is not registered but is a valid model identifier, try to load it directly
-                logger.debug("Model '%s' not in registry, attempting direct load", name)
-                return self._load_directly(name, device, **kwargs)
+            with self._lock:
+                # Check if model is in cache first
+                if name in self._model_cache:
+                    return self._model_cache[name]
 
-            # Check cache first
-            if name in self._model_cache:
-                logger.debug("Returning cached model: %s", name)
-                return self._model_cache[name]
+                # Try to get model metadata
+                try:
+                    metadata = self.get_metadata(name)
+
+                    # Handle medical models with specialized loading
+                    if metadata.model_type in (
+                        ModelType.BIOMEDICAL,
+                        ModelType.CLINICAL,
+                    ):
+                        model = self._load_medical_model(
+                            name, metadata, device, **kwargs
+                        )
+                    else:
+                        model = self._load_model_with_metadata(
+                            name, metadata, config, device, kwargs
+                        )
+
+                    self._model_cache[name] = model
+                    return model
+
+                except ModelNotFoundError:
+                    # If not found in registry, try direct loading
+                    logger.debug(
+                        "Model '%s' not found in registry, attempting direct load", name
+                    )
+                    return self._load_directly(name, device, **kwargs)  # type: ignore
 
             # Prepare model arguments
             model_args = metadata.parameters.copy()
