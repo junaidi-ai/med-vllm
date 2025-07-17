@@ -130,7 +130,7 @@
               3
             ],
             "details": "Design and implement a metadata system to store information about each model (version, capabilities, performance metrics, etc.). Create a caching mechanism to improve model loading and switching performance. Implement configurable cache policies (LRU, time-based expiration, etc.). Add methods for querying and filtering models based on their metadata. Include mechanisms to update metadata when models are updated or retrained.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {

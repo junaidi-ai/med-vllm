@@ -37,7 +37,9 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from enum import Enum, auto
+from functools import lru_cache
 from pathlib import Path
 from typing import (
     Any,
@@ -52,7 +54,10 @@ from typing import (
     Union,
     cast,
     overload,
+    Deque,
 )
+from collections import OrderedDict, defaultdict, deque
+import time
 
 import torch
 import yaml
@@ -94,7 +99,7 @@ class ModelType(Enum):
 
 @dataclass
 class ModelMetadata:
-    """Metadata for a registered model."""
+    """Metadata for a registered model with enhanced metadata tracking."""
 
     name: str
     """The unique name of the model."""
@@ -111,11 +116,38 @@ class ModelMetadata:
     description: str = ""
     """Optional description of the model."""
 
+    version: str = "1.0.0"
+    """Version of the model."""
+
     tags: list[str] = field(default_factory=list)
     """List of tags for categorizing the model."""
 
     parameters: Dict[str, Any] = field(default_factory=dict)
     """Additional model parameters and configuration."""
+
+    # Performance metrics
+    load_count: int = 0
+    """Number of times the model has been loaded."""
+    
+    last_loaded: Optional[datetime] = None
+    """Timestamp when the model was last loaded."""
+    
+    load_durations: Deque[float] = field(default_factory=deque)
+    """Last N load durations in seconds."""
+    
+    avg_load_time: float = 0.0
+    """Average load time in seconds."""
+
+    # Model capabilities
+    capabilities: Dict[str, Any] = field(default_factory=dict)
+    """Model capabilities and features."""
+
+    # Timestamps
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    """When this model was registered."""
+    
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+    """When this model's metadata was last updated."""
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert metadata to a dictionary."""
@@ -125,9 +157,33 @@ class ModelMetadata:
             "model_class": self.model_class.__name__ if self.model_class else None,
             "config_class": self.config_class.__name__ if self.config_class else None,
             "description": self.description,
+            "version": self.version,
             "tags": self.tags,
             "parameters": self.parameters,
+            "load_count": self.load_count,
+            "last_loaded": self.last_loaded.isoformat() if self.last_loaded else None,
+            "avg_load_time": self.avg_load_time,
+            "capabilities": self.capabilities,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
         }
+        
+    def update_load_metrics(self, load_duration: float):
+        """Update performance metrics after a model load.
+        
+        Args:
+            load_duration: Time taken to load the model in seconds.
+        """
+        self.load_count += 1
+        self.last_loaded = datetime.utcnow()
+        
+        # Keep last 10 load durations for moving average
+        self.load_durations.append(load_duration)
+        if len(self.load_durations) > 10:
+            self.load_durations.popleft()
+            
+        self.avg_load_time = sum(self.load_durations) / len(self.load_durations)
+        self.updated_at = datetime.utcnow()
 
 
 class ModelRegistry(Generic[M]):
@@ -167,26 +223,31 @@ class ModelRegistry(Generic[M]):
 
         # Load the registered model
         model = registry.load_model("example-model")
-        ```
-    """
-
+        """
     _instance: ClassVar[Optional["ModelRegistry"]] = None
     _lock: ClassVar[threading.RLock] = threading.RLock()
-    _initialized: bool = False  # Track initialization state
+    _initialized: bool = False
+    
+    # Default cache configuration
+    DEFAULT_CACHE_SIZE: ClassVar[int] = 5  # Default maximum number of models to cache
+    CACHE_TTL: ClassVar[int] = 3600  # Default cache TTL in seconds (1 hour)
 
     def __new__(cls) -> "ModelRegistry":
         with cls._lock:
             if cls._instance is None:
-                instance = super().__new__(cls)
-                instance._initialized = False
-                cls._instance = instance
+                cls._instance = super().__new__(cls)
+                cls._instance._initialized = False
         return cls._instance
 
     def __init__(self) -> None:
         if not hasattr(self, "_initialized") or not self._initialized:
             self._models: Dict[str, ModelMetadata] = {}
-            self._model_cache: Dict[str, M] = {}
+            # Use OrderedDict to implement LRU cache
+            self._model_cache: OrderedDict[str, Tuple[M, float]] = OrderedDict()
             self._loaders: Dict[str, Type[MedicalModelLoader]] = {}
+            self._cache_hits: int = 0
+            self._cache_misses: int = 0
+            self._cache_size: int = self.DEFAULT_CACHE_SIZE
             self._initialized = True
             self._register_default_models()
 
@@ -605,9 +666,10 @@ class ModelRegistry(Generic[M]):
         name: str,
         config: Optional[PretrainedConfig] = None,
         device: Optional[Union[str, torch.device]] = None,
+        use_cache: bool = True,
         **kwargs: Any,
     ) -> M:
-        """Load a model by name.
+        """Load a model by name with enhanced caching and metadata tracking.
 
         This method is thread-safe and supports loading both registered models and
         directly from the Hugging Face Hub. Loaded models are cached for future use.
@@ -621,6 +683,7 @@ class ModelRegistry(Generic[M]):
             config: Optional model configuration. If None, will be loaded from the
                 registered config class or AutoConfig.
             device: Device to load the model onto.
+            use_cache: Whether to use the model cache. Defaults to True.
             **kwargs: Additional arguments to pass to the model's from_pretrained method.
 
         Returns:
@@ -630,54 +693,86 @@ class ModelRegistry(Generic[M]):
             ModelNotFoundError: If the model is not found in the registry or Hub.
             ModelLoadingError: If there's an error loading the model.
             ModelInitializationError: If the model cannot be initialized.
-
-        Example:
-            ```python
-            # Load a registered medical model
-            model = registry.load_model("biobert-base")
-
-            # Load with custom device
-            model = registry.load_model("clinical-bert-base", device="cuda:0")
-
-            # Load with custom parameters
-            model = registry.load_model("biobert-base", num_labels=3)
-            ```
         """
         try:
             with self._lock:
-                # Check if model is in cache first
-                if name in self._model_cache:
-                    return self._model_cache[name]
-
-                # Try to get model metadata
+                start_time = time.time()
                 try:
-                    metadata = self.get_metadata(name)
+                    # Check if model is in cache first
+                    if use_cache and name in self._model_cache:
+                        model, timestamp = self._model_cache[name]
+                        current_time = time.time()
+                        
+                        # Check if cache entry is still valid
+                        if current_time - timestamp < self.CACHE_TTL:
+                            self._cache_hits += 1
+                            logger.debug(f"Cache hit for model '{name}' (hit rate: {self.cache_hit_rate():.1%})")
+                            # Move to end to mark as recently used
+                            self._model_cache.move_to_end(name)
+                            
+                            # Update metadata
+                            if name in self._models:
+                                self._models[name].update_load_metrics(0)  # 0 load time for cache hit
+                                
+                            return model
+                        else:
+                            # Cache entry expired, remove it
+                            logger.debug(f"Cache entry for model '{name}' has expired")
+                            del self._model_cache[name]
+                    
+                    self._cache_misses += 1
+                    logger.debug(f"Cache miss for model '{name}' (hit rate: {self.cache_hit_rate():.1%})")
 
-                    # Handle medical models with specialized loading
-                    if metadata.model_type in (
-                        ModelType.BIOMEDICAL,
-                        ModelType.CLINICAL,
-                    ):
-                        model = self._load_medical_model(
-                            name, metadata, device, **kwargs
-                        )
+                    # If not in cache or cache miss, try to load it
+                    if name in self._models:
+                        metadata = self._models[name]
+                        load_start = time.time()
+                        
+                        if metadata.model_type in (ModelType.BIOMEDICAL, ModelType.CLINICAL):
+                            model = self._load_medical_model(name, metadata, device, **kwargs)
+                        else:
+                            model = self._load_model_with_metadata(
+                                name, metadata, config, device, kwargs
+                            )
+                        
+                        # Update load metrics
+                        load_duration = time.time() - load_start
+                        metadata.update_load_metrics(load_duration)
                     else:
-                        model = self._load_model_with_metadata(
-                            name, metadata, config, device, kwargs
-                        )
+                        # Try to load directly from Hugging Face Hub
+                        load_start = time.time()
+                        model = self._load_directly(name, device, **kwargs)
+                        
+                        # Create metadata for direct loads if not exists
+                        if name not in self._models:
+                            self._models[name] = ModelMetadata(
+                                name=name,
+                                model_type=ModelType.GENERIC,
+                                description=f"Auto-loaded model: {name}",
+                            )
+                        
+                        # Update load metrics
+                        load_duration = time.time() - load_start
+                        self._models[name].update_load_metrics(load_duration)
 
-                    self._model_cache[name] = model
+                    # Add to cache if caching is enabled
+                    if use_cache:
+                        self._model_cache[name] = (model, time.time())
+                        # Remove oldest item if cache is full (LRU eviction)
+                        if len(self._model_cache) > self._cache_size:
+                            oldest_key = next(iter(self._model_cache))
+                            logger.debug(f"Evicting model '{oldest_key}' from cache (max size: {self._cache_size})")
+                            self._model_cache.pop(oldest_key)
+
                     return model
 
-                except ModelNotFoundError:
-                    # If not found in registry, try direct loading
-                    logger.debug(
-                        "Model '%s' not found in registry, attempting direct load", name
-                    )
-                    return self._load_directly(name, device, **kwargs)  # type: ignore
-
-            # Prepare model arguments
-            model_args = metadata.parameters.copy()
+                except Exception as e:
+                    error_msg = f"Failed to load model '{name}': {str(e)}"
+                    logger.error(error_msg, exc_info=True)
+                    raise ModelLoadingError(error_msg) from e
+                finally:
+                    total_duration = time.time() - start_time
+                    logger.debug(f"Model '{name}' loaded in {total_duration:.2f} seconds")
             model_args.update(kwargs)
 
             # Load and return the model
@@ -786,9 +881,76 @@ class ModelRegistry(Generic[M]):
         """Clear the model cache.
 
         This will force models to be reloaded on next access.
+        Also resets cache statistics.
         """
         with self._lock:
             self._model_cache.clear()
+            self._cache_hits = 0
+            self._cache_misses = 0
+            logger.info("Model cache cleared and statistics reset")
+            
+    def set_cache_size(self, max_size: int) -> None:
+        """Set the maximum number of models to keep in the cache.
+        
+        Args:
+            max_size: Maximum number of models to cache. Must be >= 1.
+            
+        Raises:
+            ValueError: If max_size is less than 1.
+        """
+        if max_size < 1:
+            raise ValueError("Cache size must be at least 1")
+            
+        with self._lock:
+            self._cache_size = max_size
+            # If new size is smaller, evict oldest entries
+            while len(self._model_cache) > self._cache_size:
+                oldest_key = next(iter(self._model_cache))
+                self._model_cache.pop(oldest_key)
+                
+    def set_cache_ttl(self, ttl_seconds: int) -> None:
+        """Set the time-to-live for cache entries in seconds.
+        
+        Args:
+            ttl_seconds: Time in seconds before a cache entry expires.
+            
+        Raises:
+            ValueError: If ttl_seconds is less than 0.
+        """
+        if ttl_seconds < 0:
+            raise ValueError("TTL must be >= 0 seconds")
+            
+        with self._lock:
+            self.CACHE_TTL = ttl_seconds
+            
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics.
+        
+        Returns:
+            Dictionary containing cache statistics including hit rate, size, etc.
+        """
+        with self._lock:
+            total = self._cache_hits + self._cache_misses
+            hit_rate = self._cache_hits / total if total > 0 else 0.0
+            
+            return {
+                "hits": self._cache_hits,
+                "misses": self._cache_misses,
+                "hit_rate": hit_rate,
+                "current_size": len(self._model_cache),
+                "max_size": self._cache_size,
+                "ttl_seconds": self.CACHE_TTL,
+                "cached_models": list(self._model_cache.keys()),
+            }
+            
+    def cache_hit_rate(self) -> float:
+        """Calculate the current cache hit rate.
+        
+        Returns:
+            The cache hit rate as a float between 0 and 1.
+        """
+        total = self._cache_hits + self._cache_misses
+        return self._cache_hits / total if total > 0 else 0.0
 
     def clear(self) -> None:
         """Clear all models and cache from the registry.
