@@ -88,7 +88,7 @@
         "dependencies": [
           1
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -144,7 +144,7 @@
               4
             ],
             "details": "Develop unit tests for each component of the ModelRegistry. Create integration tests that verify the correct interaction between the registry and actual models. Implement test cases for error conditions (missing models, loading failures, etc.). Add performance tests to ensure efficient model switching and caching. Create mock models for testing to avoid dependencies on large model files during testing.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           }
         ]
@@ -160,7 +160,7 @@
           1,
           2
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -168,7 +168,7 @@
             "description": "Create a flexible adapter interface that allows seamless integration of different medical language models with Nano vLLM.",
             "dependencies": [],
             "details": "Define clear interface contracts, develop abstract base classes for adapters, establish standardized input/output formats, and document the integration points with Nano vLLM's core architecture. Include configuration options for model-specific parameters.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
