@@ -5,6 +5,8 @@ transformers>=4.30.0
 # Testing
 pytest>=7.0.0
 pytest-cov>=3.0.0
+pytest-xdist>=3.0.0  # For parallel test execution
+pytest-benchmark>=4.0.0  # For performance benchmarking
 
 # Development
 black>=22.0.0
@@ -16,6 +18,12 @@ flake8>=5.0.0
 sphinx>=5.0.0
 sphinx-rtd-theme>=1.0.0
 
+# Performance Testing
+psutil>=5.9.0  # For memory usage tracking
+numpy>=1.21.0  # For numerical operations and statistics
+memory-profiler>=0.61.0  # For detailed memory profiling
+pytest-memray>=1.4.0  # For memory leak detection
+
 # Utils
-numpy>=1.21.0
-tqdm>=4.65.0
+tqdm>=4.65.0  # For progress bars
+pytest-asyncio>=0.20.0  # For async test support

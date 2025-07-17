@@ -144,7 +144,7 @@
               4
             ],
             "details": "Develop unit tests for each component of the ModelRegistry. Create integration tests that verify the correct interaction between the registry and actual models. Implement test cases for error conditions (missing models, loading failures, etc.). Add performance tests to ensure efficient model switching and caching. Create mock models for testing to avoid dependencies on large model files during testing.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           }
         ]

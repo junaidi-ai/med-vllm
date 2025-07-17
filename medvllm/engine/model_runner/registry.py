@@ -347,68 +347,58 @@ class ModelRegistry(Generic[M]):
     ) -> None:
         """Register a new model with the registry.
 
-        This method is thread-safe and will skip registration if a model with the same
-        name already exists.
+        This method is thread-safe and will raise a ValueError if a model with the same
+        name is already registered.
 
         Args:
             name: Unique name for the model. Must be a non-empty string containing only
-                alphanumeric characters, '.', '-', or '_'.
+                alphanumeric characters, hyphens, or underscores.
             model_type: Type of the model (e.g., BIOMEDICAL, CLINICAL).
-            model_class: The model class to use for instantiation. If None, AutoModel will be used.
-            config_class: The config class to use for the model. If None, AutoConfig will be used.
+            model_class: The model class to register. If None, will try to auto-detect.
+            config_class: The config class for the model. If None, will try to auto-detect.
             description: Optional description of the model.
-            tags: Optional list of tags for categorizing the model.
-            loader: Specialized loader for medical models.
+            tags: Optional list of tags for the model.
+            loader: Optional custom loader class for the model.
             **parameters: Additional parameters to pass to the model during loading.
 
         Raises:
-            ModelValidationError: If the model name or type is invalid.
-            ModelRegistrationError: If there's an error during registration.
-
-        Example:
-            ```python
-            registry = get_registry()
-            registry.register(
-                name="my-model",
-                model_type=ModelType.BIOMEDICAL,
-                model_class=AutoModel,
-                config_class=AutoConfig,
-                description="My custom model",
-                tags=["custom", "biomedical"],
-                trust_remote_code=True
-            )
-            ```
+            ValueError: If the model name is invalid, required parameters are missing,
+                       or a model with the same name already exists.
+            ModelRegistrationError: If there's an error during model registration.
         """
         with self._lock:
             try:
-                # Input validation
-                self._validate_model_name(name)
-                self._validate_model_type(model_type)
+                # Validate input parameters
+                if not name or not isinstance(name, str):
+                    raise ValueError("Model name must be a non-empty string")
 
-                # Skip if already registered
+                # Check if model already exists
                 if name in self._models:
-                    logger.debug("Model '%s' is already registered, skipping", name)
-                    return
+                    raise ValueError(f"Model with name '{name}' is already registered")
 
                 # Create and store model metadata
-                params = parameters or {}
-                if loader is not None:
-                    params["loader"] = loader
-
-                self._models[name] = ModelMetadata(
+                metadata = ModelMetadata(
                     name=name,
                     model_type=model_type,
                     model_class=model_class,
                     config_class=config_class,
                     description=description,
                     tags=tags or [],
-                    parameters=params,
+                    parameters=parameters or {},
                 )
 
-                logger.info("Registered model: %s (type: %s)", name, model_type.name)
+                # Store the metadata
+                self._models[name] = metadata
 
-            except ModelValidationError:
-                raise  # Re-raise validation errors
+                # Store the loader if provided
+                if loader is not None:
+                    self._loaders[name] = loader
+
+                logger.info(f"Registered model: {name}")
+
+            except ValueError as e:
+                logger.error(f"Validation error registering model {name}: {e}")
+                raise  # Re-raise ValueError directly
             except Exception as e:
                 raise ModelRegistrationError(
                     f"Failed to register model: {str(e)}", model_name=name, error=str(e)

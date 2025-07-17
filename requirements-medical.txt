@@ -1,17 +1,43 @@
-# Core dependencies
+# Core Dependencies
 torch>=2.0.0
 transformers>=4.30.0
 sentencepiece>=0.1.99
 protobuf>=3.20.0
 
-# Medical model specific
+# Medical Model Specific
 safetensors>=0.3.1
 accelerate>=0.20.0
+
+# Model Serialization & Optimization
+onnxruntime>=1.14.0  # For model optimization and inference
+onnx>=1.13.0  # For model conversion
+
+# Performance & Monitoring
+psutil>=5.9.0  # For system monitoring
+numpy>=1.21.0  # For numerical operations
 
 # Testing
 pytest>=7.0.0
 pytest-mock>=3.10.0
+pytest-cov>=3.0.0
+pytest-xdist>=3.0.0  # Parallel test execution
 
 # Documentation
 sphinx>=5.0.0
 sphinx-rtd-theme>=1.0.0
+
+# Development Utilities
+black>=22.0.0
+isort>=5.10.0
+mypy>=0.990
+flake8>=5.0.0
+
+# Memory Management
+gpustat>=1.0.0  # For GPU memory monitoring
+pynvml>=11.0.0  # NVIDIA GPU monitoring
+
+# Async Support
+anyio>=3.0.0  # For async/await support
+
+# Logging & Debugging
+loguru>=0.6.0  # For structured logging
