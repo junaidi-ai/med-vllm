@@ -190,7 +190,7 @@
               1
             ],
             "details": "Map ClinicalBERT's architecture to Nano vLLM requirements, handle clinical domain-specific features, implement weight conversion utilities, and ensure proper handling of clinical terminology and contextual representations.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {

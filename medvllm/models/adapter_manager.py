@@ -137,6 +137,13 @@ class AdapterManager:
             "use_cuda_graphs": False,
             "max_batch_size": 32,
             "max_seq_length": 512,
+            # Tensor parallelism settings
+            "tensor_parallel_size": 1,
+            "rank": 0,
+            "world_size": 1,
+            # CUDA optimization settings
+            "memory_efficient": True,
+            "enable_mixed_precision": False,
         }
 
         # Adapter-specific configurations

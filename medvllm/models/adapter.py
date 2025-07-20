@@ -5,10 +5,11 @@ with the Nano vLLM architecture, ensuring consistent behavior and optimization.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 
@@ -31,6 +32,20 @@ class MedicalModelAdapter(ABC, nn.Module):
         self.config = config
         self.kv_cache: Optional[Dict[str, torch.Tensor]] = None
         self.cuda_graphs: Optional[Any] = None
+        
+        # Tensor parallelism configuration
+        self.tensor_parallel_size = config.get("tensor_parallel_size", 1)
+        self.rank = config.get("rank", 0)
+        self.world_size = config.get("world_size", 1)
+        
+        # CUDA optimization settings
+        self.use_cuda_graphs = config.get("use_cuda_graphs", False)
+        self.memory_efficient = config.get("memory_efficient", True)
+        self.enable_mixed_precision = config.get("enable_mixed_precision", False)
+        
+        # Initialize tensor parallel group if needed
+        if self.tensor_parallel_size > 1:
+            self._init_tensor_parallel()
 
     @abstractmethod
     def setup_for_inference(self, **kwargs) -> None:
@@ -62,7 +77,137 @@ class MedicalModelAdapter(ABC, nn.Module):
     def to(self, device: torch.device) -> "MedicalModelAdapter":
         """Move the model to the specified device."""
         self.model = self.model.to(device)
+        
+        # Move KV cache to device if it exists
+        if self.kv_cache is not None:
+            self.kv_cache = {k: v.to(device) for k, v in self.kv_cache.items()}
+        
         return self
+    
+    def _init_tensor_parallel(self) -> None:
+        """Initialize tensor parallelism if not already initialized."""
+        if not dist.is_initialized() and self.tensor_parallel_size > 1:
+            try:
+                # Initialize distributed process group for tensor parallelism
+                dist.init_process_group(
+                    backend="nccl" if torch.cuda.is_available() else "gloo",
+                    rank=self.rank,
+                    world_size=self.world_size
+                )
+                print(f"Initialized tensor parallelism: rank {self.rank}/{self.world_size}")
+            except Exception as e:
+                print(f"Warning: Failed to initialize tensor parallelism: {e}")
+                self.tensor_parallel_size = 1
+    
+    def _shard_tensor(self, tensor: torch.Tensor, dim: int = 0) -> torch.Tensor:
+        """Shard a tensor across tensor parallel ranks.
+        
+        Args:
+            tensor: Tensor to shard
+            dim: Dimension to shard along
+            
+        Returns:
+            Sharded tensor for current rank
+        """
+        if self.tensor_parallel_size <= 1:
+            return tensor
+            
+        # Calculate shard size and offset
+        total_size = tensor.size(dim)
+        shard_size = total_size // self.tensor_parallel_size
+        start_idx = self.rank * shard_size
+        end_idx = start_idx + shard_size
+        
+        # Handle last rank getting remainder
+        if self.rank == self.tensor_parallel_size - 1:
+            end_idx = total_size
+            
+        # Shard the tensor
+        if dim == 0:
+            return tensor[start_idx:end_idx]
+        elif dim == 1:
+            return tensor[:, start_idx:end_idx]
+        elif dim == 2:
+            return tensor[:, :, start_idx:end_idx]
+        else:
+            # Use torch.narrow for higher dimensions
+            return torch.narrow(tensor, dim, start_idx, end_idx - start_idx)
+    
+    def _all_gather_tensor(self, tensor: torch.Tensor, dim: int = 0) -> torch.Tensor:
+        """All-gather a sharded tensor across tensor parallel ranks.
+        
+        Args:
+            tensor: Sharded tensor to gather
+            dim: Dimension that was sharded
+            
+        Returns:
+            Full tensor gathered from all ranks
+        """
+        if self.tensor_parallel_size <= 1 or not dist.is_initialized():
+            return tensor
+            
+        # Gather tensors from all ranks
+        tensor_list = [torch.zeros_like(tensor) for _ in range(self.tensor_parallel_size)]
+        dist.all_gather(tensor_list, tensor)
+        
+        # Concatenate along the sharded dimension
+        return torch.cat(tensor_list, dim=dim)
+    
+    def _optimize_cuda_memory(self) -> None:
+        """Optimize CUDA memory usage for medical models."""
+        if not torch.cuda.is_available():
+            return
+            
+        # Enable memory efficient attention if available
+        if hasattr(torch.backends.cuda, "enable_flash_sdp"):
+            torch.backends.cuda.enable_flash_sdp(True)
+            
+        # Set memory fraction for multi-GPU setups
+        if self.tensor_parallel_size > 1:
+            memory_fraction = 0.9 / self.tensor_parallel_size
+            torch.cuda.set_per_process_memory_fraction(memory_fraction)
+            
+        # Enable CUDA graphs compilation cache
+        if self.use_cuda_graphs:
+            torch._C._cuda_set_memory_pool_id(0)
+    
+    def _setup_mixed_precision(self) -> None:
+        """Setup mixed precision training/inference."""
+        if self.enable_mixed_precision and torch.cuda.is_available():
+            # Enable automatic mixed precision
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            
+            # Convert model to half precision where appropriate
+            if hasattr(self.model, "half"):
+                # Only convert non-embedding layers to half
+                for name, module in self.model.named_modules():
+                    if not isinstance(module, (nn.Embedding, nn.LayerNorm)):
+                        module.half()
+    
+    def get_memory_stats(self) -> Dict[str, Any]:
+        """Get memory usage statistics.
+        
+        Returns:
+            Dictionary with memory statistics
+        """
+        stats = {}
+        
+        if torch.cuda.is_available():
+            stats["cuda_memory_allocated"] = torch.cuda.memory_allocated()
+            stats["cuda_memory_reserved"] = torch.cuda.memory_reserved()
+            stats["cuda_max_memory_allocated"] = torch.cuda.max_memory_allocated()
+            
+        # Model parameter count
+        total_params = sum(p.numel() for p in self.model.parameters())
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        
+        stats["total_parameters"] = total_params
+        stats["trainable_parameters"] = trainable_params
+        stats["tensor_parallel_size"] = self.tensor_parallel_size
+        stats["rank"] = self.rank
+        
+        return stats
 
 
 class BioBERTAdapter(MedicalModelAdapter):
@@ -91,7 +236,8 @@ class BioBERTAdapter(MedicalModelAdapter):
         
         # Initialize tokenizer for BioBERT-specific handling
         self.tokenizer: Optional[PreTrainedTokenizerBase] = None
-        self._setup_biobert_tokenizer()
+        if not config.get("skip_tokenizer_setup", False):
+            self._setup_biobert_tokenizer()
         
         # Initialize weights and handle biomedical embeddings
         self._initialize_weights()
@@ -217,13 +363,28 @@ class BioBERTAdapter(MedicalModelAdapter):
             **kwargs: Additional optimization parameters
         """
         self.model.eval()
+        
+        # Update configuration from kwargs
+        self.use_cuda_graphs = use_cuda_graphs or self.use_cuda_graphs
+        self.memory_efficient = kwargs.get("memory_efficient", self.memory_efficient)
+        self.enable_mixed_precision = kwargs.get("enable_mixed_precision", self.enable_mixed_precision)
 
         # Initialize KV cache if not already done
         if self.kv_cache is None:
             self.kv_cache = self._initialize_kv_cache()
+        
+        # Setup tensor parallelism for model layers
+        if self.tensor_parallel_size > 1:
+            self._setup_tensor_parallel_layers()
+        
+        # Optimize CUDA memory usage
+        self._optimize_cuda_memory()
+        
+        # Setup mixed precision if enabled
+        self._setup_mixed_precision()
 
         # Set up CUDA graphs if requested and available
-        if use_cuda_graphs and torch.cuda.is_available():
+        if self.use_cuda_graphs and torch.cuda.is_available():
             self._setup_cuda_graphs()
 
     def forward(self, input_ids: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -385,6 +546,73 @@ class BioBERTAdapter(MedicalModelAdapter):
             return 0
         # All caches should have the same sequence length
         return next(iter(self.kv_cache.values())).size(2)
+    
+    def _setup_tensor_parallel_layers(self) -> None:
+        """Setup tensor parallelism for BioBERT model layers."""
+        if self.tensor_parallel_size <= 1:
+            return
+            
+        print(f"Setting up tensor parallelism for BioBERT (rank {self.rank}/{self.tensor_parallel_size})")
+        
+        # Shard attention layers across tensor parallel ranks
+        if hasattr(self.model, 'bert') and hasattr(self.model.bert, 'encoder'):
+            for layer_idx, layer in enumerate(self.model.bert.encoder.layer):
+                if hasattr(layer, 'attention') and hasattr(layer.attention, 'self'):
+                    attention = layer.attention.self
+                    
+                    # Shard query, key, value projections
+                    if hasattr(attention, 'query'):
+                        attention.query.weight.data = self._shard_tensor(
+                            attention.query.weight.data, dim=0
+                        )
+                        if attention.query.bias is not None:
+                            attention.query.bias.data = self._shard_tensor(
+                                attention.query.bias.data, dim=0
+                            )
+                    
+                    if hasattr(attention, 'key'):
+                        attention.key.weight.data = self._shard_tensor(
+                            attention.key.weight.data, dim=0
+                        )
+                        if attention.key.bias is not None:
+                            attention.key.bias.data = self._shard_tensor(
+                                attention.key.bias.data, dim=0
+                            )
+                    
+                    if hasattr(attention, 'value'):
+                        attention.value.weight.data = self._shard_tensor(
+                            attention.value.weight.data, dim=0
+                        )
+                        if attention.value.bias is not None:
+                            attention.value.bias.data = self._shard_tensor(
+                                attention.value.bias.data, dim=0
+                            )
+                
+                # Shard feed-forward layers
+                if hasattr(layer, 'intermediate') and hasattr(layer.intermediate, 'dense'):
+                    layer.intermediate.dense.weight.data = self._shard_tensor(
+                        layer.intermediate.dense.weight.data, dim=0
+                    )
+                    if layer.intermediate.dense.bias is not None:
+                        layer.intermediate.dense.bias.data = self._shard_tensor(
+                            layer.intermediate.dense.bias.data, dim=0
+                        )
+                
+                # Shard output projection (needs gathering)
+                if hasattr(layer, 'output') and hasattr(layer.output, 'dense'):
+                    layer.output.dense.weight.data = self._shard_tensor(
+                        layer.output.dense.weight.data, dim=1
+                    )
+        
+        # Shard embedding layers if needed
+        if hasattr(self.model, 'bert') and hasattr(self.model.bert, 'embeddings'):
+            embeddings = self.model.bert.embeddings
+            if hasattr(embeddings, 'word_embeddings'):
+                embeddings.word_embeddings.weight.data = self._shard_tensor(
+                    embeddings.word_embeddings.weight.data, dim=1
+                )
+        
+        print(f"Tensor parallelism setup complete for BioBERT (rank {self.rank})")
 
     def _setup_cuda_graphs(self) -> None:
         """Set up CUDA graphs for faster inference."""
@@ -607,7 +835,8 @@ class ClinicalBERTAdapter(MedicalModelAdapter):
         
         # Initialize tokenizer for ClinicalBERT-specific handling
         self.tokenizer: Optional[PreTrainedTokenizerBase] = None
-        self._setup_clinical_tokenizer()
+        if not config.get("skip_tokenizer_setup", False):
+            self._setup_clinical_tokenizer()
         
         # Initialize weights and handle clinical embeddings
         self._initialize_weights()
@@ -735,13 +964,28 @@ class ClinicalBERTAdapter(MedicalModelAdapter):
     def setup_for_inference(self, use_cuda_graphs: bool = False, **kwargs) -> None:
         """Set up ClinicalBERT for inference with optimizations."""
         self.model.eval()
+        
+        # Update configuration from kwargs
+        self.use_cuda_graphs = use_cuda_graphs or self.use_cuda_graphs
+        self.memory_efficient = kwargs.get("memory_efficient", self.memory_efficient)
+        self.enable_mixed_precision = kwargs.get("enable_mixed_precision", self.enable_mixed_precision)
 
         # Initialize KV cache if not already done
         if self.kv_cache is None:
             self.kv_cache = self._initialize_kv_cache()
+        
+        # Setup tensor parallelism for model layers
+        if self.tensor_parallel_size > 1:
+            self._setup_tensor_parallel_layers()
+        
+        # Optimize CUDA memory usage
+        self._optimize_cuda_memory()
+        
+        # Setup mixed precision if enabled
+        self._setup_mixed_precision()
 
         # Set up CUDA graphs if requested and available
-        if use_cuda_graphs and torch.cuda.is_available():
+        if self.use_cuda_graphs and torch.cuda.is_available():
             self._setup_cuda_graphs()
 
     def forward(self, input_ids: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -845,6 +1089,73 @@ class ClinicalBERTAdapter(MedicalModelAdapter):
             with torch.cuda.graph(self.cuda_graphs):
                 self._cuda_graph_input = dummy_input
                 self._cuda_graph_output = self(dummy_input)
+    
+    def _setup_tensor_parallel_layers(self) -> None:
+        """Setup tensor parallelism for ClinicalBERT model layers."""
+        if self.tensor_parallel_size <= 1:
+            return
+            
+        print(f"Setting up tensor parallelism for ClinicalBERT (rank {self.rank}/{self.tensor_parallel_size})")
+        
+        # Shard attention layers across tensor parallel ranks
+        if hasattr(self.model, 'bert') and hasattr(self.model.bert, 'encoder'):
+            for layer_idx, layer in enumerate(self.model.bert.encoder.layer):
+                if hasattr(layer, 'attention') and hasattr(layer.attention, 'self'):
+                    attention = layer.attention.self
+                    
+                    # Shard query, key, value projections
+                    if hasattr(attention, 'query'):
+                        attention.query.weight.data = self._shard_tensor(
+                            attention.query.weight.data, dim=0
+                        )
+                        if attention.query.bias is not None:
+                            attention.query.bias.data = self._shard_tensor(
+                                attention.query.bias.data, dim=0
+                            )
+                    
+                    if hasattr(attention, 'key'):
+                        attention.key.weight.data = self._shard_tensor(
+                            attention.key.weight.data, dim=0
+                        )
+                        if attention.key.bias is not None:
+                            attention.key.bias.data = self._shard_tensor(
+                                attention.key.bias.data, dim=0
+                            )
+                    
+                    if hasattr(attention, 'value'):
+                        attention.value.weight.data = self._shard_tensor(
+                            attention.value.weight.data, dim=0
+                        )
+                        if attention.value.bias is not None:
+                            attention.value.bias.data = self._shard_tensor(
+                                attention.value.bias.data, dim=0
+                            )
+                
+                # Shard feed-forward layers
+                if hasattr(layer, 'intermediate') and hasattr(layer.intermediate, 'dense'):
+                    layer.intermediate.dense.weight.data = self._shard_tensor(
+                        layer.intermediate.dense.weight.data, dim=0
+                    )
+                    if layer.intermediate.dense.bias is not None:
+                        layer.intermediate.dense.bias.data = self._shard_tensor(
+                            layer.intermediate.dense.bias.data, dim=0
+                        )
+                
+                # Shard output projection (needs gathering)
+                if hasattr(layer, 'output') and hasattr(layer.output, 'dense'):
+                    layer.output.dense.weight.data = self._shard_tensor(
+                        layer.output.dense.weight.data, dim=1
+                    )
+        
+        # Shard embedding layers if needed
+        if hasattr(self.model, 'bert') and hasattr(self.model.bert, 'embeddings'):
+            embeddings = self.model.bert.embeddings
+            if hasattr(embeddings, 'word_embeddings'):
+                embeddings.word_embeddings.weight.data = self._shard_tensor(
+                    embeddings.word_embeddings.weight.data, dim=1
+                )
+        
+        print(f"Tensor parallelism setup complete for ClinicalBERT (rank {self.rank})")
     
     def preprocess_clinical_text(self, text: Union[str, List[str]], **kwargs) -> Dict[str, torch.Tensor]:
         """Preprocess clinical text with ClinicalBERT-specific tokenization.

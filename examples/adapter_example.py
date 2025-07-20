@@ -135,10 +135,122 @@ def clinicalbert_specific_example():
         print("   - Clinical note contextualization")
         print("   - Weight conversion utilities")
         print("   - Clinical vocabulary extension")
+        print("   - Tensor parallelism support")
+        print("   - CUDA memory optimization")
         
     except Exception as e:
         print(f"ClinicalBERT example failed: {e}")
         print("Note: This requires proper model setup")
+
+
+def tensor_parallelism_example():
+    """Example of tensor parallelism and CUDA optimization features."""
+    print("\n6. Tensor Parallelism & CUDA Optimization")
+    print("-" * 45)
+    
+    try:
+        from medvllm.models.adapter_manager import AdapterManager
+        from medvllm.models.adapter import BioBERTAdapter
+        import torch
+        import torch.nn as nn
+        
+        # Create a mock model for demonstration
+        class MockModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.config = type('Config', (), {
+                    'num_hidden_layers': 12,
+                    'num_attention_heads': 12, 
+                    'hidden_size': 768,
+                    '_name_or_path': 'dmis-lab/biobert-v1.1'
+                })()
+                
+            def forward(self, input_ids, **kwargs):
+                return torch.randn(input_ids.shape[0], input_ids.shape[1], 768)
+        
+        model = MockModel()
+        
+        # Example 1: Single GPU configuration
+        print("Single GPU configuration:")
+        single_gpu_config = {
+            "tensor_parallel_size": 1,
+            "rank": 0,
+            "world_size": 1,
+            "use_cuda_graphs": True,
+            "memory_efficient": True,
+            "enable_mixed_precision": False,
+            "skip_tokenizer_setup": True
+        }
+        
+        adapter_single = BioBERTAdapter(model, single_gpu_config)
+        adapter_single.setup_for_inference(
+            use_cuda_graphs=True,
+            memory_efficient=True,
+            enable_mixed_precision=False
+        )
+        
+        stats = adapter_single.get_memory_stats()
+        print(f"  - Total parameters: {stats['total_parameters']:,}")
+        print(f"  - Tensor parallel size: {stats['tensor_parallel_size']}")
+        print(f"  - Memory efficient: {adapter_single.memory_efficient}")
+        
+        # Example 2: Multi-GPU configuration
+        print("\nMulti-GPU configuration (simulated):")
+        multi_gpu_config = {
+            "tensor_parallel_size": 4,
+            "rank": 0,
+            "world_size": 4,
+            "use_cuda_graphs": False,  # Disable for multi-GPU demo
+            "memory_efficient": True,
+            "enable_mixed_precision": True,
+            "skip_tokenizer_setup": True
+        }
+        
+        adapter_multi = BioBERTAdapter(model, multi_gpu_config)
+        
+        # Demonstrate tensor sharding
+        test_tensor = torch.randn(768, 768)
+        sharded_tensor = adapter_multi._shard_tensor(test_tensor, dim=0)
+        print(f"  - Original tensor shape: {test_tensor.shape}")
+        print(f"  - Sharded tensor shape: {sharded_tensor.shape}")
+        print(f"  - Tensor parallel size: {adapter_multi.tensor_parallel_size}")
+        print(f"  - Rank: {adapter_multi.rank}/{adapter_multi.world_size}")
+        
+        # Example 3: CUDA optimization features
+        print("\nCUDA optimization features:")
+        cuda_config = {
+            "tensor_parallel_size": 1,
+            "use_cuda_graphs": True,
+            "memory_efficient": True,
+            "enable_mixed_precision": True,
+            "skip_tokenizer_setup": True
+        }
+        
+        adapter_cuda = BioBERTAdapter(model, cuda_config)
+        
+        # Setup with all optimizations
+        adapter_cuda.setup_for_inference(
+            use_cuda_graphs=True,
+            memory_efficient=True,
+            enable_mixed_precision=True
+        )
+        
+        print(f"  - CUDA graphs enabled: {adapter_cuda.use_cuda_graphs}")
+        print(f"  - Memory efficient: {adapter_cuda.memory_efficient}")
+        print(f"  - Mixed precision: {adapter_cuda.enable_mixed_precision}")
+        
+        print("\n✅ Tensor parallelism & CUDA optimization features:")
+        print("   - Multi-GPU tensor sharding")
+        print("   - Distributed training support")
+        print("   - CUDA memory optimization")
+        print("   - Mixed precision training/inference")
+        print("   - CUDA graphs for faster inference")
+        print("   - Memory usage statistics")
+        print("   - Automatic device management")
+        
+    except Exception as e:
+        print(f"Tensor parallelism example failed: {e}")
+        print("Note: This requires proper CUDA setup for full functionality")
 
 
 def main():
@@ -247,6 +359,9 @@ def main():
     
     # Example 5: ClinicalBERT-specific features
     clinicalbert_specific_example()
+    
+    # Example 6: Tensor parallelism and CUDA optimization
+    tensor_parallelism_example()
 
     print("\nTo use with real models:")
     print("1. Ensure you have the medical model downloaded")

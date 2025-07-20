@@ -137,9 +137,16 @@ class ModelManager:
                 hf_config=self._model_config,
             )
 
-            # Setup adapter for inference
+            # Setup adapter for inference with tensor parallelism and CUDA optimizations
             use_cuda_graphs = getattr(config, "use_cuda_graphs", False)
-            self.adapter.setup_for_inference(use_cuda_graphs=use_cuda_graphs)
+            memory_efficient = getattr(config, "memory_efficient", True)
+            enable_mixed_precision = getattr(config, "enable_mixed_precision", False)
+            
+            self.adapter.setup_for_inference(
+                use_cuda_graphs=use_cuda_graphs,
+                memory_efficient=memory_efficient,
+                enable_mixed_precision=enable_mixed_precision
+            )
 
             # Move adapter to the correct device
             self.adapter.to(self.runner.device)
