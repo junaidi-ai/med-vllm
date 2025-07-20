@@ -72,6 +72,75 @@ def biobert_specific_example():
         print("Note: This requires proper model setup")
 
 
+def clinicalbert_specific_example():
+    """Example of ClinicalBERT-specific features."""
+    print("\n5. ClinicalBERT-Specific Features")
+    print("-" * 35)
+    
+    try:
+        from medvllm.models.adapter_manager import AdapterManager
+        from medvllm.models.adapter import ClinicalBERTAdapter
+        import torch
+        import torch.nn as nn
+        
+        # Create a mock ClinicalBERT model for demonstration
+        class MockClinicalBERTModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.config = type('Config', (), {
+                    'num_hidden_layers': 12,
+                    'num_attention_heads': 12, 
+                    'hidden_size': 768,
+                    '_name_or_path': 'emilyalsentzer/Bio_ClinicalBERT'
+                })()
+                
+            def forward(self, input_ids, **kwargs):
+                return torch.randn(input_ids.shape[0], input_ids.shape[1], 768)
+        
+        model = MockClinicalBERTModel()
+        config = {"use_kv_cache": True}
+        
+        # Create ClinicalBERT adapter
+        print("Creating ClinicalBERT adapter with clinical features...")
+        adapter = ClinicalBERTAdapter(model, config)
+        
+        # Example clinical texts
+        clinical_texts = [
+            "Patient admitted to ICU with COPD exacerbation, BP 140/90.",
+            "CHF patient underwent CABG, currently stable in CCU.",
+            "EKG shows MI, troponins elevated, transferred to OR."
+        ]
+        
+        print("\nProcessing clinical text:")
+        for i, text in enumerate(clinical_texts, 1):
+            processed = adapter._preserve_clinical_context(text)
+            print(f"  {i}. Original: {text}")
+            print(f"     Processed: {processed}")
+        
+        # Example clinical note processing
+        print("\nClinical note contextualization:")
+        note_examples = [
+            ("Patient stable, vitals WNL, continue medications.", "progress"),
+            ("Patient discharged home in stable condition.", "discharge"),
+            ("65 y/o male admitted with chest pain, rule out MI.", "admission")
+        ]
+        
+        for note_text, note_type in note_examples:
+            processed_note = adapter.process_clinical_note(note_text, note_type)
+            print(f"  {note_type.title()}: {processed_note}")
+        
+        print("\n✅ ClinicalBERT adapter features:")
+        print("   - Clinical terminology handling (COPD, CHF, MI, etc.)")
+        print("   - Vital signs preservation (BP, HR, measurements)")
+        print("   - Clinical note contextualization")
+        print("   - Weight conversion utilities")
+        print("   - Clinical vocabulary extension")
+        
+    except Exception as e:
+        print(f"ClinicalBERT example failed: {e}")
+        print("Note: This requires proper model setup")
+
+
 def main():
     """Demonstrate adapter usage."""
     print("=== Medical Model Adapter Example ===\n")
@@ -172,6 +241,12 @@ def main():
     print("✓ Integration with Nano vLLM engine")
     print("✓ KV caching and CUDA graphs support")
     print("✓ Standardized input/output formats")
+    
+    # Example 4: BioBERT-specific features
+    biobert_specific_example()
+    
+    # Example 5: ClinicalBERT-specific features
+    clinicalbert_specific_example()
 
     print("\nTo use with real models:")
     print("1. Ensure you have the medical model downloaded")

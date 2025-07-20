@@ -588,11 +588,149 @@ class BioBERTAdapter(MedicalModelAdapter):
 
 
 class ClinicalBERTAdapter(MedicalModelAdapter):
-    """Adapter for ClinicalBERT models."""
+    """Adapter for ClinicalBERT models optimized for clinical NLP tasks.
+    
+    This adapter handles:
+    - Clinical domain-specific tokenization and terminology
+    - Weight conversion from Hugging Face format
+    - Clinical note processing and contextual representations
+    - CUDA graph optimization for clinical workflows
+    """
 
     def __init__(self, model: nn.Module, config: Dict[str, Any]):
         super().__init__(model, config)
         self.model_type = "clinicalbert"
+        self.num_hidden_layers = getattr(model.config, "num_hidden_layers", 12)
+        self.num_attention_heads = getattr(model.config, "num_attention_heads", 12)
+        self.hidden_size = getattr(model.config, "hidden_size", 768)
+        self.head_dim = self.hidden_size // self.num_attention_heads
+        
+        # Initialize tokenizer for ClinicalBERT-specific handling
+        self.tokenizer: Optional[PreTrainedTokenizerBase] = None
+        self._setup_clinical_tokenizer()
+        
+        # Initialize weights and handle clinical embeddings
+        self._initialize_weights()
+        self._setup_clinical_embeddings()
+    
+    def _setup_clinical_tokenizer(self) -> None:
+        """Set up ClinicalBERT-specific tokenizer with clinical vocabulary."""
+        try:
+            # Try to get tokenizer from model config or create default
+            model_name = getattr(self.model.config, '_name_or_path', 'emilyalsentzer/Bio_ClinicalBERT')
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                do_lower_case=False,  # ClinicalBERT uses cased tokenization
+                add_prefix_space=False
+            )
+            
+            # Add clinical terms if not already present
+            self._add_clinical_tokens()
+            
+        except Exception as e:
+            print(f"Warning: Could not load ClinicalBERT tokenizer: {e}")
+            self.tokenizer = None
+    
+    def _add_clinical_tokens(self) -> None:
+        """Add clinical-specific tokens to the tokenizer."""
+        if self.tokenizer is None:
+            return
+            
+        # Clinical terminology and abbreviations
+        clinical_tokens = [
+            # Clinical abbreviations
+            "COPD", "CHF", "MI", "CVA", "DVT", "PE", "UTI", "MRSA", "C.diff",
+            "HTN", "DM", "CAD", "CABG", "PTCA", "EKG", "ECG", "CBC", "BUN",
+            "ICU", "ER", "OR", "PACU", "CCU", "NICU", "PICU",
+            # Clinical procedures
+            "intubation", "extubation", "tracheostomy", "thoracentesis",
+            "paracentesis", "lumbar puncture", "bronchoscopy", "endoscopy",
+            # Clinical conditions
+            "acute", "chronic", "exacerbation", "remission", "stable",
+            "progressive", "deteriorating", "improving", "resolved",
+            # Clinical measurements
+            "systolic", "diastolic", "tachycardic", "bradycardic",
+            "hypertensive", "hypotensive", "febrile", "afebrile",
+            # Clinical notes terminology
+            "SOAP", "H&P", "discharge", "admission", "consult", "progress",
+            "assessment", "plan", "impression", "differential"
+        ]
+        
+        # Add tokens that aren't already in vocabulary
+        new_tokens = []
+        for token in clinical_tokens:
+            if token not in self.tokenizer.get_vocab():
+                new_tokens.append(token)
+        
+        if new_tokens:
+            added = self.tokenizer.add_tokens(new_tokens)
+            if added > 0:
+                print(f"Added {added} clinical tokens to ClinicalBERT tokenizer")
+    
+    def _setup_clinical_embeddings(self) -> None:
+        """Set up clinical-specific embedding handling."""
+        # Store original embedding layer for potential weight conversion
+        if hasattr(self.model, 'embeddings') and hasattr(self.model.embeddings, 'word_embeddings'):
+            self.original_embeddings = self.model.embeddings.word_embeddings
+            self.vocab_size = self.original_embeddings.num_embeddings
+            self.embedding_dim = self.original_embeddings.embedding_dim
+        elif hasattr(self.model, 'bert') and hasattr(self.model.bert.embeddings, 'word_embeddings'):
+            self.original_embeddings = self.model.bert.embeddings.word_embeddings
+            self.vocab_size = self.original_embeddings.num_embeddings
+            self.embedding_dim = self.original_embeddings.embedding_dim
+        else:
+            self.original_embeddings = None
+            self.vocab_size = None
+            self.embedding_dim = None
+    
+    def _initialize_weights(self) -> None:
+        """Initialize any additional weights or parameters."""
+        # Handle weight conversion if tokenizer was extended
+        if self.tokenizer is not None and self.original_embeddings is not None:
+            current_vocab_size = len(self.tokenizer)
+            if current_vocab_size > self.vocab_size:
+                self._extend_embeddings(current_vocab_size)
+    
+    def _extend_embeddings(self, new_vocab_size: int) -> None:
+        """Extend embedding layer for new clinical tokens.
+        
+        Args:
+            new_vocab_size: New vocabulary size after adding clinical tokens
+        """
+        if self.original_embeddings is None:
+            return
+            
+        # Create new embedding layer with extended vocabulary
+        old_embeddings = self.original_embeddings
+        new_embeddings = nn.Embedding(
+            new_vocab_size, 
+            self.embedding_dim,
+            padding_idx=old_embeddings.padding_idx
+        )
+        
+        # Copy existing weights
+        with torch.no_grad():
+            new_embeddings.weight[:self.vocab_size] = old_embeddings.weight
+            
+            # Initialize new token embeddings with mean of existing embeddings
+            if new_vocab_size > self.vocab_size:
+                mean_embedding = old_embeddings.weight.mean(dim=0)
+                std_embedding = old_embeddings.weight.std(dim=0)
+                for i in range(self.vocab_size, new_vocab_size):
+                    # Initialize with slight variation around mean
+                    new_embeddings.weight[i] = mean_embedding + torch.randn_like(mean_embedding) * std_embedding * 0.1
+        
+        # Replace the embedding layer in the model
+        if hasattr(self.model, 'embeddings'):
+            self.model.embeddings.word_embeddings = new_embeddings
+        elif hasattr(self.model, 'bert'):
+            self.model.bert.embeddings.word_embeddings = new_embeddings
+            
+        # Update stored references
+        self.original_embeddings = new_embeddings
+        self.vocab_size = new_vocab_size
+        
+        print(f"Extended ClinicalBERT embeddings from {old_embeddings.num_embeddings} to {new_vocab_size} tokens")
 
     def setup_for_inference(self, use_cuda_graphs: bool = False, **kwargs) -> None:
         """Set up ClinicalBERT for inference with optimizations."""
@@ -707,6 +845,209 @@ class ClinicalBERTAdapter(MedicalModelAdapter):
             with torch.cuda.graph(self.cuda_graphs):
                 self._cuda_graph_input = dummy_input
                 self._cuda_graph_output = self(dummy_input)
+    
+    def preprocess_clinical_text(self, text: Union[str, List[str]], **kwargs) -> Dict[str, torch.Tensor]:
+        """Preprocess clinical text with ClinicalBERT-specific tokenization.
+        
+        Args:
+            text: Input clinical text(s) to preprocess
+            **kwargs: Additional tokenization arguments
+            
+        Returns:
+            Dictionary with tokenized inputs ready for the model
+        """
+        if self.tokenizer is None:
+            raise RuntimeError("ClinicalBERT tokenizer not initialized")
+        
+        # Set ClinicalBERT-specific defaults
+        defaults = {
+            'max_length': 512,
+            'padding': True,
+            'truncation': True,
+            'return_tensors': 'pt',
+            'add_special_tokens': True
+        }
+        defaults.update(kwargs)
+        
+        # Handle clinical text preprocessing
+        if isinstance(text, str):
+            # Preserve clinical terminology and structure
+            processed_text = self._preserve_clinical_context(text)
+        else:
+            processed_text = [self._preserve_clinical_context(t) for t in text]
+        
+        return self.tokenizer(processed_text, **defaults)
+    
+    def _preserve_clinical_context(self, text: str) -> str:
+        """Preserve clinical terminology and contextual structure.
+        
+        Args:
+            text: Input clinical text to process
+            
+        Returns:
+            Processed text with preserved clinical context
+        """
+        import re
+        
+        # Preserve clinical abbreviations and measurements
+        # Pattern for vital signs and measurements
+        vitals_pattern = r'\b(\d+)/(\d+)\b|\b(\d+\.\d+)\s*(mg|ml|cc|units?|mcg|kg|lbs?)\b'
+        
+        # Pattern for clinical abbreviations
+        clinical_abbrev_pattern = r'\b(COPD|CHF|MI|CVA|DVT|PE|UTI|MRSA|HTN|DM|CAD|CABG|PTCA|EKG|ECG|CBC|BUN|ICU|ER|OR|PACU|CCU|NICU|PICU)\b'
+        
+        # Pattern for clinical procedures
+        procedure_pattern = r'\b(intubation|extubation|tracheostomy|thoracentesis|paracentesis|bronchoscopy|endoscopy)\b'
+        
+        # Preserve clinical abbreviations with spacing
+        text = re.sub(clinical_abbrev_pattern, r' \1 ', text, flags=re.IGNORECASE)
+        
+        # Preserve procedures
+        text = re.sub(procedure_pattern, r' \1 ', text, flags=re.IGNORECASE)
+        
+        # Preserve vital signs and measurements
+        text = re.sub(vitals_pattern, r' \1/\2 ', text)
+        
+        # Clean up extra spaces
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+    
+    def convert_huggingface_weights(self, hf_model_path: str) -> None:
+        """Convert Hugging Face ClinicalBERT weights to Nano vLLM format.
+        
+        Args:
+            hf_model_path: Path to Hugging Face ClinicalBERT model
+        """
+        try:
+            from transformers import AutoModel
+            
+            # Load the Hugging Face model
+            hf_model = AutoModel.from_pretrained(hf_model_path)
+            
+            # Convert weights layer by layer
+            self._convert_embedding_weights(hf_model)
+            self._convert_encoder_weights(hf_model)
+            self._convert_pooler_weights(hf_model)
+            
+            print(f"Successfully converted ClinicalBERT weights from {hf_model_path}")
+            
+        except Exception as e:
+            print(f"Warning: Could not convert ClinicalBERT weights from {hf_model_path}: {e}")
+    
+    def _convert_embedding_weights(self, hf_model) -> None:
+        """Convert embedding layer weights from Hugging Face format."""
+        if not hasattr(hf_model, 'embeddings'):
+            return
+            
+        hf_embeddings = hf_model.embeddings
+        
+        # Convert word embeddings
+        if hasattr(self.model, 'embeddings') and hasattr(hf_embeddings, 'word_embeddings'):
+            with torch.no_grad():
+                self.model.embeddings.word_embeddings.weight.copy_(hf_embeddings.word_embeddings.weight)
+        
+        # Convert position embeddings
+        if (hasattr(self.model.embeddings, 'position_embeddings') and 
+            hasattr(hf_embeddings, 'position_embeddings')):
+            with torch.no_grad():
+                self.model.embeddings.position_embeddings.weight.copy_(hf_embeddings.position_embeddings.weight)
+        
+        # Convert token type embeddings
+        if (hasattr(self.model.embeddings, 'token_type_embeddings') and 
+            hasattr(hf_embeddings, 'token_type_embeddings')):
+            with torch.no_grad():
+                self.model.embeddings.token_type_embeddings.weight.copy_(hf_embeddings.token_type_embeddings.weight)
+    
+    def _convert_encoder_weights(self, hf_model) -> None:
+        """Convert encoder layer weights from Hugging Face format."""
+        if not hasattr(hf_model, 'encoder') or not hasattr(self.model, 'encoder'):
+            return
+            
+        hf_layers = hf_model.encoder.layer
+        model_layers = self.model.encoder.layer
+        
+        for i, (hf_layer, model_layer) in enumerate(zip(hf_layers, model_layers)):
+            try:
+                # Convert attention weights
+                if hasattr(hf_layer, 'attention') and hasattr(model_layer, 'attention'):
+                    self._convert_attention_weights(hf_layer.attention, model_layer.attention)
+                
+                # Convert feed-forward weights
+                if hasattr(hf_layer, 'intermediate') and hasattr(model_layer, 'intermediate'):
+                    with torch.no_grad():
+                        model_layer.intermediate.dense.weight.copy_(hf_layer.intermediate.dense.weight)
+                        model_layer.intermediate.dense.bias.copy_(hf_layer.intermediate.dense.bias)
+                
+                if hasattr(hf_layer, 'output') and hasattr(model_layer, 'output'):
+                    with torch.no_grad():
+                        model_layer.output.dense.weight.copy_(hf_layer.output.dense.weight)
+                        model_layer.output.dense.bias.copy_(hf_layer.output.dense.bias)
+                        
+            except Exception as e:
+                print(f"Warning: Could not convert ClinicalBERT layer {i} weights: {e}")
+    
+    def _convert_attention_weights(self, hf_attention, model_attention) -> None:
+        """Convert attention weights from Hugging Face format."""
+        try:
+            with torch.no_grad():
+                # Convert self-attention weights
+                if hasattr(hf_attention.self, 'query') and hasattr(model_attention.self, 'query'):
+                    model_attention.self.query.weight.copy_(hf_attention.self.query.weight)
+                    model_attention.self.query.bias.copy_(hf_attention.self.query.bias)
+                
+                if hasattr(hf_attention.self, 'key') and hasattr(model_attention.self, 'key'):
+                    model_attention.self.key.weight.copy_(hf_attention.self.key.weight)
+                    model_attention.self.key.bias.copy_(hf_attention.self.key.bias)
+                
+                if hasattr(hf_attention.self, 'value') and hasattr(model_attention.self, 'value'):
+                    model_attention.self.value.weight.copy_(hf_attention.self.value.weight)
+                    model_attention.self.value.bias.copy_(hf_attention.self.value.bias)
+                
+                # Convert output projection weights
+                if hasattr(hf_attention, 'output') and hasattr(model_attention, 'output'):
+                    model_attention.output.dense.weight.copy_(hf_attention.output.dense.weight)
+                    model_attention.output.dense.bias.copy_(hf_attention.output.dense.bias)
+                    
+        except Exception as e:
+            print(f"Warning: Could not convert ClinicalBERT attention weights: {e}")
+    
+    def _convert_pooler_weights(self, hf_model) -> None:
+        """Convert pooler weights from Hugging Face format."""
+        if (hasattr(hf_model, 'pooler') and hasattr(self.model, 'pooler') and
+            hasattr(hf_model.pooler, 'dense') and hasattr(self.model.pooler, 'dense')):
+            try:
+                with torch.no_grad():
+                    self.model.pooler.dense.weight.copy_(hf_model.pooler.dense.weight)
+                    self.model.pooler.dense.bias.copy_(hf_model.pooler.dense.bias)
+            except Exception as e:
+                print(f"Warning: Could not convert ClinicalBERT pooler weights: {e}")
+    
+    def process_clinical_note(self, note_text: str, note_type: str = "progress") -> Dict[str, torch.Tensor]:
+        """Process clinical notes with contextual understanding.
+        
+        Args:
+            note_text: Clinical note text
+            note_type: Type of note (progress, discharge, admission, etc.)
+            
+        Returns:
+            Processed clinical note ready for model input
+        """
+        # Add note type context
+        if note_type.lower() in ["progress", "soap"]:
+            context_prefix = "[PROGRESS NOTE] "
+        elif note_type.lower() in ["discharge", "summary"]:
+            context_prefix = "[DISCHARGE SUMMARY] "
+        elif note_type.lower() in ["admission", "h&p"]:
+            context_prefix = "[ADMISSION NOTE] "
+        elif note_type.lower() == "consult":
+            context_prefix = "[CONSULTATION] "
+        else:
+            context_prefix = "[CLINICAL NOTE] "
+        
+        # Preprocess with clinical context
+        contextualized_text = context_prefix + note_text
+        return self.preprocess_clinical_text(contextualized_text)
 
     def to(self, device: torch.device) -> "ClinicalBERTAdapter":
         """Move adapter to specified device."""

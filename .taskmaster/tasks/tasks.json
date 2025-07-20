@@ -179,7 +179,7 @@
               1
             ],
             "details": "Map BioBERT's architecture to Nano vLLM requirements, handle tokenization differences, implement weight conversion utilities, and ensure proper handling of biomedical vocabulary and embeddings.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -190,7 +190,7 @@
               1
             ],
             "details": "Map ClinicalBERT's architecture to Nano vLLM requirements, handle clinical domain-specific features, implement weight conversion utilities, and ensure proper handling of clinical terminology and contextual representations.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
