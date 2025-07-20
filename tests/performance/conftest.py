@@ -1,11 +1,15 @@
 """Pytest configuration for performance tests."""
-import pytest
+
 from unittest.mock import MagicMock
-from tests.performance.test_utils import ModelType, ModelMetadata, TestModel, TestConfig
+
+import pytest
+
+from tests.performance.test_utils import ModelMetadata, ModelType, TestConfig, TestModel
 
 
 class ModelRegistry:
     """A simplified ModelRegistry for performance testing."""
+
     def __init__(self):
         self._models = {}
         self._model_cache = {}
@@ -13,7 +17,16 @@ class ModelRegistry:
         self._lock = MagicMock()
         self._model_counter = 0
 
-    def register(self, name, model_type, model_class, config_class, description="", tags=None, **parameters):
+    def register(
+        self,
+        name,
+        model_type,
+        model_class,
+        config_class,
+        description="",
+        tags=None,
+        **parameters,
+    ):
         """Register a model."""
         self._models[name] = ModelMetadata(
             name=name,
@@ -22,7 +35,7 @@ class ModelRegistry:
             config_class=config_class,
             description=description,
             tags=tags or [],
-            parameters=parameters or {}
+            parameters=parameters or {},
         )
         return self._models[name]
 
@@ -30,23 +43,24 @@ class ModelRegistry:
         """Load a model, with optional caching."""
         if name not in self._models:
             raise ValueError(f"Model {name} not found")
-        
+
         if use_cache and name in self._model_cache:
             return self._model_cache[name]
-        
+
         # Simulate model loading with a small delay to simulate real loading
         import time
+
         time.sleep(0.01)  # 10ms delay to simulate model loading
-        
+
         metadata = self._models[name]
         model = TestModel(name=name)  # Create a test model instance
-        
+
         if use_cache:
             # Simple LRU cache implementation
             if len(self._model_cache) >= self._cache_size:
                 self._model_cache.pop(next(iter(self._model_cache)))
             self._model_cache[name] = model
-        
+
         return model
 
     def unload_model(self, name):
@@ -68,7 +82,7 @@ def model_registry():
     """Fixture providing a ModelRegistry instance for testing."""
     # Create a test registry with a small cache size
     registry = ModelRegistry()
-    
+
     # Register some test models
     for i in range(5):
         model_name = f"test-model-{i}"
@@ -79,11 +93,11 @@ def model_registry():
             config_class=TestConfig,
             description=f"Test model {i}",
             tags=["test", f"model-{i}"],
-            parameters={"test_param": i}
+            parameters={"test_param": i},
         )
-    
+
     yield registry
-    
+
     # Cleanup
     registry.clear()
 
@@ -96,7 +110,4 @@ def temp_model_dir(tmp_path):
 
 def pytest_configure(config):
     """Configure pytest with custom markers."""
-    config.addinivalue_line(
-        "markers",
-        "performance: mark test as a performance test"
-    )
+    config.addinivalue_line("markers", "performance: mark test as a performance test")

@@ -20,53 +20,58 @@ def biobert_specific_example():
     """Example of BioBERT-specific features."""
     print("\n4. BioBERT-Specific Features")
     print("-" * 30)
-    
+
     try:
-        from medvllm.models.adapter_manager import AdapterManager
-        from medvllm.models.adapter import BioBERTAdapter
         import torch
         import torch.nn as nn
-        
+
+        from medvllm.models.adapter import BioBERTAdapter
+        from medvllm.models.adapter_manager import AdapterManager
+
         # Create a mock BioBERT model for demonstration
         class MockBioBERTModel(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.config = type('Config', (), {
-                    'num_hidden_layers': 12,
-                    'num_attention_heads': 12, 
-                    'hidden_size': 768,
-                    '_name_or_path': 'dmis-lab/biobert-v1.1'
-                })()
-                
+                self.config = type(
+                    "Config",
+                    (),
+                    {
+                        "num_hidden_layers": 12,
+                        "num_attention_heads": 12,
+                        "hidden_size": 768,
+                        "_name_or_path": "dmis-lab/biobert-v1.1",
+                    },
+                )()
+
             def forward(self, input_ids, **kwargs):
                 return torch.randn(input_ids.shape[0], input_ids.shape[1], 768)
-        
+
         model = MockBioBERTModel()
         config = {"use_kv_cache": True}
-        
+
         # Create BioBERT adapter
         print("Creating BioBERT adapter with biomedical features...")
         adapter = BioBERTAdapter(model, config)
-        
+
         # Example medical text processing
         medical_texts = [
             "Patient has q.d. medication for cardio-vascular issues.",
-            "Diagnosed with gastro-enteritis and myocardial infarction.", 
-            "Treatment includes i.v. antibiotics for pneumonia."
+            "Diagnosed with gastro-enteritis and myocardial infarction.",
+            "Treatment includes i.v. antibiotics for pneumonia.",
         ]
-        
+
         print("\nProcessing biomedical text:")
         for i, text in enumerate(medical_texts, 1):
             processed = adapter._preserve_medical_terms(text)
             print(f"  {i}. Original: {text}")
             print(f"     Processed: {processed}")
-        
+
         print("\n✅ BioBERT adapter features:")
         print("   - Biomedical vocabulary handling")
         print("   - Medical term preservation")
         print("   - Weight conversion utilities")
         print("   - Embedding extension for new tokens")
-        
+
     except Exception as e:
         print(f"BioBERT example failed: {e}")
         print("Note: This requires proper model setup")
@@ -76,59 +81,64 @@ def clinicalbert_specific_example():
     """Example of ClinicalBERT-specific features."""
     print("\n5. ClinicalBERT-Specific Features")
     print("-" * 35)
-    
+
     try:
-        from medvllm.models.adapter_manager import AdapterManager
-        from medvllm.models.adapter import ClinicalBERTAdapter
         import torch
         import torch.nn as nn
-        
+
+        from medvllm.models.adapter import ClinicalBERTAdapter
+        from medvllm.models.adapter_manager import AdapterManager
+
         # Create a mock ClinicalBERT model for demonstration
         class MockClinicalBERTModel(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.config = type('Config', (), {
-                    'num_hidden_layers': 12,
-                    'num_attention_heads': 12, 
-                    'hidden_size': 768,
-                    '_name_or_path': 'emilyalsentzer/Bio_ClinicalBERT'
-                })()
-                
+                self.config = type(
+                    "Config",
+                    (),
+                    {
+                        "num_hidden_layers": 12,
+                        "num_attention_heads": 12,
+                        "hidden_size": 768,
+                        "_name_or_path": "emilyalsentzer/Bio_ClinicalBERT",
+                    },
+                )()
+
             def forward(self, input_ids, **kwargs):
                 return torch.randn(input_ids.shape[0], input_ids.shape[1], 768)
-        
+
         model = MockClinicalBERTModel()
         config = {"use_kv_cache": True}
-        
+
         # Create ClinicalBERT adapter
         print("Creating ClinicalBERT adapter with clinical features...")
         adapter = ClinicalBERTAdapter(model, config)
-        
+
         # Example clinical texts
         clinical_texts = [
             "Patient admitted to ICU with COPD exacerbation, BP 140/90.",
             "CHF patient underwent CABG, currently stable in CCU.",
-            "EKG shows MI, troponins elevated, transferred to OR."
+            "EKG shows MI, troponins elevated, transferred to OR.",
         ]
-        
+
         print("\nProcessing clinical text:")
         for i, text in enumerate(clinical_texts, 1):
             processed = adapter._preserve_clinical_context(text)
             print(f"  {i}. Original: {text}")
             print(f"     Processed: {processed}")
-        
+
         # Example clinical note processing
         print("\nClinical note contextualization:")
         note_examples = [
             ("Patient stable, vitals WNL, continue medications.", "progress"),
             ("Patient discharged home in stable condition.", "discharge"),
-            ("65 y/o male admitted with chest pain, rule out MI.", "admission")
+            ("65 y/o male admitted with chest pain, rule out MI.", "admission"),
         ]
-        
+
         for note_text, note_type in note_examples:
             processed_note = adapter.process_clinical_note(note_text, note_type)
             print(f"  {note_type.title()}: {processed_note}")
-        
+
         print("\n✅ ClinicalBERT adapter features:")
         print("   - Clinical terminology handling (COPD, CHF, MI, etc.)")
         print("   - Vital signs preservation (BP, HR, measurements)")
@@ -137,7 +147,7 @@ def clinicalbert_specific_example():
         print("   - Clinical vocabulary extension")
         print("   - Tensor parallelism support")
         print("   - CUDA memory optimization")
-        
+
     except Exception as e:
         print(f"ClinicalBERT example failed: {e}")
         print("Note: This requires proper model setup")
@@ -147,29 +157,34 @@ def tensor_parallelism_example():
     """Example of tensor parallelism and CUDA optimization features."""
     print("\n6. Tensor Parallelism & CUDA Optimization")
     print("-" * 45)
-    
+
     try:
-        from medvllm.models.adapter_manager import AdapterManager
-        from medvllm.models.adapter import BioBERTAdapter
         import torch
         import torch.nn as nn
-        
+
+        from medvllm.models.adapter import BioBERTAdapter
+        from medvllm.models.adapter_manager import AdapterManager
+
         # Create a mock model for demonstration
         class MockModel(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.config = type('Config', (), {
-                    'num_hidden_layers': 12,
-                    'num_attention_heads': 12, 
-                    'hidden_size': 768,
-                    '_name_or_path': 'dmis-lab/biobert-v1.1'
-                })()
-                
+                self.config = type(
+                    "Config",
+                    (),
+                    {
+                        "num_hidden_layers": 12,
+                        "num_attention_heads": 12,
+                        "hidden_size": 768,
+                        "_name_or_path": "dmis-lab/biobert-v1.1",
+                    },
+                )()
+
             def forward(self, input_ids, **kwargs):
                 return torch.randn(input_ids.shape[0], input_ids.shape[1], 768)
-        
+
         model = MockModel()
-        
+
         # Example 1: Single GPU configuration
         print("Single GPU configuration:")
         single_gpu_config = {
@@ -179,21 +194,19 @@ def tensor_parallelism_example():
             "use_cuda_graphs": True,
             "memory_efficient": True,
             "enable_mixed_precision": False,
-            "skip_tokenizer_setup": True
+            "skip_tokenizer_setup": True,
         }
-        
+
         adapter_single = BioBERTAdapter(model, single_gpu_config)
         adapter_single.setup_for_inference(
-            use_cuda_graphs=True,
-            memory_efficient=True,
-            enable_mixed_precision=False
+            use_cuda_graphs=True, memory_efficient=True, enable_mixed_precision=False
         )
-        
+
         stats = adapter_single.get_memory_stats()
         print(f"  - Total parameters: {stats['total_parameters']:,}")
         print(f"  - Tensor parallel size: {stats['tensor_parallel_size']}")
         print(f"  - Memory efficient: {adapter_single.memory_efficient}")
-        
+
         # Example 2: Multi-GPU configuration
         print("\nMulti-GPU configuration (simulated):")
         multi_gpu_config = {
@@ -203,11 +216,11 @@ def tensor_parallelism_example():
             "use_cuda_graphs": False,  # Disable for multi-GPU demo
             "memory_efficient": True,
             "enable_mixed_precision": True,
-            "skip_tokenizer_setup": True
+            "skip_tokenizer_setup": True,
         }
-        
+
         adapter_multi = BioBERTAdapter(model, multi_gpu_config)
-        
+
         # Demonstrate tensor sharding
         test_tensor = torch.randn(768, 768)
         sharded_tensor = adapter_multi._shard_tensor(test_tensor, dim=0)
@@ -215,7 +228,7 @@ def tensor_parallelism_example():
         print(f"  - Sharded tensor shape: {sharded_tensor.shape}")
         print(f"  - Tensor parallel size: {adapter_multi.tensor_parallel_size}")
         print(f"  - Rank: {adapter_multi.rank}/{adapter_multi.world_size}")
-        
+
         # Example 3: CUDA optimization features
         print("\nCUDA optimization features:")
         cuda_config = {
@@ -223,22 +236,20 @@ def tensor_parallelism_example():
             "use_cuda_graphs": True,
             "memory_efficient": True,
             "enable_mixed_precision": True,
-            "skip_tokenizer_setup": True
+            "skip_tokenizer_setup": True,
         }
-        
+
         adapter_cuda = BioBERTAdapter(model, cuda_config)
-        
+
         # Setup with all optimizations
         adapter_cuda.setup_for_inference(
-            use_cuda_graphs=True,
-            memory_efficient=True,
-            enable_mixed_precision=True
+            use_cuda_graphs=True, memory_efficient=True, enable_mixed_precision=True
         )
-        
+
         print(f"  - CUDA graphs enabled: {adapter_cuda.use_cuda_graphs}")
         print(f"  - Memory efficient: {adapter_cuda.memory_efficient}")
         print(f"  - Mixed precision: {adapter_cuda.enable_mixed_precision}")
-        
+
         print("\n✅ Tensor parallelism & CUDA optimization features:")
         print("   - Multi-GPU tensor sharding")
         print("   - Distributed training support")
@@ -247,7 +258,7 @@ def tensor_parallelism_example():
         print("   - CUDA graphs for faster inference")
         print("   - Memory usage statistics")
         print("   - Automatic device management")
-        
+
     except Exception as e:
         print(f"Tensor parallelism example failed: {e}")
         print("Note: This requires proper CUDA setup for full functionality")
@@ -353,13 +364,13 @@ def main():
     print("✓ Integration with Nano vLLM engine")
     print("✓ KV caching and CUDA graphs support")
     print("✓ Standardized input/output formats")
-    
+
     # Example 4: BioBERT-specific features
     biobert_specific_example()
-    
+
     # Example 5: ClinicalBERT-specific features
     clinicalbert_specific_example()
-    
+
     # Example 6: Tensor parallelism and CUDA optimization
     tensor_parallelism_example()
 

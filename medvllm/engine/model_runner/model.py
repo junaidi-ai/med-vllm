@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch import Tensor
 from torch.nn import Module
+from transformers import PreTrainedModel
 
 from ..sequence import Sequence
 from .types import *
@@ -112,7 +113,9 @@ class ModelManager:
         # Return the model as is, since we've already stored it in self.model
         return model
 
-    def _setup_adapter(self, model: Module, model_name_or_path: str) -> None:
+    def _setup_adapter(
+        self, model: Union[Module, PreTrainedModel], model_name_or_path: str
+    ) -> None:
         """Set up medical model adapter if enabled.
 
         Args:
@@ -141,11 +144,11 @@ class ModelManager:
             use_cuda_graphs = getattr(config, "use_cuda_graphs", False)
             memory_efficient = getattr(config, "memory_efficient", True)
             enable_mixed_precision = getattr(config, "enable_mixed_precision", False)
-            
+
             self.adapter.setup_for_inference(
                 use_cuda_graphs=use_cuda_graphs,
                 memory_efficient=memory_efficient,
-                enable_mixed_precision=enable_mixed_precision
+                enable_mixed_precision=enable_mixed_precision,
             )
 
             # Move adapter to the correct device

@@ -4,6 +4,7 @@ This module provides common test utilities, fixtures, and mock objects that can 
 used across different test modules. It's designed to help with testing components
 that depend on external libraries like transformers and torch.
 """
+
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,7 @@ from tests.mock_field import field  # noqa: F401
 
 class MockConfig:
     """Mock configuration class for transformers models."""
+
     def __init__(self, model_type="qwen3", **kwargs):
         self.model_type = model_type
         self.vocab_size = 32000
@@ -23,13 +25,14 @@ class MockConfig:
         self.num_attention_heads = 32
         for k, v in kwargs.items():
             setattr(self, k, v)
-    
+
     def to_dict(self):
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
 
 class MockAutoConfig:
     """Mock for AutoConfig class."""
+
     @staticmethod
     def from_pretrained(model_name, **kwargs):
         """Mock implementation of from_pretrained."""
@@ -40,6 +43,7 @@ class MockAutoConfig:
 
 class MockAutoModel:
     """Mock for AutoModel class."""
+
     @staticmethod
     def from_pretrained(model_name, **kwargs):
         """Mock implementation of from_pretrained."""
@@ -50,6 +54,7 @@ class MockAutoModel:
 
 class MockAutoTokenizer:
     """Mock for AutoTokenizer class."""
+
     @staticmethod
     def from_pretrained(model_name, **kwargs):
         """Mock implementation of from_pretrained."""
@@ -64,6 +69,7 @@ class MockAutoTokenizer:
 
 class MockPreTrainedTokenizerBase:
     """Mock for PreTrainedTokenizerBase class."""
+
     def __init__(self, **kwargs):
         self.vocab_size = 32000
         self.model_max_length = 2048
@@ -72,63 +78,70 @@ class MockPreTrainedTokenizerBase:
         self.bos_token_id = 2
         for k, v in kwargs.items():
             setattr(self, k, v)
-            
+
     def __call__(self, *args, **kwargs):
         return {"input_ids": [[1, 2, 3]], "attention_mask": [[1, 1, 1]]}
 
 
 class MockVersions:
     """Mock for transformers.utils.versions module."""
+
     def require_version(self, *args, **kwargs):
         return True
 
 
 class MockTorch:
     """Mock for torch module."""
+
     class cuda:
         """Mock for torch.cuda."""
+
         @staticmethod
         def is_available():
             return False
-            
+
         @staticmethod
         def device_count():
             return 1
 
     class FloatTensor:
         """Mock for torch.FloatTensor."""
+
         def __new__(cls, *args, **kwargs):
             return MagicMock()
-            
+
     class LongTensor:
         """Mock for torch.LongTensor."""
+
         def __new__(cls, *args, **kwargs):
             return MagicMock()
 
     class no_grad:
         """Mock for torch.no_grad."""
+
         def __enter__(self):
             return self
-            
+
         def __exit__(self, *args):
             pass
 
 
 class CompleteTransformersMock:
     """Complete mock for the transformers module with all required submodules."""
+
     AutoConfig = MockAutoConfig
     AutoModel = MockAutoModel
     AutoTokenizer = MockAutoTokenizer
     PreTrainedTokenizerBase = MockPreTrainedTokenizerBase
-    
+
     class utils:
         versions = MockVersions()
-        
+
         class _pytree:
             @staticmethod
             def tree_map(fn, *args, **kwargs):
                 return fn(*args)
-        
+
         class generic:
             @staticmethod
             def ModelOutput(*args, **kwargs):
@@ -136,14 +149,15 @@ class CompleteTransformersMock:
                     def __init__(self, *args, **kwargs):
                         for k, v in kwargs.items():
                             setattr(self, k, v)
+
                 return ModelOutput(*args, **kwargs)
-    
+
     class modeling_utils:
         class PreTrainedModel:
             @classmethod
             def from_pretrained(cls, *args, **kwargs):
                 return MagicMock()
-    
+
     class generation:
         class GenerationMixin:
             pass
@@ -155,34 +169,33 @@ def mock_transformers():
     # Store original modules
     orig_modules = {}
     for name in list(sys.modules.keys()):
-        if name.startswith('transformers') or name == 'torch':
+        if name.startswith("transformers") or name == "torch":
             orig_modules[name] = sys.modules.pop(name, None)
-    
+
     # Install our mocks
     transformers_mock = CompleteTransformersMock()
     torch_mock = MockTorch()
-    
+
     # Patch sys.modules
-    sys.modules['transformers'] = transformers_mock
-    sys.modules['torch'] = torch_mock
-    
+    sys.modules["transformers"] = transformers_mock
+    sys.modules["torch"] = torch_mock
+
     # Set up common submodules
-    sys.modules.update({
-        'transformers.utils': transformers_mock.utils,
-        'transformers.utils.versions': transformers_mock.utils.versions,
-        'transformers.utils._pytree': transformers_mock.utils._pytree,
-        'transformers.utils.generic': transformers_mock.utils.generic,
-        'transformers.generation': transformers_mock.generation,
-        'transformers.modeling_utils': transformers_mock.modeling_utils,
-        'transformers.tokenization_utils_base': MockPreTrainedTokenizerBase(),
-        'torch.cuda': torch_mock.cuda,
-    })
-    
-    yield {
-        'transformers': transformers_mock,
-        'torch': torch_mock
-    }
-    
+    sys.modules.update(
+        {
+            "transformers.utils": transformers_mock.utils,
+            "transformers.utils.versions": transformers_mock.utils.versions,
+            "transformers.utils._pytree": transformers_mock.utils._pytree,
+            "transformers.utils.generic": transformers_mock.utils.generic,
+            "transformers.generation": transformers_mock.generation,
+            "transformers.modeling_utils": transformers_mock.modeling_utils,
+            "transformers.tokenization_utils_base": MockPreTrainedTokenizerBase(),
+            "torch.cuda": torch_mock.cuda,
+        }
+    )
+
+    yield {"transformers": transformers_mock, "torch": torch_mock}
+
     # Restore original modules
     for name, module in orig_modules.items():
         if module is not None:
@@ -193,12 +206,12 @@ def mock_transformers():
 def model_registry(mock_transformers):
     """Fixture that provides a clean ModelRegistry instance with mocks."""
     from medvllm.engine.model_runner.registry import ModelRegistry
-    
+
     # Clear any existing models from the registry
     registry = ModelRegistry()
     for model in registry.list_models():
         registry.unregister(model.name)
-        
+
     return registry
 
 

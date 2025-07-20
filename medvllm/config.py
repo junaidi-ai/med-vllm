@@ -22,7 +22,7 @@ class Config:
     adapter_type: str | None = None  # Auto-detect if None
     adapter_config: dict | None = None
     use_cuda_graphs: bool = False
-    
+
     # CUDA optimization settings
     memory_efficient: bool = True
     enable_mixed_precision: bool = False

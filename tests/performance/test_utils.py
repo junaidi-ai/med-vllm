@@ -1,18 +1,23 @@
 """Test utilities for performance testing."""
-from enum import Enum, auto
+
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Type, TypeVar
 from unittest.mock import MagicMock
 
+
 class ModelType(Enum):
     """Enumeration of model types."""
+
     GENERIC = auto()
     BIOMEDICAL = auto()
     CLINICAL = auto()
 
+
 @dataclass
 class ModelMetadata:
     """Metadata for a registered model."""
+
     name: str
     model_type: ModelType
     model_class: Type
@@ -27,19 +32,23 @@ class ModelMetadata:
         if self.parameters is None:
             self.parameters = {}
 
+
 # Prevent pytest from collecting this as a test class
 class TestModel:  # type: ignore
     """A simple test model class for performance testing."""
+
     def __init__(self, *args, **kwargs):
-        self.name = kwargs.get('name', 'test_model')
+        self.name = kwargs.get("name", "test_model")
         self.config = MagicMock()
-        self.config.model_type = 'test_model'
+        self.config.model_type = "test_model"
+
 
 # Prevent pytest from collecting this as a test class
 class TestConfig:  # type: ignore
     """A simple test config class for performance testing."""
+
     def __init__(self, *args, **kwargs):
-        self.model_type = 'test_model'
+        self.model_type = "test_model"
         self.vocab_size = 10000
         self.hidden_size = 768
         self.num_hidden_layers = 12

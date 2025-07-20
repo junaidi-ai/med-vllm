@@ -4,90 +4,147 @@ This module provides functions to register medical models with the model registr
 including pre-configured models and their loaders with adapter support.
 """
 
-from typing import Any, Dict, Optional, Type, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union, cast
 
 import torch
+from transformers import PreTrainedModel, PreTrainedTokenizer
 
-from ..engine.model_runner.registry import ModelType, registry
-from .medical_models import BioBERTLoader, ClinicalBERTLoader, MedicalModelLoader
-from .adapter import create_medical_adapter
+from medvllm.engine.model_runner.registry import ModelRegistry, ModelType, registry
+from medvllm.models.adapter import create_medical_adapter
+from medvllm.models.medical_models import (
+    BioBERTLoader,
+    ClinicalBERTLoader,
+    MedicalModelLoader,
+    MedicalTokenizer,
+)
 
-# Default model configurations
+# Define type variables for the model and tokenizer types
+M = TypeVar("M", bound=PreTrainedModel)
+T = TypeVar("T", bound=PreTrainedTokenizer)
+
+
+class MedicalModelAdapterLoader(MedicalModelLoader[M, T]):
+    """Loader that wraps a model with a medical adapter."""
+
+    def __init__(self, model_id: str, model_type: str, config: Dict[str, Any]):
+        self.model_id = model_id
+        self.model_type = model_type
+        self.config = config
+        self.MODEL_NAME = model_id
+        self.MODEL_TYPE = model_type
+
+        # Set the default model class from config or use AutoModel
+        model_class = config.get("model_class")
+        if model_class is not None:
+            self.DEFAULT_MODEL_CLASS = model_class
+
+        # Set the tokenizer class if specified in config
+        tokenizer_class = config.get("tokenizer_class")
+        if tokenizer_class is not None:
+            self.TOKENIZER_CLASS = tokenizer_class
+
+    @classmethod
+    def load_model(
+        cls,
+        model_class: Optional[Type[M]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        device: Optional[Union[str, torch.device]] = None,
+        **kwargs: Any,
+    ) -> Tuple[M, T]:
+        """Load the model and wrap it with the appropriate adapter.
+
+        Args:
+            model_class: The model class to use (defaults to the one from config)
+            config: Optional configuration overrides
+            device: Device to load the model on
+            **kwargs: Additional arguments to pass to the model loader
+
+        Returns:
+            The loaded model wrapped with the appropriate adapter
+        """
+        # Load the model and tokenizer using the parent class
+        model, tokenizer = super().load_model(
+            model_class=model_class, config=config or {}, device=device, **kwargs
+        )
+
+        # Create the appropriate adapter
+        adapter = create_medical_adapter(
+            model=model,
+            model_type=cls.MODEL_TYPE,  # Use class attribute instead of instance
+            config=config or {},
+        )
+
+        # Set up for inference by default
+        adapter.setup_for_inference()
+
+        # Return both the adapted model and tokenizer
+        return adapter, tokenizer
+
+
+# Registry for medical models
 MEDICAL_MODEL_CONFIGS = {
-    # BioBERT models
-    "biobert-base": {
-        "name": "dmis-lab/biobert-v1.1",
-        "model_type": ModelType.BIOMEDICAL,
-        "description": "BioBERT v1.1 - Pretrained biomedical language representation model",
-        "tags": ["biomedical", "bert", "base"],
-        "loader": BioBERTLoader,
-        "parameters": {"num_labels": 2, "problem_type": "single_label_classification"},
+    "dmis-lab/biobert-v1.1": {
+        "model_class": BioBERTLoader.DEFAULT_MODEL_CLASS,
+        "tokenizer_class": BioBERTLoader.TOKENIZER_CLASS,
+        "config_class": None,  # Will be auto-detected
+        "model_type": "biomedical",
+        "description": "BioBERT v1.1 - Biomedical Language Model",
+        "tags": ["biomedical", "biobert", "pretrained"],
     },
-    # ClinicalBERT models
-    "clinical-bert-base": {
-        "name": "emilyalsentzer/Bio_ClinicalBERT",
-        "model_type": ModelType.CLINICAL,
-        "description": "Bio_ClinicalBERT - Pretrained clinical language representation model",
-        "tags": ["clinical", "bert", "base"],
-        "loader": ClinicalBERTLoader,
-        "parameters": {"num_labels": 2, "problem_type": "single_label_classification"},
+    "emilyalsentzer/Bio_ClinicalBERT": {
+        "model_class": ClinicalBERTLoader.DEFAULT_MODEL_CLASS,
+        "tokenizer_class": ClinicalBERTLoader.TOKENIZER_CLASS,
+        "config_class": None,  # Will be auto-detected
+        "model_type": "clinical",
+        "description": "Clinical BERT - Pretrained on clinical notes",
+        "tags": ["clinical", "bert", "pretrained"],
     },
-    # Add more pre-configured medical models here
 }
 
 
 def register_medical_models() -> None:
     """Register all pre-configured medical models with the registry.
-    
+
     This function registers each medical model with its adapter, ensuring
     compatibility with the Nano vLLM architecture.
     """
     for model_id, config in MEDICAL_MODEL_CONFIGS.items():
-        # Create a wrapper function that will load the model and wrap it with the appropriate adapter
-        def create_adapter_wrapper(model_id: str = model_id, config: Dict = config) -> callable:
-            def wrapper(*args, **kwargs) -> torch.nn.Module:
-                # Load the base model using the original loader
-                loader = config["loader"]
-                model = loader.load_model(*args, **kwargs)
-                
-                # Create the appropriate adapter
-                model_type = "biobert" if "biobert" in model_id.lower() else "clinicalbert"
-                adapter = create_medical_adapter(
-                    model=model,
-                    model_type=model_type,
-                    config=config
-                )
-                
-                # Set up for inference by default
-                adapter.setup_for_inference()
-                return adapter
-            
-            wrapper.__name__ = f"{model_id}_adapter_wrapper"
-            return wrapper
-        
-        # Extract and validate model info with proper types
-        name = str(config.get("name", ""))
-        model_type = config.get("model_type", ModelType.GENERIC)
+        # Extract model metadata with proper typing
+        model_type_str = str(config.get("model_type", "biomedical")).upper()
         description = str(config.get("description", ""))
         tags = config.get("tags", [])
         if not isinstance(tags, list):
             tags = []
-        tags = [str(tag) for tag in tags if tag is not None]
-        
-        # Get additional parameters, ensuring they're valid
-        params = config.get("parameters", {})
-        
-        # Register the model with the adapter wrapper
+        params_raw: Dict[str, Any] | Any = config.get("parameters", {})
+        params: Dict[str, Any] = params_raw if isinstance(params_raw, dict) else {}
+
+        # Create a custom loader for this model
+        model_type_enum: ModelType = ModelType[model_type_str]
+        loader_class = type(
+            f"{model_type_str.capitalize()}Loader",
+            (MedicalModelAdapterLoader,),
+            {"MODEL_TYPE": model_type_str, "MODEL_NAME": model_id},
+        )
+
+        # Get model and config classes with proper typing
+        model_class = config.get("model_class")
+        config_class = config.get("config_class")
+
+        # Register the model with the registry
         registry.register(
             name=model_id,
-            model_type=model_type,
-            model_class=config.get("model_class"),
-            config_class=config.get("config_class"),
+            model_type=model_type_enum,
+            model_class=model_class if isinstance(model_class, type) else None,
+            config_class=config_class if isinstance(config_class, type) else None,
             description=description,
             tags=tags,
-            loader=create_adapter_wrapper(),
-            **params
+            loader=loader_class(model_id, model_type_str.lower(), config),
+            **params,
         )
+
+
+# Register all pre-configured models when this module is imported
+register_medical_models()
 
 
 def register_custom_medical_model(
