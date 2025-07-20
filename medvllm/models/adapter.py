@@ -5,10 +5,11 @@ with the Nano vLLM architecture, ensuring consistent behavior and optimization.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
-from torch import nn
+import torch.nn as nn
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 
 class MedicalModelAdapter(ABC, nn.Module):
@@ -87,12 +88,126 @@ class BioBERTAdapter(MedicalModelAdapter):
         self.num_attention_heads = getattr(model.config, "num_attention_heads", 12)
         self.hidden_size = getattr(model.config, "hidden_size", 768)
         self.head_dim = self.hidden_size // self.num_attention_heads
+        
+        # Initialize tokenizer for BioBERT-specific handling
+        self.tokenizer: Optional[PreTrainedTokenizerBase] = None
+        self._setup_biobert_tokenizer()
+        
+        # Initialize weights and handle biomedical embeddings
         self._initialize_weights()
+        self._setup_biomedical_embeddings()
 
+    def _setup_biobert_tokenizer(self) -> None:
+        """Set up BioBERT-specific tokenizer with biomedical vocabulary."""
+        try:
+            # Try to get tokenizer from model config or create default
+            model_name = getattr(self.model.config, '_name_or_path', 'dmis-lab/biobert-v1.1')
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                do_lower_case=False,  # BioBERT uses cased tokenization
+                add_prefix_space=False
+            )
+            
+            # Add medical terms if not already present
+            self._add_biomedical_tokens()
+            
+        except Exception as e:
+            print(f"Warning: Could not load BioBERT tokenizer: {e}")
+            self.tokenizer = None
+    
+    def _add_biomedical_tokens(self) -> None:
+        """Add biomedical-specific tokens to the tokenizer."""
+        if self.tokenizer is None:
+            return
+            
+        # Common biomedical abbreviations and terms
+        biomedical_tokens = [
+            # Medical abbreviations
+            "q.d.", "b.i.d.", "t.i.d.", "q.i.d.", "p.r.n.", "stat",
+            "i.v.", "i.m.", "s.c.", "p.o.", "h.s.", "a.c.", "p.c.",
+            # Medical prefixes/suffixes  
+            "cardio-", "neuro-", "hemato-", "gastro-", "nephro-",
+            "-itis", "-emia", "-oma", "-pathy", "-ectomy", "-scopy",
+            # Common medical terms
+            "myocardial", "infarction", "hypertension", "diabetes",
+            "tachycardia", "bradycardia", "pneumonia", "sepsis"
+        ]
+        
+        # Add tokens that aren't already in vocabulary
+        new_tokens = []
+        for token in biomedical_tokens:
+            if token not in self.tokenizer.get_vocab():
+                new_tokens.append(token)
+        
+        if new_tokens:
+            added = self.tokenizer.add_tokens(new_tokens)
+            if added > 0:
+                print(f"Added {added} biomedical tokens to BioBERT tokenizer")
+    
+    def _setup_biomedical_embeddings(self) -> None:
+        """Set up biomedical-specific embedding handling."""
+        # Store original embedding layer for potential weight conversion
+        if hasattr(self.model, 'embeddings') and hasattr(self.model.embeddings, 'word_embeddings'):
+            self.original_embeddings = self.model.embeddings.word_embeddings
+            self.vocab_size = self.original_embeddings.num_embeddings
+            self.embedding_dim = self.original_embeddings.embedding_dim
+        elif hasattr(self.model, 'bert') and hasattr(self.model.bert.embeddings, 'word_embeddings'):
+            self.original_embeddings = self.model.bert.embeddings.word_embeddings
+            self.vocab_size = self.original_embeddings.num_embeddings
+            self.embedding_dim = self.original_embeddings.embedding_dim
+        else:
+            self.original_embeddings = None
+            self.vocab_size = None
+            self.embedding_dim = None
+    
     def _initialize_weights(self) -> None:
         """Initialize any additional weights or parameters."""
-        # Initialize any custom layers or parameters here
-        pass
+        # Handle weight conversion if tokenizer was extended
+        if self.tokenizer is not None and self.original_embeddings is not None:
+            current_vocab_size = len(self.tokenizer)
+            if current_vocab_size > self.vocab_size:
+                self._extend_embeddings(current_vocab_size)
+    
+    def _extend_embeddings(self, new_vocab_size: int) -> None:
+        """Extend embedding layer for new biomedical tokens.
+        
+        Args:
+            new_vocab_size: New vocabulary size after adding biomedical tokens
+        """
+        if self.original_embeddings is None:
+            return
+            
+        # Create new embedding layer with extended vocabulary
+        old_embeddings = self.original_embeddings
+        new_embeddings = nn.Embedding(
+            new_vocab_size, 
+            self.embedding_dim,
+            padding_idx=old_embeddings.padding_idx
+        )
+        
+        # Copy existing weights
+        with torch.no_grad():
+            new_embeddings.weight[:self.vocab_size] = old_embeddings.weight
+            
+            # Initialize new token embeddings with mean of existing embeddings
+            if new_vocab_size > self.vocab_size:
+                mean_embedding = old_embeddings.weight.mean(dim=0)
+                std_embedding = old_embeddings.weight.std(dim=0)
+                for i in range(self.vocab_size, new_vocab_size):
+                    # Initialize with slight variation around mean
+                    new_embeddings.weight[i] = mean_embedding + torch.randn_like(mean_embedding) * std_embedding * 0.1
+        
+        # Replace the embedding layer in the model
+        if hasattr(self.model, 'embeddings'):
+            self.model.embeddings.word_embeddings = new_embeddings
+        elif hasattr(self.model, 'bert'):
+            self.model.bert.embeddings.word_embeddings = new_embeddings
+            
+        # Update stored references
+        self.original_embeddings = new_embeddings
+        self.vocab_size = new_vocab_size
+        
+        print(f"Extended BioBERT embeddings from {old_embeddings.num_embeddings} to {new_vocab_size} tokens")
 
     def setup_for_inference(self, use_cuda_graphs: bool = False, **kwargs) -> None:
         """Set up BioBERT for inference with optimizations.
@@ -288,6 +403,179 @@ class BioBERTAdapter(MedicalModelAdapter):
             with torch.cuda.graph(self.cuda_graphs):
                 self._cuda_graph_input = dummy_input
                 self._cuda_graph_output = self(dummy_input)
+    
+    def preprocess_biomedical_text(self, text: Union[str, List[str]], **kwargs) -> Dict[str, torch.Tensor]:
+        """Preprocess biomedical text with BioBERT-specific tokenization.
+        
+        Args:
+            text: Input text(s) to preprocess
+            **kwargs: Additional tokenization arguments
+            
+        Returns:
+            Dictionary with tokenized inputs ready for the model
+        """
+        if self.tokenizer is None:
+            raise RuntimeError("BioBERT tokenizer not initialized")
+        
+        # Set BioBERT-specific defaults
+        defaults = {
+            'max_length': 512,
+            'padding': True,
+            'truncation': True,
+            'return_tensors': 'pt',
+            'add_special_tokens': True
+        }
+        defaults.update(kwargs)
+        
+        # Handle biomedical text preprocessing
+        if isinstance(text, str):
+            # Preserve medical abbreviations and terms
+            processed_text = self._preserve_medical_terms(text)
+        else:
+            processed_text = [self._preserve_medical_terms(t) for t in text]
+        
+        return self.tokenizer(processed_text, **defaults)
+    
+    def _preserve_medical_terms(self, text: str) -> str:
+        """Preserve medical terms and abbreviations during tokenization.
+        
+        Args:
+            text: Input text to process
+            
+        Returns:
+            Processed text with preserved medical terms
+        """
+        # Add spaces around medical abbreviations to prevent splitting
+        import re
+        
+        # Pattern for medical abbreviations (e.g., "q.d.", "b.i.d.")
+        abbrev_pattern = r'\b([a-z]\.)+[a-z]?\.?\b'
+        
+        # Pattern for medical prefixes/suffixes
+        prefix_pattern = r'\b(cardio|neuro|hemato|gastro|nephro|hepat)-'
+        suffix_pattern = r'-(itis|emia|oma|pathy|plasty|ectomy|otomy|scopy)\b'
+        
+        # Preserve abbreviations
+        text = re.sub(abbrev_pattern, r' \1 ', text, flags=re.IGNORECASE)
+        
+        # Preserve medical prefixes and suffixes
+        text = re.sub(prefix_pattern, r' \1- ', text, flags=re.IGNORECASE)
+        text = re.sub(suffix_pattern, r' -\1 ', text, flags=re.IGNORECASE)
+        
+        # Clean up extra spaces
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+    
+    def convert_huggingface_weights(self, hf_model_path: str) -> None:
+        """Convert Hugging Face BioBERT weights to Nano vLLM format.
+        
+        Args:
+            hf_model_path: Path to Hugging Face BioBERT model
+        """
+        try:
+            from transformers import AutoModel
+            
+            # Load the Hugging Face model
+            hf_model = AutoModel.from_pretrained(hf_model_path)
+            
+            # Convert weights layer by layer
+            self._convert_embedding_weights(hf_model)
+            self._convert_encoder_weights(hf_model)
+            self._convert_pooler_weights(hf_model)
+            
+            print(f"Successfully converted weights from {hf_model_path}")
+            
+        except Exception as e:
+            print(f"Warning: Could not convert weights from {hf_model_path}: {e}")
+    
+    def _convert_embedding_weights(self, hf_model) -> None:
+        """Convert embedding layer weights from Hugging Face format."""
+        if not hasattr(hf_model, 'embeddings'):
+            return
+            
+        hf_embeddings = hf_model.embeddings
+        
+        # Convert word embeddings
+        if hasattr(self.model, 'embeddings') and hasattr(hf_embeddings, 'word_embeddings'):
+            with torch.no_grad():
+                self.model.embeddings.word_embeddings.weight.copy_(hf_embeddings.word_embeddings.weight)
+        
+        # Convert position embeddings
+        if (hasattr(self.model.embeddings, 'position_embeddings') and 
+            hasattr(hf_embeddings, 'position_embeddings')):
+            with torch.no_grad():
+                self.model.embeddings.position_embeddings.weight.copy_(hf_embeddings.position_embeddings.weight)
+        
+        # Convert token type embeddings
+        if (hasattr(self.model.embeddings, 'token_type_embeddings') and 
+            hasattr(hf_embeddings, 'token_type_embeddings')):
+            with torch.no_grad():
+                self.model.embeddings.token_type_embeddings.weight.copy_(hf_embeddings.token_type_embeddings.weight)
+    
+    def _convert_encoder_weights(self, hf_model) -> None:
+        """Convert encoder layer weights from Hugging Face format."""
+        if not hasattr(hf_model, 'encoder') or not hasattr(self.model, 'encoder'):
+            return
+            
+        hf_layers = hf_model.encoder.layer
+        model_layers = self.model.encoder.layer
+        
+        for i, (hf_layer, model_layer) in enumerate(zip(hf_layers, model_layers)):
+            try:
+                # Convert attention weights
+                if hasattr(hf_layer, 'attention') and hasattr(model_layer, 'attention'):
+                    self._convert_attention_weights(hf_layer.attention, model_layer.attention)
+                
+                # Convert feed-forward weights
+                if hasattr(hf_layer, 'intermediate') and hasattr(model_layer, 'intermediate'):
+                    with torch.no_grad():
+                        model_layer.intermediate.dense.weight.copy_(hf_layer.intermediate.dense.weight)
+                        model_layer.intermediate.dense.bias.copy_(hf_layer.intermediate.dense.bias)
+                
+                if hasattr(hf_layer, 'output') and hasattr(model_layer, 'output'):
+                    with torch.no_grad():
+                        model_layer.output.dense.weight.copy_(hf_layer.output.dense.weight)
+                        model_layer.output.dense.bias.copy_(hf_layer.output.dense.bias)
+                        
+            except Exception as e:
+                print(f"Warning: Could not convert layer {i} weights: {e}")
+    
+    def _convert_attention_weights(self, hf_attention, model_attention) -> None:
+        """Convert attention weights from Hugging Face format."""
+        try:
+            with torch.no_grad():
+                # Convert self-attention weights
+                if hasattr(hf_attention.self, 'query') and hasattr(model_attention.self, 'query'):
+                    model_attention.self.query.weight.copy_(hf_attention.self.query.weight)
+                    model_attention.self.query.bias.copy_(hf_attention.self.query.bias)
+                
+                if hasattr(hf_attention.self, 'key') and hasattr(model_attention.self, 'key'):
+                    model_attention.self.key.weight.copy_(hf_attention.self.key.weight)
+                    model_attention.self.key.bias.copy_(hf_attention.self.key.bias)
+                
+                if hasattr(hf_attention.self, 'value') and hasattr(model_attention.self, 'value'):
+                    model_attention.self.value.weight.copy_(hf_attention.self.value.weight)
+                    model_attention.self.value.bias.copy_(hf_attention.self.value.bias)
+                
+                # Convert output projection weights
+                if hasattr(hf_attention, 'output') and hasattr(model_attention, 'output'):
+                    model_attention.output.dense.weight.copy_(hf_attention.output.dense.weight)
+                    model_attention.output.dense.bias.copy_(hf_attention.output.dense.bias)
+                    
+        except Exception as e:
+            print(f"Warning: Could not convert attention weights: {e}")
+    
+    def _convert_pooler_weights(self, hf_model) -> None:
+        """Convert pooler weights from Hugging Face format."""
+        if (hasattr(hf_model, 'pooler') and hasattr(self.model, 'pooler') and
+            hasattr(hf_model.pooler, 'dense') and hasattr(self.model.pooler, 'dense')):
+            try:
+                with torch.no_grad():
+                    self.model.pooler.dense.weight.copy_(hf_model.pooler.dense.weight)
+                    self.model.pooler.dense.bias.copy_(hf_model.pooler.dense.bias)
+            except Exception as e:
+                print(f"Warning: Could not convert pooler weights: {e}")
 
     def to(self, device: torch.device) -> "BioBERTAdapter":
         """Move the model to the specified device."""

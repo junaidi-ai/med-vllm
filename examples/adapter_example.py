@@ -16,6 +16,62 @@ from medvllm import LLM, AdapterManager, SamplingParams
 from medvllm.config import Config
 
 
+def biobert_specific_example():
+    """Example of BioBERT-specific features."""
+    print("\n4. BioBERT-Specific Features")
+    print("-" * 30)
+    
+    try:
+        from medvllm.models.adapter_manager import AdapterManager
+        from medvllm.models.adapter import BioBERTAdapter
+        import torch
+        import torch.nn as nn
+        
+        # Create a mock BioBERT model for demonstration
+        class MockBioBERTModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.config = type('Config', (), {
+                    'num_hidden_layers': 12,
+                    'num_attention_heads': 12, 
+                    'hidden_size': 768,
+                    '_name_or_path': 'dmis-lab/biobert-v1.1'
+                })()
+                
+            def forward(self, input_ids, **kwargs):
+                return torch.randn(input_ids.shape[0], input_ids.shape[1], 768)
+        
+        model = MockBioBERTModel()
+        config = {"use_kv_cache": True}
+        
+        # Create BioBERT adapter
+        print("Creating BioBERT adapter with biomedical features...")
+        adapter = BioBERTAdapter(model, config)
+        
+        # Example medical text processing
+        medical_texts = [
+            "Patient has q.d. medication for cardio-vascular issues.",
+            "Diagnosed with gastro-enteritis and myocardial infarction.", 
+            "Treatment includes i.v. antibiotics for pneumonia."
+        ]
+        
+        print("\nProcessing biomedical text:")
+        for i, text in enumerate(medical_texts, 1):
+            processed = adapter._preserve_medical_terms(text)
+            print(f"  {i}. Original: {text}")
+            print(f"     Processed: {processed}")
+        
+        print("\n✅ BioBERT adapter features:")
+        print("   - Biomedical vocabulary handling")
+        print("   - Medical term preservation")
+        print("   - Weight conversion utilities")
+        print("   - Embedding extension for new tokens")
+        
+    except Exception as e:
+        print(f"BioBERT example failed: {e}")
+        print("Note: This requires proper model setup")
+
+
 def main():
     """Demonstrate adapter usage."""
     print("=== Medical Model Adapter Example ===\n")
