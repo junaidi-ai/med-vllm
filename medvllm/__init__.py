@@ -54,22 +54,43 @@ def lazy_import(name: str, pkg: str) -> Any:
 
 
 # Make the package available for import
-__all__ = ["LLM", "SamplingParams"]
+__all__ = [
+    "LLM",
+    "SamplingParams",
+    "MedicalModelAdapter",
+    "BioBERTAdapter",
+    "ClinicalBERTAdapter",
+    "AdapterManager",
+]
 
 # Lazy imports for PyTorch-dependent modules
 if HAS_TORCH:
     try:
         from .llm import LLM
+        from .models.adapter import (
+            BioBERTAdapter,
+            ClinicalBERTAdapter,
+            MedicalModelAdapter,
+        )
+        from .models.adapter_manager import AdapterManager
         from .sampling_params import SamplingParams
     except ImportError as e:
         if "torch" in str(e).lower():
             LLM = DummyModule("LLM", e)  # type: ignore
             SamplingParams = DummyModule("SamplingParams", e)  # type: ignore
+            MedicalModelAdapter = DummyModule("MedicalModelAdapter", e)  # type: ignore
+            BioBERTAdapter = DummyModule("BioBERTAdapter", e)  # type: ignore
+            ClinicalBERTAdapter = DummyModule("ClinicalBERTAdapter", e)  # type: ignore
+            AdapterManager = DummyModule("AdapterManager", e)  # type: ignore
         else:
             raise
 else:
     LLM = DummyModule("LLM", ImportError("torch is not installed"))  # type: ignore
     SamplingParams = DummyModule("SamplingParams", ImportError("torch is not installed"))  # type: ignore
+    MedicalModelAdapter = DummyModule("MedicalModelAdapter", ImportError("torch is not installed"))  # type: ignore
+    BioBERTAdapter = DummyModule("BioBERTAdapter", ImportError("torch is not installed"))  # type: ignore
+    ClinicalBERTAdapter = DummyModule("ClinicalBERTAdapter", ImportError("torch is not installed"))  # type: ignore
+    AdapterManager = DummyModule("AdapterManager", ImportError("torch is not installed"))  # type: ignore
 
 
 def __getattr__(name: str) -> Any:
@@ -78,4 +99,12 @@ def __getattr__(name: str) -> Any:
         return LLM
     elif name == "SamplingParams":
         return SamplingParams
+    elif name == "MedicalModelAdapter":
+        return MedicalModelAdapter
+    elif name == "BioBERTAdapter":
+        return BioBERTAdapter
+    elif name == "ClinicalBERTAdapter":
+        return ClinicalBERTAdapter
+    elif name == "AdapterManager":
+        return AdapterManager
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

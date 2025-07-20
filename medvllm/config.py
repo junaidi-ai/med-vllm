@@ -17,6 +17,11 @@ class Config:
     eos: int = -1
     kvcache_block_size: int = 256
     num_kvcache_blocks: int = -1
+    # Adapter configuration
+    use_medical_adapter: bool = True
+    adapter_type: str | None = None  # Auto-detect if None
+    adapter_config: dict | None = None
+    use_cuda_graphs: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> "Config":

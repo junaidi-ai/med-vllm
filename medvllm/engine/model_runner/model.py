@@ -11,6 +11,8 @@ from ..sequence import Sequence
 from .types import *
 
 if TYPE_CHECKING:
+    from medvllm.models.adapter import MedicalModelAdapter
+
     from .base import ModelRunner
 
 
@@ -26,6 +28,7 @@ class ModelManager:
         self.runner = runner
         self.model: Optional[Module] = None
         self._model_config: Optional[PretrainedConfigT] = None
+        self.adapter: Optional["MedicalModelAdapter"] = None
 
     def load_model(self, model_name_or_path: str, **kwargs: Any) -> Any:  # type: ignore[override]
         """Load the model from the registry, hub, or local path.
@@ -103,8 +106,52 @@ class ModelManager:
             # Handle case where model is wrapped in DataParallel or similar
             model.module.eval()
 
+        # Create medical adapter if enabled
+        self._setup_adapter(model, model_name_or_path)
+
         # Return the model as is, since we've already stored it in self.model
         return model
+
+    def _setup_adapter(self, model: Module, model_name_or_path: str) -> None:
+        """Set up medical model adapter if enabled.
+
+        Args:
+            model: The loaded PyTorch model
+            model_name_or_path: Path or name of the model
+        """
+        config = self.runner.config
+
+        # Check if adapter is enabled
+        if not getattr(config, "use_medical_adapter", True):
+            return
+
+        try:
+            from medvllm.models.adapter_manager import AdapterManager
+
+            # Create adapter
+            self.adapter = AdapterManager.create_adapter(
+                model=model,
+                model_name_or_path=model_name_or_path,
+                adapter_type=getattr(config, "adapter_type", None),
+                adapter_config=getattr(config, "adapter_config", None),
+                hf_config=self._model_config,
+            )
+
+            # Setup adapter for inference
+            use_cuda_graphs = getattr(config, "use_cuda_graphs", False)
+            self.adapter.setup_for_inference(use_cuda_graphs=use_cuda_graphs)
+
+            # Move adapter to the correct device
+            self.adapter.to(self.runner.device)
+
+            print(
+                f"Successfully initialized {self.adapter.model_type} adapter for {model_name_or_path}"
+            )
+
+        except Exception as e:
+            print(f"Warning: Failed to setup medical adapter: {e}")
+            print("Continuing with raw model...")
+            self.adapter = None
 
     def prepare_inputs(
         self,
@@ -156,16 +203,32 @@ class ModelManager:
         if self.model is None:
             raise RuntimeError("Model not loaded")
 
-        # Prepare inputs
-        inputs = self.prepare_inputs(input_ids, positions, is_prefill)
+        # Use adapter if available, otherwise use raw model
+        if self.adapter is not None:
+            # Use the medical adapter for inference
+            with torch.no_grad():
+                outputs = self.adapter(input_ids, use_cache=True)
 
-        # Run the model
-        with torch.no_grad():
-            outputs = self.model(**inputs)
+            # Extract logits and past_key_values from adapter output
+            if hasattr(outputs, "logits"):
+                logits = outputs.logits
+                past_key_values = getattr(outputs, "past_key_values", None)
+            elif isinstance(outputs, tuple):
+                logits = outputs[0]
+                past_key_values = outputs[1] if len(outputs) > 1 else None
+            else:
+                logits = outputs
+                past_key_values = None
+        else:
+            # Fallback to raw model
+            inputs = self.prepare_inputs(input_ids, positions, is_prefill)
 
-        # Extract logits and past_key_values
-        logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
-        past_key_values = getattr(outputs, "past_key_values", None)
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+
+            # Extract logits and past_key_values
+            logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
+            past_key_values = getattr(outputs, "past_key_values", None)
 
         return logits, past_key_values
 
