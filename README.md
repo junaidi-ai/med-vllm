@@ -48,6 +48,57 @@ python run_inference.py --model bioBERT --input "The patient has a history of di
 
 This will process the input using the specified model (e.g., BioBERT). You can also use `--model clinicalBERT` to switch models.
 
+## Testing
+
+Med vLLM includes a comprehensive test suite to ensure code quality and functionality. The test suite is built using Python's `unittest` framework.
+
+### Running Tests
+
+To run all tests:
+
+```bash
+# Run all tests
+python -m pytest tests/unit/ -v
+
+# Run a specific test file
+python -m pytest tests/unit/test_medical_adapters.py -v
+
+# Run a specific test class
+python -m pytest tests/unit/test_medical_adapters.py::TestBioBERTAdapter -v
+
+# Run a specific test method
+python -m pytest tests/unit/test_medical_adapters.py::TestBioBERTAdapter::test_biomedical_text_processing -v
+```
+
+### Test Coverage
+
+To generate a test coverage report:
+
+```bash
+# Install coverage if not already installed
+pip install coverage
+
+# Run tests with coverage
+coverage run -m pytest tests/unit/
+
+# Generate coverage report
+coverage report -m
+
+# Generate HTML coverage report
+coverage html
+```
+
+The HTML report will be available in the `htmlcov` directory.
+
+### Test Structure
+
+The test suite is organized as follows:
+
+- `tests/unit/test_medical_adapters.py`: Contains all unit tests for medical adapters
+  - `TestBaseAdapter`: Tests for the base adapter functionality
+  - `TestBioBERTAdapter`: Tests specific to BioBERT adapter
+  - `TestClinicalBERTAdapter`: Tests specific to ClinicalBERT adapter
+
 ## Usage
 
 ### Text Classification
