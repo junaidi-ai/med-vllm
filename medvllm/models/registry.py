@@ -169,6 +169,11 @@ def register_custom_medical_model(
         tags: List of tags for the model.
         **parameters: Additional parameters to pass to the model.
     """
+    # Include model_name_or_path in the parameters dictionary
+    model_params = {"pretrained_model_name_or_path": model_name_or_path}
+    if parameters:
+        model_params.update(parameters)
+
     registry.register(
         name=name,
         model_type=model_type,
@@ -176,8 +181,7 @@ def register_custom_medical_model(
         description=description,
         tags=tags or [],
         loader=loader,
-        pretrained_model_name_or_path=model_name_or_path,
-        **parameters,
+        parameters=model_params,
     )
 
 

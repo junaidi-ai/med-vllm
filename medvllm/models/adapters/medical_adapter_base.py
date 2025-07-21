@@ -1,7 +1,7 @@
 """Base adapter class for medical models with optimized attention and layer implementations."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -15,11 +15,15 @@ from medvllm.models.layers import (
     MedicalTransformerEncoderLayer,
 )
 from medvllm.models.utils import (
-    apply_attention,
     get_activation_fn,
-    get_attention_mask,
 )
-from medvllm.models.utils import (
+from medvllm.models.utils.attention_utils import (
+    apply_attention,
+)
+from medvllm.models.utils.attention_utils import (
+    get_attention_mask as get_attention_mask_from_utils,
+)
+from medvllm.models.utils.attention_utils import (
     get_extended_attention_mask as get_extended_attention_mask_from_utils,
 )
 
@@ -130,20 +134,20 @@ class MedicalModelAdapterBase(nn.Module, ABC):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         **kwargs,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Union[Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]:
         # Ensure model is on the correct device
         if self.model is None:
             raise ValueError("Model has not been initialized")
-            
+
         self.model = self.model.to(self.device)
-        
-        # Initialize output containers
-        all_hidden_states = [] if output_hidden_states else None
-        all_attentions = [] if output_attentions else None
-        
+
         # Default return_dict to True if not provided
         return_dict = return_dict if return_dict is not None else True
-        
+
+        # Initialize output containers with proper type hints
+        all_hidden_states: List[torch.Tensor] = []
+        all_attentions: List[torch.Tensor] = []
+
         """Forward pass for the medical model adapter.
 
         Args:
@@ -174,7 +178,11 @@ class MedicalModelAdapterBase(nn.Module, ABC):
             raise ValueError("You have to specify either input_ids or inputs_embeds")
 
         batch_size, seq_length = input_shape
-        device = input_ids.device if input_ids is not None else inputs_embeds.device
+        device = (
+            input_ids.device
+            if input_ids is not None
+            else inputs_embeds.device if inputs_embeds is not None else self.device
+        )
 
         # Initialize position IDs if not provided
         if position_ids is None:
@@ -235,16 +243,13 @@ class MedicalModelAdapterBase(nn.Module, ABC):
         if inputs_embeds is not None:
             inputs_embeds = inputs_embeds.to(self.device)
 
-        # Initialize output containers
-        all_hidden_states = () if output_hidden_states else None
-        all_attentions = () if output_attentions else None
+        # Initialize or update output containers
+        if output_hidden_states:
+            all_hidden_states = [embeddings]
 
         # Run through encoder layers
         hidden_states = embeddings
         for i, layer_module in enumerate(self.encoder):
-            if output_hidden_states:
-                all_hidden_states = all_hidden_states + (hidden_states,)
-
             layer_head_mask = head_mask[i] if head_mask is not None else None
 
             layer_outputs = layer_module(
@@ -256,40 +261,58 @@ class MedicalModelAdapterBase(nn.Module, ABC):
 
             hidden_states = layer_outputs[0]
 
-            if output_attentions:
-                all_attentions = all_attentions + (layer_outputs[1],)
+            # Update hidden states
+            if output_hidden_states:
+                all_hidden_states.append(hidden_states)
 
-        # Add last hidden state
-        if output_hidden_states:
-            all_hidden_states = all_hidden_states + (hidden_states,)
+            # Update attentions
+            if output_attentions and len(layer_outputs) > 1:
+                all_attentions.append(layer_outputs[1])
+
+        # Add last hidden state if not already added
+        if (
+            output_hidden_states
+            and all_hidden_states
+            and all_hidden_states[-1] is not hidden_states
+        ):
+            all_hidden_states.append(hidden_states)
+
+            # Update attentions
+            if output_attentions and len(layer_outputs) > 1:
+                all_attentions.append(layer_outputs[1])
+
+        # Add last hidden state if not already added
+        if (
+            output_hidden_states
+            and all_hidden_states
+            and all_hidden_states[-1] is not hidden_states
+        ):
+            all_hidden_states.append(hidden_states)
 
         # Pool the output
         pooled_output = self.activation(self.pooler(hidden_states[:, 0]))
 
-        # Return output
+        # Return the output in the format expected by the parent class
         if not return_dict:
-            return tuple(
-                v
-                for v in [
-                    hidden_states,
-                    pooled_output,
-                    all_hidden_states,
-                    all_attentions,
-                ]
-                if v is not None
-            )
+            output = [
+                hidden_states,
+                pooled_output,
+                all_hidden_states if output_hidden_states else None,
+                all_attentions if output_attentions else None,
+            ]
+            return tuple(v for v in output if v is not None)
 
-        return {
+        output_dict = {
             "last_hidden_state": hidden_states,
             "pooler_output": pooled_output,
-            "hidden_states": all_hidden_states,
-            "attentions": all_attentions,
         }
 
-    @abstractmethod
-    def get_input_embeddings(self) -> nn.Module:
-        """Get the input embeddings."""
-        pass
+        if output_hidden_states:
+            output_dict["hidden_states"] = all_hidden_states
+        if output_attentions:
+            output_dict["attentions"] = all_attentions
+
+        return output_dict
 
     @abstractmethod
     def set_input_embeddings(self, value: nn.Module) -> None:

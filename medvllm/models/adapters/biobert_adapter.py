@@ -1,8 +1,11 @@
 """BioBERT adapter with optimized attention and layer implementations."""
 
+import logging
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+logger = logging.getLogger(__name__)
 
 import torch
 import torch.nn as nn
@@ -166,17 +169,29 @@ class BioBERTAdapter(MedicalModelAdapterBase):
             if token not in self.tokenizer.get_vocab():
                 added_tokens.append(token)
 
-        if added_tokens:
+        if added_tokens and hasattr(self, "tokenizer") and self.tokenizer is not None:
             self.tokenizer.add_tokens(added_tokens)
             # Resize token embeddings to match new vocab size
-            if hasattr(self, "model"):
-                self.model.resize_token_embeddings(len(self.tokenizer))
+            if hasattr(self, "model") and self.model is not None:
+                if hasattr(self.model, "resize_token_embeddings"):
+                    self.model.resize_token_embeddings(len(self.tokenizer))
 
     def _init_cuda_optimizations(self) -> None:
         """Initialize CUDA optimizations if available."""
-        if torch.cuda.is_available():
-            self.model = self.model.cuda()
-            self.model = torch.compile(self.model)  # Enable PyTorch 2.0 compilation
+        if (
+            torch.cuda.is_available()
+            and hasattr(self, "model")
+            and self.model is not None
+        ):
+            try:
+                self.model = self.model.cuda()
+                # Only compile if model is on CUDA
+                if self.model.device.type == "cuda":
+                    self.model = torch.compile(
+                        self.model
+                    )  # Enable PyTorch 2.0 compilation
+            except Exception as e:
+                logger.warning(f"Failed to initialize CUDA optimizations: {e}")
 
     def preprocess_biomedical_text(self, text: str) -> Dict[str, torch.Tensor]:
         """Preprocess biomedical text for the model.
@@ -226,34 +241,106 @@ class BioBERTAdapter(MedicalModelAdapterBase):
 
         # Normalize whitespace
         text = " ".join(text.split())
-
         return text
 
-    def forward(self, input_ids=None, attention_mask=None, **kwargs):
-        """Forward pass through the model."""
-        return self.model(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        **kwargs,
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass through the model.
+
+        Args:
+            input_ids: Input token IDs of shape (batch_size, seq_len)
+            attention_mask: Attention mask of shape (batch_size, seq_len)
+            token_type_ids: Token type IDs of shape (batch_size, seq_len)
+            position_ids: Position IDs of shape (batch_size, seq_len)
+            head_mask: Mask for attention heads
+            inputs_embeds: Input embeddings instead of input_ids
+            output_attentions: Whether to return attentions
+            output_hidden_states: Whether to return hidden states
+            return_dict: Whether to return a dictionary
+            **kwargs: Additional arguments
+
+        Returns:
+            Dictionary containing model outputs
+        """
+        if not hasattr(self, "model") or self.model is None:
+            raise ValueError("Model has not been initialized")
+
+        return self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+            **kwargs,
+        )
 
     def get_input_embeddings(self) -> nn.Module:
         """Get the input embeddings."""
+        if not hasattr(self, "model") or self.model is None:
+            raise ValueError("Model has not been initialized")
+        if not hasattr(self.model, "get_input_embeddings"):
+            raise NotImplementedError("Model does not implement get_input_embeddings")
         return self.model.get_input_embeddings()
 
     def set_input_embeddings(self, value: nn.Module) -> None:
         """Set the input embeddings."""
+        if not hasattr(self, "model") or self.model is None:
+            raise ValueError("Model has not been initialized")
+        if not hasattr(self.model, "set_input_embeddings"):
+            raise NotImplementedError("Model does not implement set_input_embeddings")
         self.model.set_input_embeddings(value)
 
     def get_output_embeddings(self) -> nn.Module:
         """Get the output embeddings."""
-        return self.model.get_output_embeddings()
+        if not hasattr(self, "model") or self.model is None:
+            raise ValueError("Model has not been initialized")
+        if not hasattr(self.model, "get_output_embeddings"):
+            raise NotImplementedError("Model does not implement get_output_embeddings")
+        embeddings = self.model.get_output_embeddings()
+        if embeddings is None:
+            raise ValueError("Model returned None for output embeddings")
+        return embeddings
 
     def tie_weights(self) -> None:
         """Tie the weights between the input and output embeddings."""
-        self.model.tie_weights()
+        if not hasattr(self, "model") or self.model is None:
+            raise ValueError("Model has not been initialized")
+        if hasattr(self.model, "tie_weights"):
+            self.model.tie_weights()
+        elif hasattr(self.model, "tie_word_embeddings"):
+            self.model.tie_word_embeddings()
 
     def save_pretrained(self, save_directory: str) -> None:
         """Save the model to a directory."""
+        if not hasattr(self, "model") or self.model is None:
+            raise ValueError("Model has not been initialized")
         os.makedirs(save_directory, exist_ok=True)
-        self.model.save_pretrained(save_directory)
-        self.tokenizer.save_pretrained(save_directory)
+        if hasattr(self.model, "save_pretrained"):
+            self.model.save_pretrained(save_directory)
+        else:
+            torch.save(
+                self.model.state_dict(),
+                os.path.join(save_directory, "pytorch_model.bin"),
+            )
+
+        # Save tokenizer if available
+        if hasattr(self, "tokenizer") and self.tokenizer is not None:
+            self.tokenizer.save_pretrained(save_directory)
 
     @classmethod
     def from_pretrained(

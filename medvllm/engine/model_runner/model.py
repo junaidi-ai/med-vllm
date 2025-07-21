@@ -12,7 +12,7 @@ from ..sequence import Sequence
 from .types import *
 
 if TYPE_CHECKING:
-    from medvllm.models.adapter import MedicalModelAdapter
+    from medvllm.models.adapters.medical_adapter_base import MedicalModelAdapterBase
 
     from .base import ModelRunner
 
@@ -29,7 +29,10 @@ class ModelManager:
         self.runner = runner
         self.model: Optional[Module] = None
         self._model_config: Optional[PretrainedConfigT] = None
-        self.adapter: Optional["MedicalModelAdapter"] = None
+        # Import here to avoid circular imports
+        from medvllm.models.adapters.medical_adapter_base import MedicalModelAdapterBase
+
+        self.adapter: Optional[MedicalModelAdapterBase] = None
 
     def load_model(self, model_name_or_path: str, **kwargs: Any) -> Any:  # type: ignore[override]
         """Load the model from the registry, hub, or local path.

@@ -6,23 +6,24 @@ with support for tensor parallelism, CUDA optimization, and medical domain-speci
 The adapters are now modularized in the adapters/ subdirectory for better maintainability.
 """
 
-from typing import Any, Dict, Union
+from typing import Any, Dict, Type, Union
 
 import torch.nn as nn
 from transformers import PreTrainedModel
 
 # Import from modular adapter structure
-from .adapters import BioBERTAdapter, ClinicalBERTAdapter, MedicalModelAdapter
+from .adapters import BioBERTAdapter, ClinicalBERTAdapter
+from .adapters.medical_adapter_base import MedicalModelAdapterBase
 
 
 def create_medical_adapter(
     model_type: str, model: Union[nn.Module, PreTrainedModel], config: Dict[str, Any]
-) -> MedicalModelAdapter:
+) -> "MedicalModelAdapterBase":
     """Factory function to create a medical model adapter.
 
     Args:
         model_type: Type of medical model (biobert, clinicalbert)
-        model: Underlying model to adapt
+        model: Underlying model to adapt (can be a PyTorch Module or HuggingFace PreTrainedModel)
         config: Configuration dictionary for the adapter
 
     Returns:
@@ -34,13 +35,15 @@ def create_medical_adapter(
     model_type = model_type.lower()
 
     if model_type in ["biobert", "bio_bert", "dmis-lab/biobert"]:
-        return BioBERTAdapter(model, config)
+        # Cast to nn.Module to satisfy mypy
+        return BioBERTAdapter(model=model, config=config)
     elif model_type in [
         "clinicalbert",
         "clinical_bert",
         "emilyalsentzer/bio_clinicalbert",
     ]:
-        return ClinicalBERTAdapter(model, config)
+        # Cast to nn.Module to satisfy mypy
+        return ClinicalBERTAdapter(model=model, config=config)
     else:
         raise ValueError(
             f"Unsupported model type: {model_type}. "

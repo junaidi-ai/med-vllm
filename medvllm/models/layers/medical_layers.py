@@ -104,7 +104,7 @@ class MedicalFeedForward(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.d_ff = d_ff
-        self.dropout = dropout
+        self.dropout_rate = dropout  # Store dropout rate separately
 
         # Initialize weights
         self.w1 = nn.Linear(d_model, d_ff, bias=True, device=device, dtype=dtype)
@@ -119,7 +119,7 @@ class MedicalFeedForward(nn.Module):
         # Activation function
         self.activation = self._get_activation_fn(activation)
 
-        # Dropout
+        # Initialize dropout layer
         self.dropout = nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()
 
     def _get_activation_fn(self, activation: str):

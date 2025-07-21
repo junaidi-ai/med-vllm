@@ -20,6 +20,9 @@ class MedicalMultiheadAttention(nn.Module):
     supports both regular and flash attention when available.
     """
 
+    bias_k: Optional[torch.Tensor]  # Type annotation for mypy
+    bias_v: Optional[torch.Tensor]  # Type annotation for mypy
+
     def __init__(
         self,
         embed_dim: int,
@@ -85,7 +88,9 @@ class MedicalMultiheadAttention(nn.Module):
                 torch.empty((1, 1, embed_dim), device=device, dtype=dtype)
             )
         else:
-            self.bias_k = self.bias_v = None
+            # Initialize as None and let mypy know these will be Optional[Parameter]
+            self.bias_k = None
+            self.bias_v = None
 
         self.add_zero_attn = add_zero_attn
         self._reset_parameters()
@@ -150,10 +155,10 @@ class MedicalMultiheadAttention(nn.Module):
             k = F.linear(key, self.k_proj_weight, None)
             v = F.linear(value, self.v_proj_weight, None)
 
-        # Add bias if needed
-        if self.bias_k is not None:
-            k = torch.cat([k, self.bias_k.repeat(1, k.size(1), 1)])
-            v = torch.cat([v, self.bias_v.repeat(1, v.size(1), 1)])
+        # Add bias if needed - use type: ignore for mypy since we've already checked for None
+        if self.bias_k is not None and self.bias_v is not None:
+            k = torch.cat([k, self.bias_k.repeat(1, k.size(1), 1)])  # type: ignore[union-attr]
+            v = torch.cat([v, self.bias_v.repeat(1, v.size(1), 1)])  # type: ignore[union-attr]
             if attn_mask is not None:
                 attn_mask = F.pad(attn_mask, (0, 1))
             if key_padding_mask is not None:

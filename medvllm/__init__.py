@@ -70,9 +70,9 @@ if HAS_TORCH:
         from .models.adapter import (
             BioBERTAdapter,
             ClinicalBERTAdapter,
-            MedicalModelAdapter,
         )
         from .models.adapter_manager import AdapterManager
+        from .models.adapters.medical_adapter_base import MedicalModelAdapterBase
         from .sampling_params import SamplingParams
     except ImportError as e:
         if "torch" in str(e).lower():

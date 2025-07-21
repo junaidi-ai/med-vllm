@@ -11,7 +11,8 @@ import torch
 from torch import nn
 from transformers import AutoConfig, PreTrainedModel
 
-from .adapter import MedicalModelAdapter, create_medical_adapter
+from .adapter import create_medical_adapter
+from .adapters.medical_adapter_base import MedicalModelAdapterBase
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class AdapterManager:
         adapter_type: Optional[str] = None,
         adapter_config: Optional[Dict[str, Any]] = None,
         hf_config: Optional[AutoConfig] = None,
-    ) -> MedicalModelAdapter:
+    ) -> MedicalModelAdapterBase:
         """Create an appropriate medical model adapter.
 
         Args:

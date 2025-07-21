@@ -3,9 +3,9 @@
 from .adapter import (
     BioBERTAdapter,
     ClinicalBERTAdapter,
-    MedicalModelAdapter,
     create_medical_adapter,
 )
+from .adapters.medical_adapter_base import MedicalModelAdapterBase
 from .medical_models import BioBERTLoader, ClinicalBERTLoader
 
 __all__ = [

@@ -1,6 +1,7 @@
 def patch_registry():
     """Patch the registry to handle duplicate registrations gracefully."""
     import sys
+
     from medvllm.engine.model_runner.registry import ModelRegistry
 
     original_register = ModelRegistry.register
@@ -20,13 +21,16 @@ def patch_registry():
         """Patched register method that skips existing registrations by default."""
         if tags is None:
             tags = []
-            
+
         with self._lock:
             if name in self._models and not force:
-                print(f"Model '{name}' is already registered. Skipping...", file=sys.stderr)
+                print(
+                    f"Model '{name}' is already registered. Skipping...",
+                    file=sys.stderr,
+                )
                 return
             return original_register(
-                self, 
+                self,
                 name=name,
                 model_type=model_type,
                 model_class=model_class,
@@ -34,12 +38,15 @@ def patch_registry():
                 description=description,
                 tags=tags,
                 loader=loader,
-                **parameters
+                **parameters,
             )
 
     # Apply the patch
     ModelRegistry.register = patched_register
-    print("Registry patched to handle duplicate registrations gracefully", file=sys.stderr)
+    print(
+        "Registry patched to handle duplicate registrations gracefully", file=sys.stderr
+    )
+
 
 # Apply the patch when this module is imported
 patch_registry()

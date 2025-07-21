@@ -87,6 +87,11 @@ def register(
                     )
                     loader = None
 
+        # Include path in the parameters dictionary
+        model_params = {"pretrained_model_name_or_path": path}
+        if params_dict:
+            model_params.update(params_dict)
+
         # Register the model with explicit parameters
         registry.register(
             name=name,
@@ -96,7 +101,7 @@ def register(
             description=description or "",
             tags=tag_list,
             loader=loader,
-            **params_dict,
+            parameters=model_params,
         )
         console.print(f"[green]✓[/] Registered model: {name}")
     except Exception as e:

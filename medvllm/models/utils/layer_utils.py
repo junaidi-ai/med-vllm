@@ -109,11 +109,16 @@ def create_sinusoidal_positional_embedding(
         Positional embeddings of shape (num_positions, embedding_dim)
     """
     half_dim = embedding_dim // 2
-    emb = math.log(10000) / (half_dim - 1)
-    emb = torch.exp(torch.arange(half_dim, dtype=torch.float, device=device) * -emb)
-    emb = torch.arange(num_positions, dtype=torch.float, device=device).unsqueeze(
-        1
-    ) * emb.unsqueeze(0)
+    # Calculate the scaling factor
+    scale = math.log(10000) / (half_dim - 1)
+    # Create the position encodings
+    position = torch.arange(num_positions, dtype=torch.float, device=device)
+    div_term = torch.exp(
+        torch.arange(half_dim, dtype=torch.float, device=device) * -scale
+    )
+
+    # Create the sinusoidal encodings
+    emb = position.unsqueeze(1) * div_term.unsqueeze(0)
     emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_positions, -1)
 
     if embedding_dim % 2 == 1:
