@@ -18,6 +18,11 @@ flake8>=5.0.0
 sphinx>=5.0.0
 sphinx-rtd-theme>=1.0.0
 
+# Additional requirements for our tests
+tqdm>=4.65.0
+scikit-learn>=1.2.0
+numpy>=1.24.0
+
 # Performance Testing
 psutil>=5.9.0  # For memory usage tracking
 numpy>=1.21.0  # For numerical operations and statistics
