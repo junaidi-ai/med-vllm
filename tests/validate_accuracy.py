@@ -18,14 +18,17 @@ def test_accuracy():
     test_labels = [1, 0, 1, 0, 1]  # Example binary labels
     
     # Run inference
+    predictions = []
     with torch.no_grad():
-        predictions = model(test_texts)
-    
-    # Convert model outputs to predictions (example: using logits)
-    predicted_labels = [1 if p > 0.5 else 0 for p in predictions.logits.softmax(dim=1)[:, 1]]
+        for text in test_texts:
+            inputs = model.preprocess_biomedical_text([text])
+            outputs = model(**inputs)
+            # Assuming binary classification, adjust as needed
+            pred = outputs[0].argmax().item() if hasattr(outputs, '__len__') else 0
+            predictions.append(pred)
     
     # Calculate accuracy
-    accuracy = accuracy_score(test_labels, predicted_labels)
+    accuracy = accuracy_score(test_labels, predictions)
     print(f"Test Accuracy: {accuracy:.4f}")
     
     # Basic assertion (adjust threshold as needed)

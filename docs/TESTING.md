@@ -1,204 +1,95 @@
-# Testing Guide for Medical Model Adapters
+# Testing Guide for Med vLLM
 
-This document describes the test structure and how to run tests for the medical model adapter system.
+This document provides an overview of the testing strategy and instructions for running tests in the Med vLLM project.
 
 ## Test Structure
 
-The adapter system has comprehensive test coverage organized into unit tests and integration tests:
+### Unit Tests
+- Location: `tests/unit/`
+- Purpose: Test individual components in isolation using mocks
+- Dependencies: Minimal, only test dependencies (pytest, pytest-mock)
+- Run with: `pytest tests/unit/`
 
-### Unit Tests (`tests/unit/`)
+### Integration Tests
+- Location: `tests/integration/`
+- Purpose: Test component interactions with real dependencies
+- Dependencies: May require external services or data
+- Marked with: `@pytest.mark.integration`
+- Run with: `pytest -m integration tests/integration/`
 
-#### `test_adapters.py`
-- Basic adapter functionality tests
-- Tests for `MedicalModelAdapter`, `BioBERTAdapter`, `ClinicalBERTAdapter`
-- Factory function testing (`create_medical_adapter`)
-- Mock-based tests that don't require actual models
-
-#### `test_adapter_manager.py`
-- Tests for the `AdapterManager` class
-- Model type detection tests
-- Configuration management tests
-- Adapter creation workflow tests
-- Error handling and fallback mechanisms
-
-#### `models/test_medical_adapters.py`
-- Comprehensive adapter tests
-- Abstract base class testing
-- Device management tests
-- KV caching behavior tests
-- Forward pass testing
-
-### Integration Tests (`tests/integration/`)
-
-#### `test_adapter_integration.py`
-- End-to-end adapter workflow tests
-- Config system integration tests
-- ModelManager integration tests
-- Device management integration
-- Error handling in real scenarios
-
-#### `test_biobert_adapter.py`
-- BioBERT-specific integration tests
-- Tests with actual model loading (when available)
-- KV caching with real models
-- BioBERT loader integration
+### Performance Tests
+- Location: `tests/performance/`
+- Purpose: Measure and monitor performance characteristics
+- Run with: `pytest tests/performance/`
 
 ## Running Tests
 
-### Run All Adapter Tests
+### Basic Test Commands
+
 ```bash
-# Run all adapter-related tests
-pytest tests/ -k "adapter" -v
+# Run all tests
+pytest
 
 # Run only unit tests
-pytest tests/unit/ -k "adapter" -v
+pytest tests/unit/
 
 # Run only integration tests
-pytest tests/integration/ -k "adapter" -v
+pytest -m integration tests/integration/
+
+# Run tests with coverage report
+pytest --cov=medvllm tests/
+
+# Run a specific test file
+pytest tests/unit/engine/test_model_registry.py -v
 ```
 
-### Run Specific Test Files
-```bash
-# Unit tests
-pytest tests/unit/test_adapters.py -v
-pytest tests/unit/test_adapter_manager.py -v
-pytest tests/unit/models/test_medical_adapters.py -v
+### Test Markers
 
-# Integration tests
-pytest tests/integration/test_adapter_integration.py -v
-pytest tests/integration/test_biobert_adapter.py -v
-```
+- `@pytest.mark.unit`: Basic unit tests (default)
+- `@pytest.mark.integration`: Integration tests
+- `@pytest.mark.performance`: Performance tests
+- `@pytest.mark.slow`: Long-running tests (excluded by default)
 
-### Run Tests with Coverage
-```bash
-pytest tests/ -k "adapter" --cov=medvllm.models --cov-report=html
-```
+## Writing Tests
 
-## Test Categories
+### Unit Test Guidelines
+- Use mocks to isolate components
+- Keep tests small and focused
+- Follow the Arrange-Act-Assert pattern
+- Name tests descriptively (test_<method>_<scenario>_<expected>)
 
-### 1. Unit Tests
-- **Purpose**: Test individual components in isolation
-- **Characteristics**: 
-  - Use mocked dependencies
-  - Fast execution
-  - No external model downloads required
-  - Test specific functionality and edge cases
+### Fixtures
+Common test fixtures are defined in:
+- `tests/conftest.py`: Base fixtures
+- `tests/conftest_override.py`: Test overrides and mocks
 
-### 2. Integration Tests
-- **Purpose**: Test component interactions and end-to-end workflows
-- **Characteristics**:
-  - May use real models (when available)
-  - Test adapter integration with the engine
-  - Verify configuration system integration
-  - Test device management and memory handling
+## CI/CD Integration
 
-## Test Coverage
+Tests are automatically run on:
+- Push to main branch
+- Pull requests
+- Scheduled runs
 
-The test suite covers:
-
-✅ **Core Adapter Functionality**
-- Abstract base class behavior
-- Concrete adapter implementations
-- Factory pattern functionality
-- Device management
-- KV caching behavior
-
-✅ **Adapter Manager**
-- Model type detection
-- Configuration management
-- Adapter creation workflows
-- Error handling and fallbacks
-
-✅ **Integration Points**
-- Config system integration
-- ModelManager integration
-- Engine integration points
-- End-to-end workflows
-
-✅ **Error Handling**
-- Invalid model types
-- Missing dependencies
-- Device errors
-- Configuration errors
-
-## Mock Strategy
-
-Tests use comprehensive mocking to avoid dependencies:
-
-```python
-# Mock transformers to avoid import issues
-import sys
-import types
-
-mock_transformers = types.ModuleType('transformers')
-mock_transformers.AutoConfig = MagicMock()
-sys.modules['transformers'] = mock_transformers
-```
-
-This allows tests to run without:
-- Downloading large models
-- GPU requirements
-- External dependencies
-
-## Continuous Integration
-
-Tests are designed to run in CI environments:
-- No external model downloads required for unit tests
-- Mocked dependencies for isolation
-- Fast execution times
-- Clear error messages
-
-## Adding New Tests
-
-When adding new adapter types or functionality:
-
-1. **Add Unit Tests**: Test the new component in isolation
-2. **Add Integration Tests**: Test integration with existing systems
-3. **Update Mock Strategy**: Ensure mocks cover new dependencies
-4. **Document Test Cases**: Add descriptions of what's being tested
-
-### Example Test Structure
-```python
-def test_new_adapter_functionality():
-    """Test description of what this test verifies."""
-    # Arrange
-    mock_model = MagicMock()
-    adapter = NewAdapter(mock_model, {})
-    
-    # Act
-    result = adapter.some_method()
-    
-    # Assert
-    assert result is not None
-    mock_model.some_call.assert_called_once()
-```
-
-## Troubleshooting Tests
+## Troubleshooting
 
 ### Common Issues
 
-1. **Import Errors**: Ensure transformers is properly mocked
-2. **CUDA Errors**: Tests should work on CPU-only systems
-3. **Model Loading**: Unit tests shouldn't require real models
+1. **Tests are being skipped**
+   - Check if you need to set up environment variables
+   - Verify test markers are correct
 
-### Debug Mode
-```bash
-# Run tests with verbose output and no capture
-pytest tests/unit/test_adapters.py -v -s
+2. **Dependency issues**
+   - Make sure all test dependencies are installed
+   - Run `pip install -e .[test]`
 
-# Run single test with debugging
-pytest tests/unit/test_adapters.py::test_specific_function -v -s --pdb
-```
+3. **Test failures**
+   - Run with `-v` for more verbose output
+   - Use `--pdb` to drop into debugger on failure
 
-## Test Data
+## Adding New Tests
 
-Tests use minimal synthetic data:
-- Mock tensors for input/output
-- Simple configuration dictionaries
-- Predefined model names for detection testing
-
-No large test datasets or models are required for the core test suite.
-
----
-
-This testing strategy ensures the adapter system is robust, maintainable, and works correctly across different environments while keeping test execution fast and reliable.
+1. Place tests in the appropriate directory
+2. Use descriptive names
+3. Add appropriate markers
+4. Include docstrings explaining the test case
+5. Update this document if adding new test categories or patterns

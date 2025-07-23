@@ -1,19 +1,56 @@
-"""Benchmarking script for medical model adapters."""
+"""Comprehensive benchmarking for medical model adapters."""
 
 import argparse
 import json
 import os
+import platform
+import psutil
+import subprocess
+import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import torch
 from tqdm import tqdm
 
+# Add project root to path
+sys.path.append(str(Path(__file__).parent.parent))
 from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter
 from tests.medical.memory_profiler import MemoryProfiler
+
+
+def get_system_info() -> Dict[str, Any]:
+    """Collect system and hardware information."""
+    info = {
+        "timestamp": datetime.now().isoformat(),
+        "system": {
+            "os": platform.system(),
+            "os_version": platform.version(),
+            "python_version": platform.python_version(),
+            "cpu_count": os.cpu_count(),
+            "total_ram_gb": psutil.virtual_memory().total / (1024 ** 3),
+        },
+        "pytorch": {
+            "version": torch.__version__,
+            "cuda_available": torch.cuda.is_available(),
+            "cuda_version": torch.version.cuda if torch.cuda.is_available() else None,
+            "cudnn_version": torch.backends.cudnn.version() if torch.cuda.is_available() else None,
+        }
+    }
+    
+    if torch.cuda.is_available():
+        info["gpu"] = {
+            "name": torch.cuda.get_device_name(0),
+            "capability": torch.cuda.get_device_capability(0),
+            "memory_total_gb": torch.cuda.get_device_properties(0).total_memory / (1024 ** 3),
+            "device_count": torch.cuda.device_count(),
+        }
+    
+    return info
 
 # Default benchmark parameters
 DEFAULT_BATCH_SIZES = [1, 4, 8, 16]
@@ -35,12 +72,17 @@ class BenchmarkConfig:
     precision: str = "fp16"  # "fp32" or "fp16"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     output_dir: str = "benchmark_results"
+    test_accuracy: bool = True
+    memory_profile: bool = True
     
     def __post_init__(self):
         if self.batch_sizes is None:
             self.batch_sizes = DEFAULT_BATCH_SIZES
         if self.seq_lengths is None:
             self.seq_lengths = DEFAULT_SEQ_LENGTHS
+            
+        # Create output directory
+        os.makedirs(self.output_dir, exist_ok=True)
 
 
 @dataclass

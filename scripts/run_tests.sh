@@ -1,23 +1,22 @@
 #!/bin/bash
 
-# Set up environment
-echo "Setting up test environment..."
-export PYTHONPATH=$PYTHONPATH:$(pwd)
+# Exit on error
+set -e
 
-# Create results directory
-mkdir -p results/accuracy
+echo "=== Setting up test environment ==="
+python -m pip install -r requirements-test.txt
 
-# Install test requirements if not already installed
-pip install -q pytest pytest-cov
+echo -e "\n=== Running unit tests ==="
+python -m pytest tests/ -v --cov=medvllm --cov-report=term-missing
 
-# Run tests
-echo "Running tests..."
-python -m pytest tests/medical/ -v
+echo -e "\n=== Running accuracy validation ==="
+python tests/validate_accuracy.py
 
-# Check if we have any results
-if [ -n "$(ls -A results/accuracy/ 2>/dev/null)" ]; then
-    echo -e "\nTest results:"
-    ls -l results/accuracy/
+echo -e "\n=== Running benchmarks ==="
+if [ "$1" == "--benchmark" ]; then
+    python benchmarks/run_benchmarks.py
 else
-    echo -e "\nNo test results were generated. Check for errors above."
+    echo "Skipping benchmarks (use --benchmark to include)"
 fi
+
+echo -e "\n=== All tests completed successfully! ==="

@@ -1,48 +1,40 @@
-import sys
-import importlib
-import importlib.util
-from pathlib import Path
+"""Script to check imports and basic functionality."""
 
-def check_import(module_name):
-    try:
-        module = importlib.import_module(module_name)
-        print(f"✅ Successfully imported {module_name}")
-        print(f"   Location: {Path(module.__file__).resolve()}")
-        print(f"   Version: {getattr(module, '__version__', 'Not available')}")
-        return True
-    except Exception as e:
-        print(f"❌ Failed to import {module_name}: {e}")
-        return False
+import sys
+
+import torch
+from transformers import AutoModel, AutoTokenizer
+
 
 def main():
     print("Python version:", sys.version)
-    print("\n=== Checking Core Imports ===")
-    
-    # Check core Python modules
-    core_modules = ['torch', 'numpy', 'transformers']
-    for module in core_modules:
-        check_import(module)
-    
-    print("\n=== Checking Transformers Components ===")
-    transformers_components = [
-        'transformers.tokenization_utils_base',
-        'transformers.models.auto',
-        'transformers.models.auto.modeling_auto'
-    ]
-    for component in transformers_components:
-        check_import(component)
-    
-    print("\n=== Checking for Conflicting Files ===")
-    conflict_paths = [
-        Path(p) for p in sys.path 
-        if 'transformers' in str(p).lower() and 'site-packages' not in str(p).lower()
-    ]
-    if conflict_paths:
-        print("⚠️  Potential conflicting paths found:")
-        for path in conflict_paths:
-            print(f"   - {path}")
-    else:
-        print("✅ No conflicting paths found")
+    print("PyTorch version:", torch.__version__)
+    print("Transformers version:")
+
+    # Try to import AutoModel and AutoTokenizer
+    try:
+        from transformers import AutoModel, AutoTokenizer
+
+        print("Successfully imported AutoModel and AutoTokenizer")
+
+        # Test model loading
+        print("\nTesting BioBERT model loading...")
+        model = AutoModel.from_pretrained("dmis-lab/biobert-v1.1")
+        tokenizer = AutoTokenizer.from_pretrained("dmis-lab/biobert-v1.1")
+        print("Successfully loaded BioBERT model and tokenizer")
+
+        # Test forward pass
+        inputs = tokenizer("This is a test sentence.", return_tensors="pt")
+        outputs = model(**inputs)
+        print("Forward pass successful!")
+        print(f"Output shape: {outputs.last_hidden_state.shape}")
+
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+
+        traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()
