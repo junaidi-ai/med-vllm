@@ -82,8 +82,11 @@ from transformers.modeling_utils import PreTrainedModel as _PreTrainedModel
 # Import TypeVar from typing_extensions first to avoid conflicts
 from typing_extensions import TypeVar
 
-from medvllm.common.logger import get_logger
-from medvllm.engine.model_runner.errors import (
+from medvllm.utils.logging import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+from medvllm.engine.model_runner.exceptions import (
     ModelInitializationError,
     ModelLoadingError,
     ModelNotFoundError,
@@ -129,22 +132,6 @@ else:
     _BioBERTLoader = Any
     _ClinicalBERTLoader = Any
     _MedicalModelLoader = Any
-
-# Runtime import of medical adapters
-if not TYPE_CHECKING:
-    try:
-        from medvllm.models.adapters.biobert_adapter import BioBERTAdapter
-        from medvllm.models.adapters.clinicalbert_adapter import ClinicalBERTAdapter
-        from medvllm.models.adapters.medical_adapter_base import MedicalModelAdapterBase
-
-        # These are only used for type checking, not at runtime
-        _ = (BioBERTAdapter, ClinicalBERTAdapter, MedicalModelAdapterBase)
-
-        MEDICAL_MODELS_AVAILABLE = True
-    except ImportError as e:
-        logger.warning(f"Failed to import medical model adapters: {e}")
-
-logger = logging.getLogger(__name__)
 
 # Type alias for the model cache type (timestamp, model)
 ModelCacheType = Dict[str, Tuple[float, ModelT]]
