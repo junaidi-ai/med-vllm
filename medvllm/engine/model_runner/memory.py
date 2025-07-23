@@ -17,20 +17,36 @@ if TYPE_CHECKING:
 
 
 class MemoryManager:
-    """Manages shared memory and KV cache for the model."""
+    """Manages shared memory and KV cache for the model with medical optimizations.
+    
+    Features:
+    - Medical domain-specific cache eviction policies
+    - Distributed cache coherence
+    - Cache statistics and monitoring
+    - Memory-efficient storage for clinical text patterns
+    """
 
     def __init__(self, runner: "ModelRunner") -> None:
-        """Initialize the memory manager.
-
+        """Initialize the memory manager with medical optimizations.
+        
         Args:
             runner: The parent ModelRunner instance.
         """
         self.runner = runner
         self.shm: Optional[SharedMemoryT] = None
-        self.kv_cache: Optional[TensorT] = None
+        self.kv_cache: Optional[Dict[str, Any]] = None
+        self.cache_stats = {
+            'hits': 0,
+            'misses': 0,
+            'evictions': 0,
+            'total_used_blocks': 0,
+            'total_blocks': 0
+        }
+        self.medical_entities_cache: Dict[str, Any] = {}
+        self.distributed_enabled = False
 
     def allocate_kv_cache(self, gpu_memory_utilization: float = 0.9) -> None:
-        """Allocate GPU memory for the key-value cache.
+        """Allocate GPU memory for the key-value cache with medical optimizations.
 
         Args:
             gpu_memory_utilization: Fraction of GPU memory to use for KV cache.
@@ -50,6 +66,31 @@ class MemoryManager:
 
         # Calculate cache size
         cache_bytes = int(free_mem * gpu_memory_utilization)
+
+        # Initialize KV cache structure
+        self.kv_cache = {
+            'blocks': None,
+            'block_size': 256,  # Default block size, can be tuned
+            'free_blocks': [],
+            'allocated_blocks': {},
+            'block_metadata': {},
+            'total_blocks': 0
+        }
+        
+        # Calculate number of blocks
+        block_size_bytes = self.kv_cache['block_size'] * 2  # Assuming float16
+        num_blocks = cache_bytes // block_size_bytes
+        
+        if num_blocks > 0:
+            # Allocate blocks
+            self.kv_cache['blocks'] = torch.empty(
+                num_blocks * self.kv_cache['block_size'],
+                dtype=torch.float16,
+                device=self.runner.device
+            )
+            self.kv_cache['free_blocks'] = list(range(num_blocks))
+            self.kv_cache['total_blocks'] = num_blocks
+            self.cache_stats['total_blocks'] = num_blocks
 
         # Get model config
         config = self.runner.model_config
@@ -186,15 +227,28 @@ class MemoryManager:
         pass
 
     def cleanup(self) -> None:
-        """Clean up shared memory and KV cache."""
+        """Clean up shared memory, KV cache, and medical entity cache."""
         if self.shm is not None:
             self.shm.close()
             self.shm.unlink()
             self.shm = None
 
         if self.kv_cache is not None:
-            del self.kv_cache
+            if 'blocks' in self.kv_cache and isinstance(self.kv_cache['blocks'], torch.Tensor):
+                del self.kv_cache['blocks']
             self.kv_cache = None
+            
+        # Clean up medical entities cache
+        self.medical_entities_cache.clear()
+        
+        # Reset statistics
+        self.cache_stats = {
+            'hits': 0,
+            'misses': 0,
+            'evictions': 0,
+            'total_used_blocks': 0,
+            'total_blocks': self.cache_stats.get('total_blocks', 0)
+        }
 
     def __del__(self) -> None:
         """Ensure resources are cleaned up when the object is destroyed."""

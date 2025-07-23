@@ -29,29 +29,52 @@ from medvllm.models.utils.attention_utils import (
 
 
 class MedicalModelAdapterBase(nn.Module, ABC):
-    """Base class for medical model adapters with optimized attention and layers.
+    """Base class for medical model adapters with KV cache optimizations.
 
-    This class provides the foundation for medical model adapters with:
-    - Optimized attention mechanisms
-    - Specialized layer implementations
-    - Memory-efficient architectures
-    - Support for mixed precision training
+    Features:
+    - Efficient KV cache management for medical text
+    - Support for distributed inference
+    - Medical domain-specific optimizations
+    - Integration with attention mechanisms
     """
 
     def __init__(
-        self, config: Dict, model: Optional[nn.Module] = None, **kwargs
+        self,
+        model: nn.Module,
+        config: Dict[str, Any],
+        **kwargs
     ) -> None:
-        """Initialize the medical model adapter.
+        """Initialize the medical model adapter with KV cache support.
 
         Args:
-            config: Configuration dictionary containing model hyperparameters
-            model: Optional pre-initialized model to wrap
-            **kwargs: Additional keyword arguments
+            model: The base model to adapt.
+            config: Configuration dictionary for the adapter.
+            **kwargs: Additional keyword arguments for medical-specific settings.
         """
         super().__init__()
-        self.config = config
         self.model = model
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.config = config
+        self.device = next(model.parameters()).device
+        self.dtype = next(model.parameters()).dtype
+        
+        # KV Cache Configuration
+        self.kv_cache = None
+        self.cache_enabled = config.get('use_kv_cache', True)
+        self.cache_block_size = config.get('kv_cache_block_size', 256)
+        self.max_cache_entries = config.get('max_kv_cache_entries', 1024)
+        
+        # Medical-specific settings
+        self.medical_attention_window = config.get('medical_attention_window', 512)
+        self.enable_medical_attention = config.get('enable_medical_attention', True)
+        
+        # Distributed training/inference settings
+        self.tensor_parallel_size = config.get('tensor_parallel_size', 1)
+        self.rank = config.get('rank', 0)
+        self.world_size = config.get('world_size', 1)
+        
+        # Initialize KV cache if enabled
+        if self.cache_enabled:
+            self._initialize_kv_cache()
 
         # Initialize model parameters from config
         self.hidden_size = config.get("hidden_size", 768)
@@ -121,6 +144,270 @@ class MedicalModelAdapterBase(nn.Module, ABC):
             module.weight.data.fill_(1.0)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
+
+    def _initialize_kv_cache(self) -> None:
+        """Initialize the KV cache with medical domain optimizations."""
+        if not self.cache_enabled:
+            return
+            
+        # Initialize KV cache with medical-specific parameters
+        self.kv_cache = {
+            'k_cache': None,
+            'v_cache': None,
+            'cache_size': 0,
+            'max_size': self.max_cache_entries,
+            'block_size': self.cache_block_size,
+            'device': self.device,
+            'dtype': self.dtype,
+            'statistics': {
+                'hits': 0,
+                'misses': 0,
+                'evictions': 0,
+                'total_used_blocks': 0,
+                'total_blocks': 0
+            }
+        }
+        
+        # Allocate initial cache blocks
+        self._allocate_cache_blocks()
+    
+    def _allocate_cache_blocks(self) -> None:
+        """Allocate KV cache blocks based on configuration."""
+        if not self.cache_enabled or self.kv_cache is None:
+            return
+            
+        # Calculate number of blocks to allocate
+        num_blocks = min(
+            self.max_cache_entries,
+            (self.config.max_sequence_length + self.cache_block_size - 1) // self.cache_block_size
+        )
+        
+        if num_blocks <= 0:
+            return
+            
+        # Allocate KV cache tensors
+        hidden_size = self.config.hidden_size
+        num_heads = self.config.num_attention_heads
+        head_dim = hidden_size // num_heads
+        
+        self.kv_cache['k_cache'] = torch.zeros(
+            (num_blocks, num_heads, self.cache_block_size, head_dim),
+            device=self.device,
+            dtype=self.dtype
+        )
+        
+        self.kv_cache['v_cache'] = torch.zeros_like(self.kv_cache['k_cache'])
+        self.kv_cache['total_blocks'] = num_blocks
+        self.kv_cache['free_blocks'] = list(range(num_blocks))
+        self.kv_cache['allocated_blocks'] = {}
+    
+    def reset_cache(self) -> None:
+        """Reset the KV cache while preserving the allocated memory."""
+        if self.kv_cache is not None:
+            # Reset cache state but keep the allocated memory
+            self.kv_cache.update({
+                'cache_size': 0,
+                'free_blocks': list(range(self.kv_cache.get('total_blocks', 0))),
+                'allocated_blocks': {},
+                'statistics': {
+                    'hits': 0,
+                    'misses': 0,
+                    'evictions': 0,
+                    'total_used_blocks': 0,
+                    'total_blocks': self.kv_cache.get('statistics', {}).get('total_blocks', 0)
+                }
+            })
+
+    def to(self, device: Union[torch.device, str], *args, **kwargs) -> 'MedicalModelAdapterBase':
+        """Move the adapter and KV cache to the specified device.
+
+        Args:
+            device: The target device.
+            *args: Additional positional arguments.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            The adapter instance.
+        """
+        self.device = torch.device(device)
+        self.model = self.model.to(device, *args, **kwargs)
+        
+        # Move KV cache to device if it exists
+        if self.kv_cache is not None:
+            # Handle moving tensor components of the cache
+            for key in ['k_cache', 'v_cache']:
+                if key in self.kv_cache and self.kv_cache[key] is not None:
+                    self.kv_cache[key] = self.kv_cache[key].to(device, *args, **kwargs)
+            
+            # Update device in cache metadata
+            self.kv_cache['device'] = self.device
+        
+        return self
+    
+    def update_kv_cache(
+        self,
+        key_states: torch.Tensor,
+        value_states: torch.Tensor,
+        layer_idx: int,
+        cache_position: Optional[torch.LongTensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update the KV cache with new key and value states.
+        
+        Args:
+            key_states: Key states to cache, shape [batch_size, num_heads, seq_len, head_dim]
+            value_states: Value states to cache, shape [batch_size, num_heads, seq_len, head_dim]
+            layer_idx: Index of the transformer layer
+            cache_position: Positions in the cache to update, if None appends to the end
+            
+        Returns:
+            Tuple of (updated_key_states, updated_value_states)
+        """
+        if not self.cache_enabled or self.kv_cache is None:
+            return key_states, value_states
+            
+        batch_size, num_heads, seq_len, head_dim = key_states.shape
+        
+        # Initialize cache for this layer if needed
+        if str(layer_idx) not in self.kv_cache['allocated_blocks']:
+            self._allocate_layer_cache(layer_idx, batch_size, num_heads, head_dim)
+            
+        layer_cache = self.kv_cache['allocated_blocks'][str(layer_idx)]
+        
+        # Update cache with new key and value states
+        if cache_position is None:
+            # Append to the end of the cache
+            new_cache_size = layer_cache['cache_size'] + seq_len
+            
+            # Resize cache if needed
+            if new_cache_size > layer_cache['max_size']:
+                self._resize_layer_cache(layer_idx, new_cache_size * 2)
+                layer_cache = self.kv_cache['allocated_blocks'][str(layer_idx)]
+                
+            # Update cache position to the end
+            cache_position = torch.arange(
+                layer_cache['cache_size'],
+                layer_cache['cache_size'] + seq_len,
+                device=key_states.device
+            )
+            layer_cache['cache_size'] = new_cache_size
+            
+        # Update cache with new key and value states
+        layer_cache['k_cache'][:, :, cache_position, :] = key_states.transpose(0, 1)
+        layer_cache['v_cache'][:, :, cache_position, :] = value_states.transpose(0, 1)
+        
+        # Update statistics
+        self.kv_cache['statistics']['total_used_blocks'] += seq_len
+        
+        return layer_cache['k_cache'], layer_cache['v_cache']
+    
+    def _allocate_layer_cache(
+        self,
+        layer_idx: int,
+        batch_size: int,
+        num_heads: int,
+        head_dim: int
+    ) -> None:
+        """Allocate cache for a specific layer."""
+        if self.kv_cache is None:
+            return
+            
+        # Calculate required blocks
+        blocks_needed = (self.max_cache_entries + self.cache_block_size - 1) // self.cache_block_size
+        
+        # Allocate blocks for this layer
+        if len(self.kv_cache['free_blocks']) < blocks_needed:
+            self._evict_blocks(blocks_needed - len(self.kv_cache['free_blocks']))
+            
+        # Get free blocks
+        block_indices = self.kv_cache['free_blocks'][:blocks_needed]
+        self.kv_cache['free_blocks'] = self.kv_cache['free_blocks'][blocks_needed:]
+        
+        # Initialize layer cache
+        self.kv_cache['allocated_blocks'][str(layer_idx)] = {
+            'k_cache': torch.zeros(
+                (batch_size, num_heads, self.max_cache_entries, head_dim),
+                device=self.device,
+                dtype=self.dtype
+            ),
+            'v_cache': torch.zeros(
+                (batch_size, num_heads, self.max_cache_entries, head_dim),
+                device=self.device,
+                dtype=self.dtype
+            ),
+            'block_indices': block_indices,
+            'cache_size': 0,
+            'max_size': self.max_cache_entries,
+            'access_time': 0  # For LRU eviction
+        }
+    
+    def _resize_layer_cache(self, layer_idx: int, new_size: int) -> None:
+        """Resize the cache for a specific layer."""
+        if self.kv_cache is None or str(layer_idx) not in self.kv_cache['allocated_blocks']:
+            return
+            
+        layer_cache = self.kv_cache['allocated_blocks'][str(layer_idx)]
+        old_size = layer_cache['max_size']
+        
+        if new_size <= old_size:
+            return
+            
+        # Create new cache with increased size
+        batch_size, num_heads, _, head_dim = layer_cache['k_cache'].shape
+        
+        new_k_cache = torch.zeros(
+            (batch_size, num_heads, new_size, head_dim),
+            device=self.device,
+            dtype=self.dtype
+        )
+        new_v_cache = torch.zeros_like(new_k_cache)
+        
+        # Copy existing cache content
+        new_k_cache[:, :, :old_size, :] = layer_cache['k_cache']
+        new_v_cache[:, :, :old_size, :] = layer_cache['v_cache']
+        
+        # Update layer cache
+        layer_cache['k_cache'] = new_k_cache
+        layer_cache['v_cache'] = new_v_cache
+        layer_cache['max_size'] = new_size
+    
+    def _evict_blocks(self, num_blocks: int) -> None:
+        """Evict blocks from the cache using LRU policy."""
+        if self.kv_cache is None or num_blocks <= 0:
+            return
+            
+        # Sort layers by access time (oldest first)
+        lru_layers = sorted(
+            self.kv_cache['allocated_blocks'].items(),
+            key=lambda x: x[1]['access_time']
+        )
+        
+        evicted_blocks = 0
+        
+        # Evict blocks from oldest layers first
+        for layer_id, layer_cache in lru_layers:
+            if evicted_blocks >= num_blocks:
+                break
+                
+            # Calculate blocks to evict from this layer
+            blocks_to_evict = min(
+                num_blocks - evicted_blocks,
+                len(layer_cache['block_indices'])
+            )
+            
+            if blocks_to_evict <= 0:
+                continue
+                
+            # Add blocks to free list
+            self.kv_cache['free_blocks'].extend(
+                layer_cache['block_indices'][:blocks_to_evict]
+            )
+            
+            # Update layer block indices
+            layer_cache['block_indices'] = layer_cache['block_indices'][blocks_to_evict:]
+            
+            # Update statistics
+            self.kv_cache['statistics']['evictions'] += blocks_to_evict
+            evicted_blocks += blocks_to_evict
 
     def forward(
         self,
@@ -264,18 +551,6 @@ class MedicalModelAdapterBase(nn.Module, ABC):
             # Update hidden states
             if output_hidden_states:
                 all_hidden_states.append(hidden_states)
-
-            # Update attentions
-            if output_attentions and len(layer_outputs) > 1:
-                all_attentions.append(layer_outputs[1])
-
-        # Add last hidden state if not already added
-        if (
-            output_hidden_states
-            and all_hidden_states
-            and all_hidden_states[-1] is not hidden_states
-        ):
-            all_hidden_states.append(hidden_states)
 
             # Update attentions
             if output_attentions and len(layer_outputs) > 1:

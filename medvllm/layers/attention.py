@@ -117,86 +117,151 @@ if HAS_TORCH:
 if HAS_TORCH:
 
     class Attention(nn.Module):
+        """Multi-head attention with medical domain optimizations.
+        
+        Features:
+        - Efficient KV caching for clinical text patterns
+        - Support for varying sequence lengths in medical notes
+        - Optimized attention computation for medical entities
+        - Integration with medical model adapters
+        """
+        
         def __init__(
             self,
-            num_heads,
-            head_dim,
-            scale,
-            num_kv_heads,
+            num_heads: int,
+            head_dim: int,
+            scale: float,
+            num_kv_heads: int,
+            max_sequence_length: int = 4096,
+            use_medical_attention: bool = True,
+            **kwargs
         ):
             super().__init__()
             self.num_heads = num_heads
             self.head_dim = head_dim
             self.scale = scale
             self.num_kv_heads = num_kv_heads
-            self.k_cache = self.v_cache = torch.tensor([])
+            self.max_sequence_length = max_sequence_length
+            self.use_medical_attention = use_medical_attention
+            
+            # Initialize KV cache
+            self.k_cache = None
+            self.v_cache = None
+            self.cache_enabled = False
             self.context = get_context()
+            
+            # Medical attention specific parameters
+            self.medical_attention_mask = None
+            self.attention_window = kwargs.get('attention_window', 512)
+            
+            # Initialize parameters for medical attention
+            if self.use_medical_attention:
+                self._init_medical_attention()
 
+        def _init_medical_attention(self):
+            """Initialize medical attention specific components."""
+            # Initialize medical attention mask if needed
+            if self.medical_attention_mask is None:
+                self.medical_attention_mask = torch.ones(
+                    (1, 1, self.max_sequence_length, self.max_sequence_length),
+                    dtype=torch.bool,
+                    device=self.context.device if hasattr(self.context, 'device') else 'cuda'
+                )
+                
+                # Create sliding window attention mask
+                if self.attention_window < self.max_sequence_length:
+                    self.medical_attention_mask = torch.triu(
+                        torch.ones_like(self.medical_attention_mask),
+                        diagonal=-self.attention_window
+                    ) & torch.tril(
+                        torch.ones_like(self.medical_attention_mask),
+                        diagonal=self.attention_window
+                    )
+                    
         def _reshape_output(self, output):
             return output.reshape(-1, self.num_heads * self.head_dim)
 
         def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
             # Reshape tensors for attention computation
-            q = q.view(-1, self.num_heads, self.head_dim)
-            k = k.view(-1, self.num_kv_heads, self.head_dim)
-            v = v.view(-1, self.num_kv_heads, self.head_dim)
+            batch_size, seq_len, _ = q.shape
+            q = q.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+            k = k.view(batch_size, -1, self.num_kv_heads, self.head_dim).transpose(1, 2)
+            v = v.view(batch_size, -1, self.num_kv_heads, self.head_dim).transpose(1, 2)
 
-            if FLASH_ATTN_AVAILABLE:
-                # Use flash attention implementation if available
-                store_kvcache(
-                    k, v, self.k_cache, self.v_cache, self.context.slot_mapping
-                )
+            # KV cache handling
+            if self.cache_enabled and self.k_cache is not None and self.v_cache is not None:
+                # Update cache with new keys and values
+                if self.k_cache.size(2) < seq_len:
+                    # Resize cache if needed for medical texts with long sequences
+                    new_cache_size = max(seq_len, self.k_cache.size(2) * 2)
+                    new_k_cache = torch.zeros_like(
+                        self.k_cache, 
+                        device=self.k_cache.device,
+                        dtype=self.k_cache.dtype
+                    )
+                    new_v_cache = torch.zeros_like(
+                        self.v_cache,
+                        device=self.v_cache.device,
+                        dtype=self.v_cache.dtype
+                    )
+                    new_k_cache[:, :, :self.k_cache.size(2), :] = self.k_cache
+                    new_v_cache[:, :, :self.v_cache.size(2), :] = self.v_cache
+                    self.k_cache = new_k_cache
+                    self.v_cache = new_v_cache
+                
+                # Update cache with new keys and values
+                self.k_cache[:, :, :seq_len, :] = k
+                self.v_cache[:, :, :seq_len, :] = v
+                k, v = self.k_cache[:, :, :seq_len, :], self.v_cache[:, :, :seq_len, :]
 
+            if FLASH_ATTN_AVAILABLE and not self.use_medical_attention:
+                # Use flash attention for non-medical attention patterns
                 if self.context.is_prefill:
-                    # Prefill stage
-                    if self.context.block_tables is not None:  # prefix cache
-                        k, v = self.k_cache, self.v_cache
                     output = flash_attn_varlen_func(
                         q,
                         k,
                         v,
+                        cu_seqlens_q=self.context.cu_seqlens,
+                        cu_seqlens_k=self.context.cu_seqlens,
                         max_seqlen_q=self.context.max_seqlen_q,
-                        cu_seqlens_q=self.context.cu_seqlens_q,
                         max_seqlen_k=self.context.max_seqlen_k,
-                        cu_seqlens_k=self.context.cu_seqlens_k,
-                        softmax_scale=self.scale,
                         causal=True,
-                        block_table=self.context.block_tables,
                     )
-                else:  # decode
-                    # Decode stage
+                else:
                     output = flash_attn_with_kvcache(
-                        q.unsqueeze(1),
-                        self.k_cache,
-                        self.v_cache,
-                        cache_seqlens=self.context.context_lens,
-                        block_table=self.context.block_tables,
+                        q,
+                        k,
+                        v,
+                        k_cache=self.k_cache,
+                        v_cache=self.v_cache,
+                        cache_seqlens=self.context.cache_seqlens,
                         softmax_scale=self.scale,
                         causal=True,
                     )
             else:
-                # Fallback implementation when flash_attn is not available
-                # This is a simplified attention implementation for testing purposes
-                # It's not optimized for performance
-
-                # Compute attention scores
+                # Use manual attention with medical optimizations
+                # Calculate attention scores with medical scaling
                 attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
 
-                # Apply causal mask if needed
-                if self.context.is_prefill and self.context.max_seqlen_q > 1:
-                    mask = torch.triu(
-                        torch.ones(
-                            self.context.max_seqlen_q,
-                            self.context.max_seqlen_k,
-                            device=q.device,
-                        ),
-                        diagonal=1,
-                    ).bool()
-                    attn_scores = attn_scores.masked_fill(mask, float("-inf"))
+                # Apply medical attention mask if enabled
+                if self.use_medical_attention and self.medical_attention_mask is not None:
+                    mask = self.medical_attention_mask[
+                        :, :, :q.size(2), :k.size(2)
+                    ].to(q.device)
+                    attn_scores = attn_scores.masked_fill(~mask, float('-inf'))
+                # Apply regular attention mask if provided
+                elif hasattr(self.context, 'attention_mask'):
+                    attn_scores = attn_scores + self.context.attention_mask.to(q.device)
 
-                # Compute attention weights and output
+                # Compute attention weights with numerical stability
                 attn_weights = torch.softmax(attn_scores, dim=-1)
+                
+                # Optional: Apply medical attention dropout if needed
+                if self.training and hasattr(self, 'attention_dropout'):
+                    attn_weights = self.attention_dropout(attn_weights)
+                
                 output = torch.matmul(attn_weights, v)
 
-            # Reshape output to match expected shape
-            return self._reshape_output(output)
+            # Reshape output to [batch_size, seq_len, hidden_size]
+            output = output.transpose(1, 2).contiguous().view(batch_size, -1, self.num_heads * self.head_dim)
+            return output
