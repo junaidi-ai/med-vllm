@@ -4,11 +4,21 @@ This module provides the ClinicalBERT adapter that handles clinical domain-speci
 features, terminology, weight conversion, and contextual clinical note processing.
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
+# Lazy imports for transformers
+try:
+    from transformers import AutoTokenizer, PreTrainedTokenizerBase
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    # Define a dummy class for type checking
+    class PreTrainedTokenizerBase:
+        pass
+    AutoTokenizer = None
 
 from .base import MedicalModelAdapter
 

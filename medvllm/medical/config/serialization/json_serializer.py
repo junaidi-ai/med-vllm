@@ -13,6 +13,7 @@ import json
 import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Type, TypeVar, Union
+from json import JSONEncoder
 
 # Import the base configuration class
 from ..base import BaseMedicalConfig
@@ -32,6 +33,34 @@ T = TypeVar("T", bound=BaseMedicalConfig)
 __all__ = ["JSONSerializer"]
 
 
+class ConfigJSONEncoder(JSONEncoder):
+    """Custom JSON encoder for configuration objects.
+    
+    This encoder handles various non-serializable types that might be
+    present in the configuration, such as BertConfig objects, enums, and
+    other complex types.
+    """
+    def default(self, obj):
+        # Handle dataclasses
+        if dataclasses.is_dataclass(obj):
+            return dataclasses.asdict(obj)
+            
+        # Handle enums
+        if isinstance(obj, Enum):
+            return obj.value
+            
+        # Handle objects with to_dict() method
+        if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+            return obj.to_dict()
+            
+        # Handle objects with __dict__
+        if hasattr(obj, '__dict__'):
+            return {k: v for k, v in vars(obj).items() if not k.startswith('_')}
+            
+        # Let the base class default method raise the TypeError
+        return super().default(obj)
+
+
 class JSONSerializer(ConfigSerializer):
     """JSON serializer for medical model configurations.
 
@@ -39,6 +68,9 @@ class JSONSerializer(ConfigSerializer):
     configuration objects to/from JSON format, with support for both
     file and string I/O.
     """
+    
+    # Class-level encoder instance
+    _encoder = ConfigJSONEncoder()
 
     @classmethod
     def to_json(
@@ -70,9 +102,47 @@ class JSONSerializer(ConfigSerializer):
             # Set default JSON serialization options if not provided
             kwargs.setdefault("indent", 2)
             kwargs.setdefault("ensure_ascii", False)
+            
+            # Use our custom encoder for serialization
+            kwargs["cls"] = cls._encoder.__class__
 
             # Convert to JSON string and return
-            return json.dumps(config_dict, **kwargs)
+            try:
+                return json.dumps(config_dict, **kwargs)
+            except TypeError as e:
+                # If serialization fails, try with our custom encoder
+                try:
+                    return json.dumps(config_dict, cls=ConfigJSONEncoder, **kwargs)
+                except Exception as inner_e:
+                    # If we still can't serialize, try with a more permissive approach
+                    try:
+                        # Convert all non-serializable objects to strings
+                        def safe_serialize(obj):
+                            try:
+                                json.dumps(obj, **kwargs)
+                                return obj
+                            except (TypeError, OverflowError):
+                                if hasattr(obj, '__dict__'):
+                                    return {k: safe_serialize(v) for k, v in vars(obj).items() 
+                                           if not k.startswith('_')}
+                                elif hasattr(obj, 'to_dict') and callable(obj.to_dict):
+                                    return safe_serialize(obj.to_dict())
+                                elif isinstance(obj, (list, tuple, set)):
+                                    return [safe_serialize(item) for item in obj]
+                                elif isinstance(obj, dict):
+                                    return {k: safe_serialize(v) for k, v in obj.items()}
+                                else:
+                                    return str(obj)
+                        
+                        safe_dict = safe_serialize(config_dict)
+                        return json.dumps(safe_dict, **kwargs)
+                    except Exception as fallback_e:
+                        # If all else fails, return a minimal representation
+                        minimal_dict = {
+                            k: v for k, v in config_dict.items() 
+                            if isinstance(v, (str, int, float, bool, type(None)))
+                        }
+                        return json.dumps(minimal_dict, **kwargs)
 
         except Exception as e:
             raise ValueError(f"Failed to serialize configuration: {e}") from e

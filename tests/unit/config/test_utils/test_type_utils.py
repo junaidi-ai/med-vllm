@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 import pytest
 
 # Import the actual implementation
-from medvllm.medical.config.utils.type_utils import (
+from medvllm.medical.config.utils import (
     convert_string_to_type,
     get_dict_types,
     get_list_item_type,

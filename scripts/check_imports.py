@@ -1,40 +1,42 @@
-"""Script to check imports and basic functionality."""
-
 import sys
+import os
 
-import torch
-from transformers import AutoModel, AutoTokenizer
-
-
-def main():
-    print("Python version:", sys.version)
-    print("PyTorch version:", torch.__version__)
-    print("Transformers version:")
-
-    # Try to import AutoModel and AutoTokenizer
+def check_import(module_name):
+    print(f"\nChecking import for: {module_name}")
     try:
-        from transformers import AutoModel, AutoTokenizer
+        module = __import__(module_name)
+        print(f"Successfully imported {module_name}")
+        print(f"Module path: {os.path.dirname(module.__file__) if hasattr(module, '__file__') else 'built-in'}")
+        
+        # Try to import a submodule
+        try:
+            submodule_name = f"{module_name}.tokenization_utils_base"
+            __import__(submodule_name)
+            print(f"Successfully imported submodule: {submodule_name}")
+        except ImportError as e:
+            print(f"Failed to import submodule {submodule_name}: {e}")
+            
+    except ImportError as e:
+        print(f"Failed to import {module_name}: {e}")
 
-        print("Successfully imported AutoModel and AutoTokenizer")
+# Check for any transformers modules in the current directory
+print("Checking for local transformers modules that might shadow the package:")
+for root, dirs, files in os.walk('.'):
+    if 'transformers' in dirs:
+        print(f"Found local transformers directory at: {os.path.join(root, 'transformers')}")
+    if 'transformers.py' in files:
+        print(f"Found local transformers.py at: {os.path.join(root, 'transformers.py')}")
 
-        # Test model loading
-        print("\nTesting BioBERT model loading...")
-        model = AutoModel.from_pretrained("dmis-lab/biobert-v1.1")
-        tokenizer = AutoTokenizer.from_pretrained("dmis-lab/biobert-v1.1")
-        print("Successfully loaded BioBERT model and tokenizer")
+# Check the actual imports
+check_import('transformers')
 
-        # Test forward pass
-        inputs = tokenizer("This is a test sentence.", return_tensors="pt")
-        outputs = model(**inputs)
-        print("Forward pass successful!")
-        print(f"Output shape: {outputs.last_hidden_state.shape}")
-
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-
-        traceback.print_exc()
-
-
-if __name__ == "__main__":
-    main()
+# Try to import the specific class directly
+print("\nTrying to import PreTrainedTokenizerBase directly:")
+try:
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+    print("Successfully imported PreTrainedTokenizerBase")
+except Exception as e:
+    print(f"Failed to import PreTrainedTokenizerBase: {e}")
+    print("\nPython path:")
+    for p in sys.path:
+        print(f"- {p}")

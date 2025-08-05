@@ -143,10 +143,6 @@ def register_medical_models() -> None:
         )
 
 
-# Register all pre-configured models when this module is imported
-register_medical_models()
-
-
 def register_custom_medical_model(
     name: str,
     model_name_or_path: str,
@@ -186,4 +182,4 @@ def register_custom_medical_model(
 
 
 # Register all pre-configured models when this module is imported
-register_medical_models()
+# Note: This is intentionally called only once at the module level

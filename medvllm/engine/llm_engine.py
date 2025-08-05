@@ -1,14 +1,13 @@
 import atexit
+import importlib
 import logging
 from dataclasses import fields
 from time import perf_counter
-from typing import Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, Union
 
 import torch
 import torch.multiprocessing as mp
 from tqdm import tqdm
-from transformers import AutoTokenizer
-from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from medvllm.config import Config
 from medvllm.engine.model_runner.base import ModelRunner
@@ -16,12 +15,29 @@ from medvllm.engine.scheduler import Scheduler
 from medvllm.engine.sequence import Sequence
 from medvllm.sampling_params import SamplingParams
 
+# Lazy imports for transformers
+try:
+    import transformers
+    from transformers import AutoTokenizer
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    AutoTokenizer = None
+    PreTrainedTokenizerBase = object
+
 logger = logging.getLogger(__name__)
 
 
 class LLMEngine:
 
     def __init__(self, model: str, **kwargs: Any) -> None:
+        if not TRANSFORMERS_AVAILABLE:
+            raise ImportError(
+                "The transformers package is required for LLMEngine. "
+                "Please install it with: pip install transformers"
+            )
+            
         config_fields = {field.name for field in fields(Config)}
         config_kwargs = {k: v for k, v in kwargs.items() if k in config_fields}
         config = Config(model, **config_kwargs)

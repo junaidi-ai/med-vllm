@@ -11,6 +11,14 @@ This package provides configuration management for medical models, including:
 # Import base configuration
 from .base import BaseMedicalConfig
 
+# Import versioning
+from .versioning import (
+    ConfigVersioner,
+    ConfigVersionInfo,
+    ConfigVersionStatus,
+    _migrate_090_to_100,
+)
+
 # Import constants
 from .constants import (
     DEFAULT_ANATOMICAL_REGIONS,
@@ -32,8 +40,21 @@ from .constants import (
     SUPPORTED_MODEL_TYPES,
 )
 
-# Import main configuration class
-from .models.medical_config import MedicalModelConfig
+# Import models
+from .models import MedicalModelConfig, MedicalModelConfigSchema, ModelType
+
+# Import utilities
+from . import utils
+
+# Import validation
+from .validation import (
+    ConfigValidationError,
+    FieldValidationError,
+    SchemaValidationError,
+    validate_config,
+    validate_field,
+    validate_schema,
+)
 
 # Import types
 from .types import (

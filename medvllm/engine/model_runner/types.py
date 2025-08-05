@@ -1,3 +1,4 @@
+import sys
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.synchronize import Event as MP_Event
 from typing import (
@@ -8,44 +9,78 @@ from typing import (
     List,
     Optional,
     Tuple,
+    Type,
     TypeVar,
     Union,
 )
 
-import torch
-from torch import Tensor
-from torch.cuda.graphs import CUDAGraph
-from torch.optim import Optimizer
-from torch.optim.lr_scheduler import _LRScheduler as LRScheduler
-from torch.utils.data import DataLoader
+# Lazy imports for PyTorch
+try:
+    import torch
+    from torch import Tensor
+    from torch.cuda.graphs import CUDAGraph
+    from torch.optim import Optimizer
+    from torch.optim.lr_scheduler import _LRScheduler as LRScheduler
+    from torch.utils.data import DataLoader
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    # Define dummy classes for type checking
+    class Tensor:
+        pass
+    class CUDAGraph:
+        pass
+    class Optimizer:
+        pass
+    class LRScheduler:
+        pass
+    class DataLoader:
+        pass
+
 from typing_extensions import TypeAlias, TypeGuard
 
 # Import local modules
 from medvllm.config import Config
 from medvllm.engine.sequence import Sequence
 from medvllm.layers.sampler import Sampler
-from medvllm.models.qwen3 import Qwen3ForCausalLM
+
+# Lazy import for Qwen3ForCausalLM to avoid circular imports
+try:
+    from medvllm.models.qwen3 import Qwen3ForCausalLM
+    QWEN_AVAILABLE = True
+except ImportError:
+    QWEN_AVAILABLE = False
+    class Qwen3ForCausalLM:
+        pass
 
 # Type variables
 T = TypeVar("T")
 
 if TYPE_CHECKING:
-    from torch.distributed import ProcessGroup
-
     # Define type aliases with proper imports
-    class _Tensor(Tensor):
-        """Dummy class for Tensor type hints."""
+    if TORCH_AVAILABLE:
+        from torch.distributed import ProcessGroup
+        
+        class _Tensor(Tensor):
+            """Dummy class for Tensor type hints."""
+            pass
 
-        pass
-
-    class _CUDAGraph(CUDAGraph):
-        """Dummy class for CUDAGraph type hints."""
-
-        pass
+        class _CUDAGraph(CUDAGraph):
+            """Dummy class for CUDAGraph type hints."""
+            pass
+    else:
+        # Define dummy classes for type checking when PyTorch is not available
+        class ProcessGroup:
+            pass
+            
+        class _Tensor:
+            pass
+            
+        class _CUDAGraph:
+            pass
 
     class _SharedMemory(SharedMemory):
         """Dummy class for SharedMemory type hints."""
-
         pass
 
     class _MP_Event(MP_Event):

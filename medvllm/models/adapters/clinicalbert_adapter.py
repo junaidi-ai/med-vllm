@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 
-from ...utils.attention_utils import apply_attention, combine_heads, split_heads
-from ...utils.layer_utils import create_initializer, get_activation_fn
+from ...models.utils.attention_utils import apply_attention, combine_heads, split_heads
+from ...models.utils.layer_utils import create_initializer, get_activation_fn
 from ..attention import MedicalMultiheadAttention
 from ..layers import MedicalFeedForward, MedicalLayerNorm
 from .medical_adapter_base import MedicalModelAdapterBase
@@ -57,20 +57,26 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
                 "model_type": "bert",
             }
 
-        # Initialize the base class
-        super().__init__(config=config, model=model, **kwargs)
+        # Initialize model if not provided
+        if model is None:
+            model = AutoModel.from_pretrained(
+                "emilyalsentzer/Bio_ClinicalBERT", config=config
+            )
+
+        # Initialize the base class with model first, then config
+        super().__init__(model=model, config=config, **kwargs)
+        
+        # Set model type for identification
+        self.model_type = "clinicalbert"
+        
+        # Set use_cuda based on device
+        self.use_cuda = str(self.device).startswith('cuda')
 
         # Initialize tokenizer
         self.tokenizer = self._init_tokenizer()
 
         # Add clinical tokens
         self._add_clinical_tokens()
-
-        # Initialize model if not provided
-        if model is None:
-            self.model = AutoModel.from_pretrained(
-                "emilyalsentzer/Bio_ClinicalBERT", config=self.config
-            )
 
         # Initialize CUDA optimizations
         self._init_cuda_optimizations()

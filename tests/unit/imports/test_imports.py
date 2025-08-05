@@ -36,17 +36,47 @@ class TestCriticalImports(unittest.TestCase):
 
         self.assertTrue(True, "Transformers imported successfully")
 
+    def test_pydantic_import(self):
+        """Test that pydantic can be imported."""
+        import sys
+        import importlib
+        
+        # Clear pydantic from sys.modules to ensure a fresh import
+        for mod in list(sys.modules):
+            if mod == 'pydantic' or mod.startswith('pydantic.'):
+                del sys.modules[mod]
+        
+        try:
+            # Import pydantic fresh
+            import pydantic
+            self.assertTrue(hasattr(pydantic, '__file__'), "pydantic module is missing __file__")
+            
+            # Import BaseModel
+            from pydantic import BaseModel
+            self.assertTrue(True, "Successfully imported BaseModel from pydantic")
+            
+        except ImportError as e:
+            self.fail(f"Failed to import pydantic: {e}")
+
     def test_main_package_import(self):
         """Test that the main package can be imported."""
         # First try without importing LLMEngine
-        import medvllm  # noqa: F401
-
-        self.assertTrue(True, "Med-vLLM package imported successfully")
+        try:
+            import medvllm  # noqa: F401
+            print("Successfully imported medvllm package")
+            self.assertTrue(True, "Med-vLLM package imported successfully")
+        except ImportError as e:
+            print(f"Error importing medvllm: {e}")
+            raise
 
         # Now try importing LLMEngine specifically
-        from medvllm.engine.llm_engine import LLMEngine  # noqa: F401
-
-        self.assertTrue(True, "LLMEngine imported successfully")
+        try:
+            from medvllm.engine.llm_engine import LLMEngine  # noqa: F401
+            print("Successfully imported LLMEngine")
+            self.assertTrue(True, "LLMEngine imported successfully")
+        except ImportError as e:
+            print(f"Error importing LLMEngine: {e}")
+            raise
 
     def test_core_imports(self):
         """Test that core modules can be imported."""

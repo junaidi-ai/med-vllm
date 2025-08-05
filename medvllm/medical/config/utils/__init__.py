@@ -9,18 +9,23 @@ other helper functions.
 from .misc import deep_update, filter_none_values, get_nested_value, set_nested_value
 from .path_utils import ensure_path, find_config_file, resolve_config_path
 from .type_utils import (
+    convert_string_to_type,
     get_dict_types,
     get_list_item_type,
     get_optional_type,
     get_union_types,
+    is_basic_type,
     is_dict_type,
     is_list_type,
     is_optional_type,
     is_union_type,
+    validate_type,
 )
 
 __all__ = [
     # Type utilities
+    "convert_string_to_type",
+    "is_basic_type",
     "is_optional_type",
     "get_optional_type",
     "is_union_type",
@@ -29,6 +34,7 @@ __all__ = [
     "get_list_item_type",
     "is_dict_type",
     "get_dict_types",
+    "validate_type",
     # Path utilities
     "ensure_path",
     "resolve_config_path",

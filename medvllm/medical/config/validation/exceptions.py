@@ -22,9 +22,13 @@ class ValidationError(ValueError):
         super().__init__(self.message)
 
 
+class ConfigValidationError(ValidationError):
+    """Raised when a configuration validation fails."""
+    pass
+
+
 class SchemaValidationError(ValidationError):
     """Raised when a configuration schema validation fails."""
-
     pass
 
 
@@ -48,5 +52,13 @@ class FieldTypeError(ValidationError):
 
 class FieldValueError(ValidationError):
     """Raised when a field has an invalid value."""
+    pass
 
+
+class FieldValidationError(ValidationError):
+    """Raised when a field validation fails.
+    
+    This is a more specific version of ValidationError that should be used
+    when a specific field fails validation.
+    """
     pass

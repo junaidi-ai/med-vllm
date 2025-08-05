@@ -1,48 +1,23 @@
 import sys
-import importlib
-from pathlib import Path
+import os
 
-def check_import(module_name):
-    try:
-        module = importlib.import_module(module_name)
-        print(f"✅ Successfully imported {module_name}")
-        print(f"   Location: {Path(module.__file__).resolve()}")
-        if hasattr(module, '__version__'):
-            print(f"   Version: {module.__version__}")
-        return True
-    except Exception as e:
-        print(f"❌ Failed to import {module_name}: {e}")
-        return False
+# Print Python path
+print("Python path:")
+for p in sys.path:
+    print(f"- {p}")
 
-def main():
-    print("Python version:", sys.version)
-    print("\n=== Checking Core Imports ===")
-    
-    # Check core Python modules
-    core_modules = ['torch', 'transformers']
-    for module in core_modules:
-        check_import(module)
-    
-    print("\n=== Checking Transformers Components ===")
-    transformers_components = [
-        'transformers.models.auto',
-        'transformers.models.auto.modeling_auto',
-        'transformers.tokenization_utils_base'
-    ]
-    for component in transformers_components:
-        check_import(component)
-    
-    print("\n=== Checking for Conflicting Files ===")
-    conflict_paths = [
-        p for p in sys.path 
-        if 'transformers' in str(p).lower() and 'site-packages' not in str(p).lower()
-    ]
-    if conflict_paths:
-        print("⚠️  Potential conflicting paths found:")
-        for path in conflict_paths:
-            print(f"   - {path}")
-    else:
-        print("✅ No conflicting paths found")
-
-if __name__ == "__main__":
-    main()
+# Try to import tokenization_utils_base
+try:
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+    print("Successfully imported PreTrainedTokenizerBase")
+except ImportError as e:
+    print(f"Error importing PreTrainedTokenizerBase: {e}")
+    print("\nContents of transformers directory:")
+    transformers_path = os.path.dirname(os.path.abspath(__file__)) + "/venv/lib/python3.12/site-packages/transformers"
+    for root, dirs, files in os.walk(transformers_path):
+        level = root.replace(transformers_path, '').count(os.sep)
+        indent = ' ' * 4 * level
+        print(f"{indent}{os.path.basename(root)}/")
+        subindent = ' ' * 4 * (level + 1)
+        for f in files:
+            print(f"{subindent}{f}")

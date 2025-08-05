@@ -4,15 +4,15 @@ This module provides the abstract base class that all medical model adapters mus
 to be compatible with the Nano vLLM architecture.
 """
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Any, Dict, Optional
 
 import torch
 import torch.distributed as dist
-import torch.nn as nn
+from torch import nn
 
 
-class MedicalModelAdapter(ABC, nn.Module):
+class MedicalModelAdapter(nn.Module):
     """Abstract base class for medical model adapters.
 
     This class defines the interface that all medical model adapters must implement

@@ -24,17 +24,44 @@ from typing import (
 
 import torch
 from torch import device
-from transformers import (
-    AutoConfig,
-    AutoModel,
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    PretrainedConfig,
-    PreTrainedModel,
-    PreTrainedTokenizer,
-    PreTrainedTokenizerBase,
-    PreTrainedTokenizerFast,
-)
+
+# Lazy imports for transformers
+try:
+    from transformers import (
+        AutoConfig,
+        AutoModel,
+        AutoModelForSequenceClassification,
+        AutoTokenizer,
+        PretrainedConfig,
+        PreTrainedModel,
+        PreTrainedTokenizer,
+        PreTrainedTokenizerBase,
+        PreTrainedTokenizerFast,
+    )
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    # Define dummy classes for type checking
+    class PretrainedConfig:
+        pass
+    
+    class PreTrainedModel:
+        pass
+    
+    class PreTrainedTokenizer:
+        pass
+    
+    class PreTrainedTokenizerBase:
+        pass
+    
+    class PreTrainedTokenizerFast:
+        pass
+    
+    # Define dummy variables for the Auto* classes
+    AutoConfig = None
+    AutoModel = None
+    AutoModelForSequenceClassification = None
+    AutoTokenizer = None
 
 # Import Protocol from typing_extensions if available
 try:

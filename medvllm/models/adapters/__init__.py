@@ -6,7 +6,7 @@ This package provides modular medical language model adapters including:
 - ClinicalBERT adapter for clinical NLP
 """
 
-from .base import MedicalModelAdapter
+from .base import MedicalModelAdapter as MedicalModelAdapter
 from .biobert import BioBERTAdapter
 from .clinicalbert import ClinicalBERTAdapter
 

@@ -3,8 +3,12 @@ MedVLLM - Medical Variant of the vLLM library for medical NLP tasks.
 """
 
 import importlib
+import os
 import sys
 from typing import Any, TypeVar
+
+# Version of the package
+__version__ = "0.1.0"  # Default version, can be overridden by setuptools
 
 # Check for required dependencies
 HAS_TORCH = False
@@ -61,6 +65,8 @@ __all__ = [
     "BioBERTAdapter",
     "ClinicalBERTAdapter",
     "AdapterManager",
+    "models",
+    "tokenizers",
 ]
 
 # Lazy imports for PyTorch-dependent modules
@@ -74,6 +80,17 @@ if HAS_TORCH:
         from .models.adapter_manager import AdapterManager
         from .models.adapters.medical_adapter_base import MedicalModelAdapterBase
         from .sampling_params import SamplingParams
+        
+        # Import models module
+        from . import models
+        
+        # Create a dummy tokenizers module for compatibility
+        class DummyTokenizerModule:
+            """Dummy tokenizers module for compatibility."""
+            pass
+            
+        tokenizers = DummyTokenizerModule()
+        
     except ImportError as e:
         if "torch" in str(e).lower():
             LLM = DummyModule("LLM", e)  # type: ignore
@@ -82,6 +99,8 @@ if HAS_TORCH:
             BioBERTAdapter = DummyModule("BioBERTAdapter", e)  # type: ignore
             ClinicalBERTAdapter = DummyModule("ClinicalBERTAdapter", e)  # type: ignore
             AdapterManager = DummyModule("AdapterManager", e)  # type: ignore
+            models = DummyModule("models", e)  # type: ignore
+            tokenizers = DummyModule("tokenizers", e)  # type: ignore
         else:
             raise
 else:
@@ -91,6 +110,8 @@ else:
     BioBERTAdapter = DummyModule("BioBERTAdapter", ImportError("torch is not installed"))  # type: ignore
     ClinicalBERTAdapter = DummyModule("ClinicalBERTAdapter", ImportError("torch is not installed"))  # type: ignore
     AdapterManager = DummyModule("AdapterManager", ImportError("torch is not installed"))  # type: ignore
+    models = DummyModule("models", ImportError("torch is not installed"))  # type: ignore
+    tokenizers = DummyModule("tokenizers", ImportError("torch is not installed"))  # type: ignore
 
 
 def __getattr__(name: str) -> Any:

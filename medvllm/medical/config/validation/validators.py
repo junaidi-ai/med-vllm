@@ -5,7 +5,7 @@ This module contains various validators for configuration values.
 """
 
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .exceptions import FieldValueError, ValidationError
 
@@ -120,3 +120,41 @@ class MedicalConfigValidator:
 
 # Create a default validator instance for convenience
 default_validator = MedicalConfigValidator()
+
+
+def validate_config(config: "BaseMedicalConfig") -> None:
+    """Validate a configuration using the default validator.
+    
+    This is a convenience function that uses the default validator instance
+    to validate the configuration.
+    
+    Args:
+        config: The configuration to validate
+        
+    Raises:
+        ValidationError: If validation fails
+    """
+    default_validator.validate(config)
+
+
+def validate_field(
+    config: "BaseMedicalConfig", field_name: str, value: Any
+) -> None:
+    """Validate a single field in a configuration.
+    
+    This is a convenience function that validates a single field in a configuration
+    using the default validator.
+    
+    Args:
+        config: The configuration containing the field
+        field_name: The name of the field to validate
+        value: The value to validate
+        
+    Raises:
+        ValidationError: If validation fails
+    """
+    if not hasattr(default_validator, f"validate_{field_name}"):
+        raise ValueError(f"No validator found for field: {field_name}")
+        
+    validator = getattr(default_validator, f"validate_{field_name}")
+    validator(config, value)

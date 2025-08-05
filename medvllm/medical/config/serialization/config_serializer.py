@@ -119,11 +119,30 @@ class ConfigSerializer:
         if isinstance(obj, (list, tuple, set)):
             return [cls._convert_to_serializable(item) for item in obj]
 
+        # Handle BertConfig and similar objects from transformers
+        if obj.__class__.__name__ == 'BertConfig' or hasattr(obj, 'to_dict'):
+            try:
+                # Try to get a dict representation of the config
+                if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+                    config_dict = obj.to_dict()
+                    return cls._convert_to_serializable(config_dict)
+                # Fall back to converting attributes to dict
+                elif hasattr(obj, '__dict__'):
+                    config_dict = {k: v for k, v in vars(obj).items() if not k.startswith('_')}
+                    return cls._convert_to_serializable(config_dict)
+            except Exception as e:
+                logger.debug(
+                    f"Failed to convert {obj.__class__.__name__} to dict: {e}",
+                    exc_info=True,
+                )
+
         # Handle objects with __dict__ attribute
         if hasattr(obj, "__dict__"):
             obj_dict = vars(obj)
             return {
-                str(k): cls._convert_to_serializable(v) for k, v in obj_dict.items()
+                str(k): cls._convert_to_serializable(v) 
+                for k, v in obj_dict.items() 
+                if not k.startswith('_')
             }
 
         # Handle numpy types (common in ML models)
@@ -136,15 +155,15 @@ class ConfigSerializer:
             except (TypeError, ValueError):
                 pass
 
-        # Handle objects with to_dict method
+        # Handle objects with to_dict method (check again in case of inheritance)
         if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
             try:
                 result = obj.to_dict()
-                return cls._convert_to_serializable(result)
+                if result is not None:  # Only process if to_dict() didn't return None
+                    return cls._convert_to_serializable(result)
             except (TypeError, ValueError, AttributeError) as e:
                 logger.debug(
-                    "Failed to convert object to dict using to_dict(): %s",
-                    str(e),
+                    f"Failed to convert {obj.__class__.__name__} to dict: {e}",
                     exc_info=True,
                 )
 
@@ -155,13 +174,19 @@ class ConfigSerializer:
                 return cls._convert_to_serializable(result)
             except (TypeError, ValueError, AttributeError) as e:
                 logger.debug(
-                    "Failed to convert Pydantic model to dict: %s",
-                    str(e),
+                    f"Failed to dump Pydantic model {obj.__class__.__name__}: {e}",
                     exc_info=True,
                 )
 
-        # For any other type, convert to string
-        return str(obj)
+        # For any other type, try to get a string representation
+        try:
+            return str(obj)
+        except Exception as e:
+            logger.debug(
+                f"Failed to convert {obj.__class__.__name__} to string: {e}",
+                exc_info=True,
+            )
+            return None  # Skip this field if we can't convert it
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any], config_class: Type[T]) -> T:

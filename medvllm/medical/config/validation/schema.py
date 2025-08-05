@@ -34,6 +34,22 @@ from medvllm.medical.config.validation.exceptions import (
 )
 
 
+def validate_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
+    """Alias for validate_config_schema for backward compatibility.
+    
+    Args:
+        config: Configuration dictionary or object to validate
+        config_class: Pydantic model class to validate against
+        
+    Returns:
+        Validated configuration object
+        
+    Raises:
+        SchemaValidationError: If validation fails
+    """
+    return validate_config_schema(config, config_class)
+
+
 def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
     """Validate a configuration object against its schema.
 

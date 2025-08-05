@@ -12,8 +12,7 @@ import torch.nn as nn
 from transformers import PreTrainedModel
 
 # Import from modular adapter structure
-from .adapters import BioBERTAdapter, ClinicalBERTAdapter
-from .adapters.medical_adapter_base import MedicalModelAdapterBase
+from .adapters import BioBERTAdapter, ClinicalBERTAdapter, MedicalModelAdapter
 
 
 def create_medical_adapter(

@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 from transformers import BioGptModel, BioGptTokenizer
 
-from ...utils.attention_utils import apply_attention, combine_heads, split_heads
-from ...utils.layer_utils import create_initializer, get_activation_fn
+from ...models.utils.attention_utils import apply_attention, combine_heads, split_heads
+from ...models.utils.layer_utils import create_initializer, get_activation_fn
 from ..attention import MedicalMultiheadAttention
 from ..layers import MedicalFeedForward, MedicalLayerNorm
 from .medical_adapter_base import MedicalModelAdapterBase
@@ -58,9 +58,20 @@ class BioBERTAdapter(MedicalModelAdapterBase):
                 "eos_token_id": 2,
             }
 
-        # Initialize the base class
-        super().__init__(config=config, model=model, **kwargs)
-
+        # Initialize the base class with model as first argument and config as second
+        super().__init__(model=model, config=config, **kwargs)
+        
+        # Set model type for identification
+        self.model_type = "biobert"
+        
+        # Set device and use_cuda
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.use_cuda = str(self.device).startswith('cuda')
+        
+        # Set the model attribute if it's provided
+        if model is not None:
+            self.model = model
+        
         # Initialize tokenizer
         self.tokenizer = self._init_tokenizer()
 
@@ -68,7 +79,7 @@ class BioBERTAdapter(MedicalModelAdapterBase):
         self._add_biomedical_tokens()
 
         # Initialize model if not provided
-        if model is None:
+        if not hasattr(self, 'model') or self.model is None:
             self.model = BioGptModel.from_pretrained(
                 "microsoft/biogpt", config=self.config
             )
@@ -176,22 +187,65 @@ class BioBERTAdapter(MedicalModelAdapterBase):
                 if hasattr(self.model, "resize_token_embeddings"):
                     self.model.resize_token_embeddings(len(self.tokenizer))
 
-    def _init_cuda_optimizations(self) -> None:
-        """Initialize CUDA optimizations if available."""
-        if (
-            torch.cuda.is_available()
-            and hasattr(self, "model")
-            and self.model is not None
-        ):
-            try:
-                self.model = self.model.cuda()
-                # Only compile if model is on CUDA
-                if self.model.device.type == "cuda":
+    def to(self, device, *args, **kwargs):
+        """Move the model to the specified device and update device-related attributes.
+        
+        Args:
+            device: The target device (torch.device or str)
+            *args: Additional positional arguments
+            **kwargs: Additional keyword arguments
+            
+        Returns:
+            self: Returns self to allow method chaining
+        """
+        # Convert string device to torch.device if needed
+        if isinstance(device, str):
+            device = torch.device(device)
+            
+        print(f"[DEBUG] Moving to device: {device}, current device: {getattr(self, 'device', 'not set')}")
+            
+        # Update device and use_cuda attributes
+        self.device = device
+        self.use_cuda = 'cuda' in str(device)  # Check if 'cuda' is in the device string
+        
+        print(f"[DEBUG] After update - device: {self.device}, use_cuda: {self.use_cuda}")
+        
+        # Move the underlying model to the specified device
+        if self.model is not None:
+            print(f"[DEBUG] Moving model to {device}")
+            self.model = self.model.to(device, *args, **kwargs)
+            
+        # Move kv_cache to the specified device if it exists
+        if hasattr(self, 'kv_cache') and self.kv_cache is not None:
+            if hasattr(self.kv_cache, 'to'):
+                print(f"[DEBUG] Moving kv_cache to {device}")
+                self.kv_cache = self.kv_cache.to(device, *args, **kwargs)
+                
+        print(f"[DEBUG] Final device: {self.device}, model device: {getattr(self.model, 'device', 'not set')}")
+        return self
+
+    def _init_cuda_optimizations(self):
+        """Initialize CUDA-specific optimizations if available."""
+        if self.use_cuda and torch.cuda.is_available():
+            # Enable CUDA optimizations
+            torch.backends.cudnn.benchmark = True
+            
+            # Move model to GPU if it's not already there
+            if str(self.device) != "cuda":
+                self.device = torch.device("cuda")
+                if self.model is not None:
+                    self.model = self.model.to(self.device)
+                if hasattr(self, "model") and self.model is not None and self.model.device.type == "cuda":
                     self.model = torch.compile(
                         self.model
                     )  # Enable PyTorch 2.0 compilation
-            except Exception as e:
-                logger.warning(f"Failed to initialize CUDA optimizations: {e}")
+        else:
+            if self.model is not None:
+                self.model = self.model.to(self.device)
+        try:
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to initialize CUDA optimizations: {e}")
 
     def preprocess_biomedical_text(self, text: str) -> Dict[str, torch.Tensor]:
         """Preprocess biomedical text for the model.

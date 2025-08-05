@@ -1,3 +1,3 @@
-"""Test package for medvllm."""
+"""Test suite for medvllm."""
 
-# This file makes Python treat the directory as a package
+# This file makes the tests directory a Python package

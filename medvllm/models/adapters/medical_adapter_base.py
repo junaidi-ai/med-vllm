@@ -1,6 +1,6 @@
 """Base adapter class for medical models with optimized attention and layer implementations."""
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -28,7 +28,7 @@ from medvllm.models.utils.attention_utils import (
 )
 
 
-class MedicalModelAdapterBase(nn.Module, ABC):
+class MedicalModelAdapterBase(nn.Module):
     """Base class for medical model adapters with KV cache optimizations.
 
     Features:
@@ -51,11 +51,21 @@ class MedicalModelAdapterBase(nn.Module, ABC):
             config: Configuration dictionary for the adapter.
             **kwargs: Additional keyword arguments for medical-specific settings.
         """
+        # Initialize the parent class (nn.Module) first
         super().__init__()
+        
+        # Store model and config
         self.model = model
         self.config = config
-        self.device = next(model.parameters()).device
-        self.dtype = next(model.parameters()).dtype
+        
+        # Set device and dtype from model parameters
+        if hasattr(model, 'parameters') and any(p is not None for p in model.parameters()):
+            self.device = next(model.parameters()).device
+            self.dtype = next(model.parameters()).dtype
+        else:
+            # Fallback to CPU if model has no parameters
+            self.device = torch.device('cpu')
+            self.dtype = torch.float32
         
         # KV Cache Configuration
         self.kv_cache = None
