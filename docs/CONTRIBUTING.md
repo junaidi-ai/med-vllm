@@ -12,8 +12,8 @@ Thank you for your interest in contributing to Med vLLM! This document provides 
 
 2. Set up a virtual environment (recommended):
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
 
 3. Install the package in development mode with test dependencies:

@@ -33,7 +33,13 @@ Large language models have shown great promise in various fields, but their size
    cd med-vllm
    ```
 
-3. Install dependencies:
+3. Create and activate a virtual environment (recommended):
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   ```
+
+4. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
