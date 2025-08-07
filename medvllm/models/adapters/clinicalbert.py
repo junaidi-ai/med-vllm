@@ -20,10 +20,10 @@ except ImportError:
         pass
     AutoTokenizer = None
 
-from .base import MedicalModelAdapter
+from .base import MedicalModelAdapterBase
 
 
-class ClinicalBERTAdapter(MedicalModelAdapter):
+class ClinicalBERTAdapter(MedicalModelAdapterBase):
     """Adapter for ClinicalBERT models optimized for clinical NLP tasks.
 
     This adapter handles:
@@ -33,6 +33,41 @@ class ClinicalBERTAdapter(MedicalModelAdapter):
     - CUDA graph optimization for clinical workflows
     """
 
+    @classmethod
+    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> 'ClinicalBERTAdapter':
+        """Load a pre-trained ClinicalBERT model and return an adapter instance.
+        
+        Args:
+            model_name_or_path: Name or path of the pre-trained model
+            **kwargs: Additional arguments to pass to the model and adapter
+            
+        Returns:
+            An instance of ClinicalBERTAdapter with the loaded model
+            
+        Example:
+            >>> adapter = ClinicalBERTAdapter.from_pretrained("emilyalsentzer/Bio_ClinicalBERT")
+        """
+        if not TRANSFORMERS_AVAILABLE:
+            raise ImportError("The transformers library is required to load pre-trained models. "
+                           "Please install it with: pip install transformers")
+        
+        from transformers import AutoModel
+        
+        # Load the model and tokenizer
+        model = AutoModel.from_pretrained(model_name_or_path, **kwargs)
+        
+        # Create config dictionary for the adapter
+        config = {
+            "model_name_or_path": model_name_or_path,
+            "tensor_parallel_size": kwargs.get("tensor_parallel_size", 1),
+            "use_cuda_graphs": kwargs.get("use_cuda_graphs", False),
+            "memory_efficient": kwargs.get("memory_efficient", True),
+            "enable_mixed_precision": kwargs.get("enable_mixed_precision", False),
+        }
+        
+        # Create and return the adapter instance
+        return cls(model=model, config=config)
+    
     def __init__(self, model: nn.Module, config: Dict[str, Any]):
         super().__init__(model, config)
         self.model_type = "clinicalbert"

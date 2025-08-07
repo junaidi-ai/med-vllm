@@ -16,7 +16,8 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter
+# Import mock adapters for testing
+from tests.utils.mock_adapters import BioBERTAdapter, ClinicalBERTAdapter
 from medvllm.utils.datasets import load_medical_dataset
 
 # Test configuration

@@ -157,7 +157,7 @@ class JSONSerializer(ConfigSerializer):
         """Deserialize configuration from JSON.
 
         Args:
-            json_input: JSON string, bytes, or file path to load from
+            json_str: JSON string to load from
             config_class: The configuration class to instantiate
             **json_kwargs: Additional arguments to pass to json.loads()
 
@@ -169,10 +169,20 @@ class JSONSerializer(ConfigSerializer):
                        is invalid
         """
         from medvllm.medical.config.models.schema import MedicalModelConfigSchema
+        from medvllm.medical.config.models.medical_config import SUPPORTED_MODEL_TYPES
 
         try:
             # Parse JSON string to dict
             json_dict = json.loads(json_str, **json_kwargs)
+
+            # Validate model_type if present
+            if 'model_type' in json_dict:
+                model_type = json_dict['model_type']
+                if model_type not in SUPPORTED_MODEL_TYPES:
+                    raise ValueError(
+                        f"Unsupported model_type: {model_type}. "
+                        f"Must be one of: {', '.join(SUPPORTED_MODEL_TYPES)}"
+                    )
 
             # Validate against the schema first
             schema_data = MedicalModelConfigSchema.model_validate(
@@ -195,6 +205,10 @@ class JSONSerializer(ConfigSerializer):
             for field, value in config_data.items():
                 if hasattr(config_class, field):
                     setattr(config, field, value)
+
+            # Validate the config after creation
+            if hasattr(config, 'validate'):
+                config.validate()
 
             return config
 

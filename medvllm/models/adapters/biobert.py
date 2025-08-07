@@ -20,10 +20,10 @@ except ImportError:
         pass
     AutoTokenizer = None
 
-from .base import MedicalModelAdapter
+from .base import MedicalModelAdapterBase
 
 
-class BioBERTAdapter(MedicalModelAdapter):
+class BioBERTAdapter(MedicalModelAdapterBase):
     """Adapter for BioBERT models optimized for medical NLP tasks.
 
     This adapter handles:
@@ -33,6 +33,41 @@ class BioBERTAdapter(MedicalModelAdapter):
     - CUDA graph optimization
     """
 
+    @classmethod
+    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> 'BioBERTAdapter':
+        """Load a pre-trained BioBERT model and return an adapter instance.
+        
+        Args:
+            model_name_or_path: Name or path of the pre-trained model
+            **kwargs: Additional arguments to pass to the model and adapter
+            
+        Returns:
+            An instance of BioBERTAdapter with the loaded model
+            
+        Example:
+            >>> adapter = BioBERTAdapter.from_pretrained("monologg/biobert_v1.1_pubmed")
+        """
+        if not TRANSFORMERS_AVAILABLE:
+            raise ImportError("The transformers library is required to load pre-trained models. "
+                           "Please install it with: pip install transformers")
+        
+        from transformers import AutoModel
+        
+        # Load the model and tokenizer
+        model = AutoModel.from_pretrained(model_name_or_path, **kwargs)
+        
+        # Create config dictionary for the adapter
+        config = {
+            "model_name_or_path": model_name_or_path,
+            "tensor_parallel_size": kwargs.get("tensor_parallel_size", 1),
+            "use_cuda_graphs": kwargs.get("use_cuda_graphs", False),
+            "memory_efficient": kwargs.get("memory_efficient", True),
+            "enable_mixed_precision": kwargs.get("enable_mixed_precision", False),
+        }
+        
+        # Create and return the adapter instance
+        return cls(model=model, config=config)
+    
     def __init__(self, model: nn.Module, config: Dict[str, Any]):
         """Initialize the BioBERT adapter.
 
@@ -59,15 +94,23 @@ class BioBERTAdapter(MedicalModelAdapter):
     def _setup_biobert_tokenizer(self) -> None:
         """Set up BioBERT-specific tokenizer with biomedical vocabulary."""
         try:
+            print(f"DEBUG: Starting _setup_biobert_tokenizer")
+            print(f"DEBUG: self.model.config = {self.model.config}")
+            print(f"DEBUG: hasattr(self.model.config, '_name_or_path'): {hasattr(self.model.config, '_name_or_path')}")
+            
             # Try to get tokenizer from model config or create default
             model_name = getattr(
                 self.model.config, "_name_or_path", "dmis-lab/biobert-v1.1"
             )
+            print(f"DEBUG: model_name = {model_name}")
+            
+            print("DEBUG: About to call AutoTokenizer.from_pretrained")
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name,
                 do_lower_case=False,  # BioBERT uses cased tokenization
                 trust_remote_code=True,
             )
+            print("DEBUG: Successfully initialized tokenizer")
 
             # Add biomedical tokens
             self._add_biomedical_tokens()

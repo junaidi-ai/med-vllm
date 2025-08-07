@@ -4,17 +4,35 @@ This module provides common test utilities, fixtures, and mock objects that can 
 used across different test modules. It's designed to help with testing components
 that depend on external libraries like transformers and torch.
 """
-import os
 import sys
-import types
-import importlib
-import pkgutil
-import contextlib
-from enum import Enum
-from typing import Any, Dict, List, Optional, Type, get_origin, get_args
-from unittest.mock import MagicMock, patch, mock_open
-
+import os
+import json
+import yaml
+import tempfile
+import shutil
+import logging
 import pytest
+import types
+import inspect
+import contextlib
+import importlib.util
+import pkgutil
+from unittest.mock import MagicMock, patch, PropertyMock
+from pathlib import Path
+
+# Add the project root to the Python path to ensure imports work
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Import the actual PyTorch
+import torch
+
+# Import our mock adapters and models
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Import the patching functions from our separate module
+from tests.conftest_patches import apply_patches
 
 # Add the project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -45,6 +63,11 @@ if os.path.exists(medical_config_path):
 
 def pytest_configure():
     """Configure pytest and set up mocks before test collection."""
+    # Apply our patches
+    from tests.conftest_patches import patch_adapters, patch_medical_model
+    patch_adapters()
+    patch_medical_model()
+    
     # Create a mock torch module
     torch = sys.modules['torch'] = types.ModuleType('torch')
     
@@ -206,9 +229,198 @@ def create_module(name, **attrs):
         setattr(module, attr, value)
     return module
 
+class MockTensor:
+    def __init__(self, data, dtype=None, device=None, requires_grad=False):
+        self.data = data
+        self.dtype = dtype or type('dtype', (), {'__name__': 'torch.float32'})()
+        self.device = device or 'cpu'
+        self.requires_grad = requires_grad
+        self.shape = (len(data),) if hasattr(data, '__len__') else (1,)
+    
+    def to(self, *args, **kwargs):
+        if args and (args[0] in (torch.float32, torch.float64, torch.long, torch.int64) or 
+                    isinstance(args[0], str) and args[0] in ('cpu', 'cuda')):
+            return self
+        return self
+    
+    def cuda(self, *args, **kwargs):
+        return self
+    
+    def cpu(self):
+        return self
+    
+    def numpy(self):
+        import numpy as np
+        return np.array(self.data)
+    
+    def __len__(self):
+        return len(self.data) if hasattr(self.data, '__len__') else 1
+    
+    def __getitem__(self, idx):
+        return self.data[idx] if hasattr(self.data, '__getitem__') else self.data
+    
+    def size(self, dim=None):
+        if dim is None:
+            return self.shape
+        return self.shape[dim] if dim < len(self.shape) else 1
+    
+    def view(self, *args):
+        return self
+    
+    def __str__(self):
+        return f'MockTensor({self.data}, dtype={self.dtype}, device={self.device})'
+    
+    def __repr__(self):
+        return self.__str__()
+
 # Create proper module hierarchy for torch
 torch = create_module('torch')
 torch.__version__ = '2.0.0'
+
+# Add common dtypes
+torch.float32 = type('dtype', (), {'__name__': 'torch.float32'})()
+torch.float64 = type('dtype', (), {'__name__': 'torch.float64'})()
+torch.long = type('dtype', (), {'__name__': 'torch.long'})()
+torch.int64 = type('dtype', (), {'__name__': 'torch.int64'})()
+
+# Add device handling
+torch.device = lambda device: f'device({device})'
+
+# Add cuda module
+torch.cuda = create_module('torch.cuda')
+torch.cuda.is_available = lambda: False
+
+# Add nn module
+torch.nn = create_module('torch.nn')
+torch.nn.functional = create_module('torch.nn.functional')
+torch.optim = create_module('torch.optim')
+
+# Set up tensor creation functions
+def tensor(data, *args, **kwargs):
+    return MockTensor(data, **kwargs)
+
+def ones(*size, **kwargs):
+    return MockTensor([1] * (size[0] if size else 1), **kwargs)
+
+def zeros(*size, **kwargs):
+    return MockTensor([0] * (size[0] if size else 1), **kwargs)
+
+def randn(*size, **kwargs):
+    import random
+    data = [random.random() for _ in range(size[0] if size else 1)]
+    return MockTensor(data, **kwargs)
+
+def arange(*args, **kwargs):
+    start = 0
+    end = args[0]
+    if len(args) > 1:
+        start = args[0]
+        end = args[1]
+    return MockTensor(list(range(start, end)), **kwargs)
+
+torch.tensor = tensor
+torch.ones = ones
+torch.zeros = zeros
+torch.randn = randn
+torch.arange = arange
+
+# Set up Tensor class
+torch.Tensor = MockTensor
+torch.utils = create_module('torch.utils')
+torch.utils.data = create_module('torch.utils.data')
+torch.distributed = create_module('torch.distributed')
+torch.autograd = create_module('torch.autograd')
+
+# Mock CUDA functions
+torch.cuda.is_available = lambda: False
+torch.cuda.device_count = lambda: 0
+torch.cuda.current_device = lambda: 0
+torch.cuda.set_device = lambda *args, **kwargs: None
+
+# Mock tensor creation functions
+torch.tensor = lambda *args, **kwargs: args[0] if args else None
+torch.Tensor = type('Tensor', (object,), {
+    'to': lambda self, *args, **kwargs: self,
+    'cuda': lambda self, *args, **kwargs: self,
+    'cpu': lambda self: self,
+    'numpy': lambda self: None,
+    'detach': lambda self: self,
+    'requires_grad_': lambda self, requires_grad=True: self,
+    'shape': (1,),
+    'dtype': torch.float32,
+    'device': 'cpu',
+    '__array_interface__': {'shape': (1,), 'typestr': '<f4'}
+})
+
+torch.FloatTensor = torch.Tensor
+torch.LongTensor = torch.Tensor
+torch.IntTensor = torch.Tensor
+
+# Mock nn.Module
+torch.nn.Module = type('Module', (object,), {
+    '__init__': lambda self: None,
+    'parameters': lambda self: [],
+    'to': lambda self, *args, **kwargs: self,
+    'eval': lambda self: self,
+    'train': lambda self, mode=True: self,
+    'state_dict': lambda self: {},
+    'load_state_dict': lambda self, state_dict, strict=True: None,
+    'forward': lambda self, *args, **kwargs: None,
+    'cuda': lambda self, device=None: self,
+    'cpu': lambda self: self,
+    'zero_grad': lambda self: None,
+    'requires_grad_': lambda self, requires_grad=True: self,
+})
+
+# Mock nn.functional
+torch.nn.functional.softmax = lambda x, dim=-1: x
+torch.nn.functional.log_softmax = lambda x, dim=-1: x
+torch.nn.functional.cross_entropy = lambda input, target, *args, **kwargs: torch.tensor(0.0)
+torch.nn.functional.mse_loss = lambda input, target, *args, **kwargs: torch.tensor(0.0)
+
+# Mock optim
+torch.optim.Adam = type('Adam', (object,), {
+    '__init__': lambda self, params, **kwargs: None,
+    'step': lambda self, closure=None: None,
+    'zero_grad': lambda self, set_to_none=False: None,
+    'state_dict': lambda self: {},
+    'load_state_dict': lambda self, state_dict: None,
+})
+
+torch.optim.AdamW = torch.optim.Adam
+
+# Mock autograd
+torch.no_grad = contextlib.nullcontext
+torch.enable_grad = contextlib.nullcontext
+torch.set_grad_enabled = lambda mode: contextlib.nullcontext()
+
+torch.autograd.Variable = torch.Tensor
+torch.autograd.Function = type('Function', (object,), {
+    'forward': lambda *args, **kwargs: args[0] if args else None,
+    'backward': lambda *args, **kwargs: None,
+})
+
+# Mock distributed
+torch.distributed.is_available = lambda: False
+torch.distributed.is_initialized = lambda: False
+
+# Mock utils
+torch.utils.data.DataLoader = type('DataLoader', (object,), {
+    '__init__': lambda self, dataset=None, batch_size=1, shuffle=False, **kwargs: None,
+    '__iter__': lambda self: iter([]),
+    '__len__': lambda self: 0,
+})
+
+# Mock random functions
+torch.randn = lambda *args, **kwargs: torch.Tensor()
+torch.rand = lambda *args, **kwargs: torch.Tensor()
+torch.zeros = lambda *args, **kwargs: torch.Tensor()
+torch.ones = lambda *args, **kwargs: torch.Tensor()
+torch.empty = lambda *args, **kwargs: torch.Tensor()
+torch.arange = lambda *args, **kwargs: torch.Tensor()
+torch.linspace = lambda *args, **kwargs: torch.Tensor()
+
+torch.tensor = lambda *args, **kwargs: args[0] if args else None
 
 # Add dtype attributes
 torch.float16 = 'torch.float16'
@@ -578,17 +790,25 @@ transformers.PreTrainedTokenizerBase = type('PreTrainedTokenizerBase', (object,)
 })
 
 # Add AutoModel classes
-transformers.AutoModel = type('AutoModel', (object,), {
-    'from_pretrained': classmethod(lambda cls, *args, **kwargs: transformers.PreTrainedModel()),
-})
+# Create a mock AutoModel class
+class MockAutoModel:
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        return mock_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs)
+
+transformers.AutoModel = MockAutoModel
 
 transformers.AutoModelForSequenceClassification = type('AutoModelForSequenceClassification', (object,), {
     'from_pretrained': classmethod(lambda cls, *args, **kwargs: transformers.PreTrainedModel()),
 })
 
-transformers.AutoModelForTokenClassification = type('AutoModelForTokenClassification', (object,), {
-    'from_pretrained': classmethod(lambda cls, *args, **kwargs: transformers.PreTrainedModel()),
-})
+# Create a mock AutoModel class
+class MockAutoModelForTokenClassification:
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        return mock_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs)
+
+transformers.AutoModelForTokenClassification = MockAutoModelForTokenClassification
 
 transformers.AutoTokenizer = type('AutoTokenizer', (object,), {
     'from_pretrained': classmethod(lambda cls, *args, **kwargs: transformers.PreTrainedTokenizerBase()),
@@ -603,37 +823,463 @@ transformers.AutoTokenizer = type('AutoTokenizer', (object,), {
     '__call__': lambda *args, **kwargs: {'input_ids': [[1, 2, 3]], 'attention_mask': [[1, 1, 1]]}
 })
 
-transformers.AutoConfig = type('AutoConfig', (object,), {
-    'from_pretrained': classmethod(lambda cls, *args, **kwargs: transformers.PretrainedConfig()),
-    'eos_token_id': 1,
-    'bos_token_id': 2,
-    'pad_token_id': 0,
-    'unk_token_id': 3,
-    'model_max_length': 512,
-    'is_fast': False,
-    'padding_side': 'right',
-    'truncation_side': 'right',
-    '__call__': lambda *args, **kwargs: {'input_ids': [[1, 2, 3]], 'attention_mask': [[1, 1, 1]]}
-})
+# Create a mock config class
+class MockConfig:
+    def __init__(self, model_type="bert", **kwargs):
+        self.model_type = model_type
+        self.vocab_size = kwargs.get('vocab_size', 32000)
+        self.hidden_size = kwargs.get('hidden_size', 768)
+        self.num_hidden_layers = kwargs.get('num_hidden_layers', 12)
+        self.num_attention_heads = kwargs.get('num_attention_heads', 12)
+        self.intermediate_size = kwargs.get('intermediate_size', 3072)
+        self.hidden_act = kwargs.get('hidden_act', 'gelu')
+        self.hidden_dropout_prob = kwargs.get('hidden_dropout_prob', 0.1)
+        self.attention_probs_dropout_prob = kwargs.get('attention_probs_dropout_prob', 0.1)
+        self.max_position_embeddings = kwargs.get('max_position_embeddings', 512)
+        self.type_vocab_size = kwargs.get('type_vocab_size', 2)
+        self.initializer_range = kwargs.get('initializer_range', 0.02)
+        self.layer_norm_eps = kwargs.get('layer_norm_eps', 1e-12)
+        self.pad_token_id = kwargs.get('pad_token_id', 0)
+        self.position_embedding_type = kwargs.get('position_embedding_type', 'absolute')
+        self.use_cache = kwargs.get('use_cache', True)
+        self.classifier_dropout = kwargs.get('classifier_dropout', None)
+        
+        # Tokenizer attributes
+        self.eos_token_id = 1
+        self.bos_token_id = 2
+        self.unk_token_id = 3
+        self.model_max_length = 512
+        self.is_fast = False
+        self.padding_side = 'right'
+        self.truncation_side = 'right'
+        
+        # Add any additional attributes from kwargs
+        for k, v in kwargs.items():
+            if not hasattr(self, k):
+                setattr(self, k, v)
+    
+    def to_dict(self):
+        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
 
-transformers.PreTrainedModel = type('PreTrainedModel', (), {
-    'config_class': type('MockConfig', (), {
-        '__init__': lambda self, model_type="qwen3", **kwargs: (
-            setattr(self, 'model_type', model_type) or
-            setattr(self, 'vocab_size', 32000) or
-            setattr(self, 'hidden_size', 4096) or
-            setattr(self, 'num_hidden_layers', 32) or
-            setattr(self, 'num_attention_heads', 32) or
-            [setattr(self, k, v) for k, v in kwargs.items()]
-        ),
-        'to_dict': lambda self: {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
-    }),
-    'from_pretrained': classmethod(lambda cls, *args, **kwargs: cls()),
-    '__init__': lambda self, config=None: setattr(self, 'config', config or transformers.PreTrainedModel.config_class())
-})
+# Create a mock AutoConfig class
+class MockAutoConfig:
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        # Check if we should return unused kwargs
+        return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
+        
+        # Create appropriate config based on model name
+        model_name = str(pretrained_model_name_or_path).lower()
+        
+        # Filter out any kwargs that shouldn't be passed to the config
+        config_kwargs = {k: v for k, v in kwargs.items() 
+                        if not k.startswith('_') and k not in ['from_tf', 'from_flax']}
+        
+        # Create the appropriate config with the filtered kwargs
+        if 'gpt2' in model_name:
+            config = MockGPT2Config(**config_kwargs)
+        else:
+            config = MockConfig(**config_kwargs)
+        
+        # If return_unused_kwargs is True, return a tuple of (config, unused_kwargs)
+        if return_unused_kwargs:
+            # Remove used kwargs from the original kwargs
+            unused_kwargs = {k: v for k, v in kwargs.items() 
+                           if k not in config_kwargs or v != getattr(config, k, None)}
+            return config, unused_kwargs
+            
+        # Otherwise, just return the config
+        return config
+
+transformers.AutoConfig = MockAutoConfig
+
+# Create a mock model class
+class MockPreTrainedModel:
+    config_class = MockConfig
+    
+    def __init__(self, config=None, *args, **kwargs):
+        self.config = config if config is not None else self.config_class()
+        self.device = torch.device('cpu')
+        self.training = False
+    
+    def to(self, device=None, *args, **kwargs):
+        if device is not None:
+            self.device = torch.device(device) if isinstance(device, str) else device
+        return self
+    
+    def eval(self):
+        self.training = False
+        return self
+    
+    def train(self, mode=True):
+        self.training = mode
+        return self
+    
+    def __call__(self, *args, **kwargs):
+        # Return a dummy output
+        return {
+            'logits': torch.randn(1, 10),
+            'last_hidden_state': torch.randn(1, 10, self.config.hidden_size)
+        }
+
+# Update the transformers mocks
+transformers.PreTrainedModel = MockPreTrainedModel
+
+def mock_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+    # For testing purposes, return a mock model with a config
+    model_name = str(pretrained_model_name_or_path).lower()
+    
+    # Check if we should return unused kwargs (mimicking transformers' behavior)
+    return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
+    
+    # Create appropriate config based on model name
+    if "gpt2" in model_name:
+        # Create a GPT2 config with provided kwargs
+        config_kwargs = {k: v for k, v in kwargs.items() 
+                        if not k.startswith('_') and k not in ['from_tf', 'from_flax']}
+        config = MockGPT2Config(**config_kwargs)
+        
+        # Create appropriate model based on class name
+        if hasattr(cls, '__name__') and 'ForSequenceClassification' in cls.__name__:
+            model = MockPreTrainedModel(config=config)
+            model.__class__.__name__ = 'GPT2ForSequenceClassification'
+        elif hasattr(cls, '__name__') and 'ForTokenClassification' in cls.__name__:
+            model = MockPreTrainedModel(config=config)
+            model.__class__.__name__ = 'GPT2ForTokenClassification'
+        else:
+            model = MockPreTrainedModel(config=config)
+            model.__class__.__name__ = 'GPT2LMHeadModel'
+    else:
+        # Default to a basic model for other types
+        config = MockConfig()
+        model = MockPreTrainedModel(config=config)
+    
+    # Set device if specified
+    device = kwargs.get('device', None)
+    if device is not None:
+        model.device = device
+    
+    # Add config to model
+    model.config = config
+    
+    # Return either just the model or a tuple with unused kwargs
+    if return_unused_kwargs:
+        # Filter out used kwargs
+        used_kwargs = set(config_kwargs.keys()) | {'device'}
+        unused_kwargs = {k: v for k, v in kwargs.items() if k not in used_kwargs}
+        return model, unused_kwargs
+        
+    return model, kwargs
+
+transformers.PreTrainedModel.from_pretrained = classmethod(mock_from_pretrained)
 
 # Add submodules
 transformers.models = create_module('transformers.models')
+
+# Create mock for transformers.models.gpt2
+transformers.models.gpt2 = create_module('transformers.models.gpt2')
+
+# Ensure the mock is in sys.modules
+import sys
+sys.modules['transformers.models.gpt2'] = transformers.models.gpt2
+sys.modules['transformers.models.gpt2.configuration_gpt2'] = transformers.models.gpt2
+
+# Mock GPT2Config
+class MockGPT2Config(MockConfig):
+    model_type = 'gpt2'
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.n_embd = kwargs.get('n_embd', 768)
+        self.n_layer = kwargs.get('n_layer', 12)
+        self.n_head = kwargs.get('n_head', 12)
+        self.n_positions = kwargs.get('n_positions', 1024)
+        self.vocab_size = kwargs.get('vocab_size', 50257)
+        self.bos_token_id = kwargs.get('bos_token_id', 50256)
+        self.eos_token_id = kwargs.get('eos_token_id', 50256)
+        self.n_ctx = kwargs.get('n_ctx', 1024)
+        self.resid_pdrop = kwargs.get('resid_pdrop', 0.1)
+        self.embd_pdrop = kwargs.get('embd_pdrop', 0.1)
+        self.attn_pdrop = kwargs.get('attn_pdrop', 0.1)
+        self.layer_norm_epsilon = kwargs.get('layer_norm_epsilon', 1e-5)
+        self.initializer_range = kwargs.get('initializer_range', 0.02)
+        self.summary_type = kwargs.get('summary_type', 'cls_index')
+    
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        # Check if we should return unused kwargs
+        return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
+        
+        # Create a new instance of this config
+        config = cls(**kwargs)
+        
+        # Return either just the config or a tuple with unused kwargs
+        if return_unused_kwargs:
+            return config, kwargs
+        return config
+        self.summary_use_proj = kwargs.get('summary_use_proj', True)
+        self.summary_activation = kwargs.get('summary_activation', None)
+        self.summary_proj_to_labels = kwargs.get('summary_proj_to_labels', True)
+        self.summary_first_dropout = kwargs.get('summary_first_dropout', 0.1)
+        
+        # Update with any additional kwargs
+        for k, v in kwargs.items():
+            if not hasattr(self, k):
+                setattr(self, k, v)
+    
+    @classmethod
+    def from_dict(cls, config_dict, **kwargs):
+        # Create a new instance with the config dictionary values
+        return cls(**{**config_dict, **kwargs})
+    
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        """Mock for from_pretrained that returns (config, kwargs) tuple."""
+        config = cls()
+        return config, kwargs
+    
+    def to_dict(self):
+        # Convert the config to a dictionary
+        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+    
+    def __str__(self):
+        return f"{self.__class__.__name__} {self.to_dict()}"
+
+# Assign the mock config to the transformers module
+transformers.models.gpt2.GPT2Config = MockGPT2Config
+
+# Mock GPT2Model
+transformers.models.gpt2.GPT2Model = type('GPT2Model', (MockPreTrainedModel,), {
+    'config_class': transformers.models.gpt2.GPT2Config,
+    'base_model_prefix': 'transformer',
+    'main_input_name': 'input_ids',
+    '_no_split_modules': ['GPT2Block'],
+    '_keys_to_ignore_on_load_missing': [r'attn.masked_bias', r'attn.bias'],
+})
+
+# Mock GPT2LMHeadModel
+transformers.models.gpt2.GPT2LMHeadModel = type('GPT2LMHeadModel', (transformers.models.gpt2.GPT2Model,), {
+    'tie_weights': lambda self: None,
+    'get_output_embeddings': lambda self: None,
+    'set_output_embeddings': lambda self, new_embeddings: None,
+    'prepare_inputs_for_generation': lambda self, input_ids, past_key_values=None, **kwargs: {
+        'input_ids': input_ids,
+        'past_key_values': past_key_values,
+        'use_cache': kwargs.get('use_cache'),
+    },
+    '__module__': 'transformers.models.gpt2.modeling_gpt2',
+})
+
+# Mock GPT2ForSequenceClassification
+transformers.models.gpt2.GPT2ForSequenceClassification = type('GPT2ForSequenceClassification', (transformers.models.gpt2.GPT2Model,), {
+    'num_labels': 2,
+    'score': torch.nn.Linear(768, 2),
+    '__module__': 'transformers.models.gpt2.modeling_gpt2',
+})
+
+# Mock GPT2ForTokenClassification
+transformers.models.gpt2.GPT2ForTokenClassification = type('GPT2ForTokenClassification', (transformers.models.gpt2.GPT2Model,), {
+    'num_labels': 9,  # Typical number of NER labels
+    'classifier': torch.nn.Linear(768, 9),
+    '__module__': 'transformers.models.gpt2.modeling_gpt2',
+})
+
+# Mock the configuration module
+transformers.models.gpt2.configuration_gpt2 = type('GPT2ConfigModule', (), {
+    'GPT2Config': transformers.models.gpt2.GPT2Config,
+    '__all__': ['GPT2Config'],
+    '__file__': 'transformers/models/gpt2/configuration_gpt2.py',
+})
+
+# Mock the modeling module
+transformers.models.gpt2.modeling_gpt2 = type('GPT2ModelingModule', (), {
+    'GPT2Model': transformers.models.gpt2.GPT2Model,
+    'GPT2LMHeadModel': transformers.models.gpt2.GPT2LMHeadModel,
+    'GPT2ForSequenceClassification': transformers.models.gpt2.GPT2ForSequenceClassification,
+    'GPT2ForTokenClassification': transformers.models.gpt2.GPT2ForTokenClassification,
+    '__all__': ['GPT2Model', 'GPT2LMHeadModel', 'GPT2ForSequenceClassification', 'GPT2ForTokenClassification'],
+    '__file__': 'transformers/models/gpt2/modeling_gpt2.py',
+})
+
+# Update sys.modules
+sys.modules['transformers.models.gpt2.modeling_gpt2'] = transformers.models.gpt2.modeling_gpt2
+sys.modules['transformers.models.gpt2.configuration_gpt2'] = transformers.models.gpt2.configuration_gpt2
+
+# Create a comprehensive mock for the transformers library
+class MockTransformers:
+    class AutoConfig:
+        @classmethod
+        def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+            """Mock for AutoConfig.from_pretrained that returns (config, kwargs) tuple."""
+            # Check if we should return unused kwargs
+            return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
+            
+            # Create appropriate config based on model name
+            model_name = str(pretrained_model_name_or_path).lower()
+            
+            # Filter out any kwargs that shouldn't be passed to the config
+            config_kwargs = {k: v for k, v in kwargs.items() 
+                           if not k.startswith('_') and k not in ['from_tf', 'from_flax']}
+            
+            if 'gpt2' in model_name:
+                config = MockGPT2Config(**config_kwargs)
+            else:
+                config = MockConfig(**config_kwargs)
+            
+            # Return either just the config or a tuple with unused kwargs
+            if return_unused_kwargs:
+                # Remove used kwargs from the original kwargs
+                unused_kwargs = {k: v for k, v in kwargs.items() 
+                               if k not in config_kwargs or v != getattr(config, k, None)}
+                return config, unused_kwargs
+                
+            return config
+    
+    class AutoModel:
+        @classmethod
+        def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+            """Mock for AutoModel.from_pretrained that returns a mock model."""
+            # Create a mock model
+            class MockModel:
+                def __init__(self, *args, **kwargs):
+                    self.config = kwargs.get('config')
+                    self.device = kwargs.get('device', 'cpu')
+                    
+                def to(self, device):
+                    self.device = device
+                    return self
+                    
+            return MockModel()
+    
+    # Add configuration base class first
+    class PretrainedConfig:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+                
+        @classmethod
+        def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+            return cls(), kwargs
+    
+    # Store a reference to the config class
+    _config_class = PretrainedConfig
+    
+    # Add model base class with config_class as a property
+    class PreTrainedModel:
+        @property
+        @classmethod
+        def config_class(cls):
+            return _config_class
+        
+    class PreTrainedTokenizerBase:
+        pass
+        
+    class PreTrainedTokenizer(PreTrainedTokenizerBase):
+        pass
+        
+    class AutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            class MockTokenizer:
+                def __call__(self, *args, **kwargs):
+                    return {'input_ids': [1, 2, 3], 'attention_mask': [1, 1, 1]}
+                    
+                def encode(self, *args, **kwargs):
+                    return [1, 2, 3]
+                    
+                def decode(self, *args, **kwargs):
+                    return "Mock decoded text"
+                    
+            return MockTokenizer()
+    
+    class AutoModelForCausalLM:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return MockTransformers.AutoModel.from_pretrained(*args, **kwargs)
+    
+    class AutoModelForSequenceClassification:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return MockTransformers.AutoModel.from_pretrained(*args, **kwargs)
+    
+    class AutoModelForTokenClassification:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return MockTransformers.AutoModel.from_pretrained(*args, **kwargs)
+    
+    # Add models attribute with necessary submodules
+    class Models:
+        class gpt2:
+            class GPT2Config:
+                @classmethod
+                def from_pretrained(cls, *args, **kwargs):
+                    return MockGPT2Config(), kwargs
+            
+            class GPT2Model:
+                pass
+            
+            class GPT2LMHeadModel:
+                pass
+            
+            class GPT2ForSequenceClassification:
+                pass
+            
+            class GPT2ForTokenClassification:
+                pass
+            
+            # Add configuration and modeling modules
+            configuration_gpt2 = type('configuration_gpt2', (), {'GPT2Config': GPT2Config})()
+            modeling_gpt2 = type('modeling_gpt2', (), {
+                'GPT2Model': GPT2Model,
+                'GPT2LMHeadModel': GPT2LMHeadModel,
+                'GPT2ForSequenceClassification': GPT2ForSequenceClassification,
+                'GPT2ForTokenClassification': GPT2ForTokenClassification
+            })()
+        
+        # Add auto module
+        class auto:
+            class configuration_auto:
+                @classmethod
+                def AutoConfig(cls):
+                    return MockTransformers.AutoConfig
+            
+            class modeling_auto:
+                @classmethod
+                def AutoModel(cls):
+                    return MockTransformers.AutoModel
+                
+                @classmethod
+                def AutoModelForCausalLM(cls):
+                    return MockTransformers.AutoModelForCausalLM
+                
+                @classmethod
+                def AutoModelForSequenceClassification(cls):
+                    return MockTransformers.AutoModelForSequenceClassification
+                
+                @classmethod
+                def AutoModelForTokenClassification(cls):
+                    return MockTransformers.AutoModelForTokenClassification
+
+# Create an instance of our mock transformers
+mock_transformers = MockTransformers()
+
+# Set up the models attribute and its submodules
+mock_transformers.models = MockTransformers.Models()
+mock_transformers.models.auto = MockTransformers.Models.auto()
+mock_transformers.models.auto.configuration_auto = MockTransformers.Models.auto.configuration_auto()
+mock_transformers.models.auto.modeling_auto = MockTransformers.Models.auto.modeling_auto()
+mock_transformers.models.gpt2 = MockTransformers.Models.gpt2()
+
+# Replace the transformers module with our mock
+transformers = sys.modules['transformers'] = mock_transformers
+
+# Re-export the mock classes for easier access
+transformers.AutoConfig = MockTransformers.AutoConfig
+transformers.AutoModel = MockTransformers.AutoModel
+transformers.PreTrainedModel = MockTransformers.PreTrainedModel
+transformers.AutoModelForCausalLM = MockTransformers.AutoModelForCausalLM
+transformers.AutoModelForSequenceClassification = MockTransformers.AutoModelForSequenceClassification
+transformers.AutoModelForTokenClassification = MockTransformers.AutoModelForTokenClassification
 transformers.models.auto = create_module('transformers.models.auto')
 transformers.models.auto.configuration_auto = create_module('transformers.models.auto.configuration_auto')
 
@@ -695,10 +1341,30 @@ def mock_transformers():
     """Fixture that provides access to the mocked transformers module."""
     return transformers
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def mock_torch():
     """Fixture that provides access to the mocked torch module."""
-    return torch
+    # Save the original torch module if it exists
+    original_torch = sys.modules.get('torch')
+    
+    # Patch the torch module
+    sys.modules['torch'] = torch
+    sys.modules['torch.nn'] = torch.nn
+    sys.modules['torch.nn.functional'] = torch.nn.functional
+    sys.modules['torch.optim'] = torch.optim
+    sys.modules['torch.utils'] = torch.utils
+    sys.modules['torch.utils.data'] = torch.utils.data
+    sys.modules['torch.distributed'] = torch.distributed
+    sys.modules['torch.autograd'] = torch.autograd
+    
+    # Yield the mocked torch module
+    yield torch
+    
+    # Restore the original torch module if it existed
+    if original_torch is not None:
+        sys.modules['torch'] = original_torch
+    else:
+        sys.modules.pop('torch', None)
 
 @pytest.fixture
 def mock_model_config():
@@ -708,4 +1374,44 @@ def mock_model_config():
 @pytest.fixture
 def mock_tokenizer():
     """Fixture that provides a mock tokenizer."""
-    return transformers.PreTrainedTokenizerBase()
+    return MagicMock()
+
+@pytest.fixture
+def temp_model_dir(tmp_path):
+    """Fixture that provides a temporary directory for testing model configurations.
+    
+    This fixture creates a temporary directory with a basic model configuration file
+    that can be used for testing model loading and configuration.
+    """
+    # Create a basic model configuration
+    config = {
+        "model_type": "medical_llm",
+        "model_name_or_path": "test-model",
+        "vocab_size": 30522,
+        "hidden_size": 768,
+        "num_hidden_layers": 12,
+        "num_attention_heads": 12,
+        "intermediate_size": 3072,
+        "hidden_dropout_prob": 0.1,
+        "attention_probs_dropout_prob": 0.1,
+        "max_position_embeddings": 512,
+        "type_vocab_size": 2,
+        "initializer_range": 0.02,
+        "layer_norm_eps": 1e-12,
+        "pad_token_id": 0,
+        "position_embedding_type": "absolute",
+        "use_cache": True,
+        "classifier_dropout": 0.1,
+        "medical_specialties": ["cardiology", "radiology"],
+        "anatomical_regions": ["head", "chest"],
+        "max_sequence_length": 512,
+    }
+    
+    # Create a config file in the temporary directory
+    config_path = tmp_path / "config.json"
+    with open(config_path, 'w') as f:
+        import json
+        json.dump(config, f)
+    
+    # Return the temporary directory path
+    return tmp_path

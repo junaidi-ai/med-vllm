@@ -94,20 +94,18 @@ mock_transformers.AutoConfig = MockAutoConfig
 # Add to sys.modules
 sys.modules["transformers"] = mock_transformers
 
-# Now import the adapter implementation
-from medvllm.models.adapters import (
-    BioBERTAdapter,
-    ClinicalBERTAdapter,
-    MedicalModelAdapter,
-)
+# Now import the adapter implementation with absolute imports
+from medvllm.models.adapters.base import MedicalModelAdapterBase
+from medvllm.models.adapters.biobert import BioBERTAdapter
+from medvllm.models.adapters.clinicalbert import ClinicalBERTAdapter
 
 # Test cases
 def test_medical_model_adapter_initialization():
-    """Test basic initialization of MedicalModelAdapter."""
+    """Test basic initialization of MedicalModelAdapterBase."""
     mock_model = MagicMock()
     mock_model.config = {}
     
-    adapter = MedicalModelAdapter(model=mock_model, config={"model_type": "test"})
+    adapter = MedicalModelAdapterBase(model=mock_model, config={"model_type": "test"})
     assert adapter.model == mock_model
     assert adapter.config["model_type"] == "test"
 
@@ -126,5 +124,5 @@ def test_clinicalbert_adapter_initialization():
     mock_model.config = {}
     
     adapter = ClinicalBERTAdapter(model=mock_model, config={"model_type": "clinicalbert"})
-    assert isinstance(adapter, MedicalModelAdapter)
+    assert isinstance(adapter, MedicalModelAdapterBase)
     assert adapter.config["model_type"] == "clinicalbert"

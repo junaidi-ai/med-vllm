@@ -99,7 +99,22 @@ DEFAULT_NER_THRESHOLD = 0.5
 DEFAULT_MAX_ENTITY_SPAN_LENGTH = 10
 
 # Define supported model types as a set of strings
+# These should match the ModelType enum in schema.py
 SUPPORTED_MODEL_TYPES = {
+    # Base model types
+    "bert",
+    "roberta",
+    "gpt2",
+    "t5",
+    
+    # Medical model types
+    "medical_bert",
+    "biobert",
+    "clinical_bert",
+    "pubmed_bert",
+    "bluebert",
+    
+    # Legacy model types (kept for backward compatibility)
     "medical_llm",
     "medical_ner",
     "medical_qa",
@@ -110,8 +125,8 @@ SUPPORTED_MODEL_TYPES = {
 }
 
 # Default configuration values
-DEFAULT_MEDICAL_SPECIALTIES = ["general_medicine"]
-DEFAULT_ANATOMICAL_REGIONS = ["full_body"]
+DEFAULT_MEDICAL_SPECIALTIES = ["family_medicine"]  # Changed from 'general_medicine' to 'family_medicine' to match MedicalSpecialty enum
+DEFAULT_ANATOMICAL_REGIONS = ["head"]  # Changed from 'full_body' to 'head' to match AnatomicalRegion enum
 DEFAULT_IMAGING_MODALITIES = ["xray", "ct", "mri", "ultrasound"]
 DEFAULT_ENTITY_TYPES = ["disease", "symptom", "medication", "procedure"]
 DEFAULT_DOCUMENT_TYPES = ["clinical_note", "discharge_summary", "radiology_report"]
@@ -352,137 +367,150 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         This method performs several important tasks after the configuration is
         initialized:
-        1. Validates all configuration parameters
+        1. Converts between string and enum representations
         2. Sets up default values for optional fields
         3. Initializes version compatibility checks
-        4. Performs any necessary type conversions
+        4. Sets up pretrained model paths
+        5. Initializes dependent configurations
+        6. Validates all configuration parameters
         """
-        # Convert string values to proper enum types
+        # Call parent's __post_init__ first to set up basic fields
+        super().__post_init__()
+        
+        # Convert between string and enum representations
         self._convert_enums()
-
-        # Skip version compatibility check since we're removing the dependency
-        # Just ensure config_version is set
-        if not hasattr(self, "config_version"):
-            self.config_version = "1.0.0"
-
+        
         # Set default pretrained paths if not specified
         self._set_default_pretrained_paths()
-
+        
         # Initialize any dependent configs
         self._initialize_dependent_configs()
-
+        
         # Validate all parameters
         self._validate_medical_parameters()
 
     def _convert_enums(self) -> None:
-        """Convert string values to proper enum types if needed.
-
-        This ensures type safety and consistency when loading serialized data.
+        """Convert between string and enum values for all enum fields.
+        
+        This method ensures type safety and consistency when loading serialized data.
+        It handles both string-to-enum and enum-to-string conversions based on the field type.
+        
+        For serialization (to_dict), all enums are converted to their string values.
+        For deserialization (from_dict), strings are converted to the appropriate enum type.
+        
+        Note: This method ensures that enum values are stored as lowercase strings in the internal
+        state to maintain consistency with test expectations.
         """
-
-        # Convert string values in lists to enums with type checking
-        def safe_convert(
-            value: Union[str, Enum], enum_type: Type[Enum]
-        ) -> Union[Enum, str]:
+        def convert_value(value: Any, enum_type: Type[Enum], for_serialization: bool = False) -> Any:
+            """Convert a value between string and enum representation.
+            
+            Args:
+                value: The value to convert (can be string, enum, or other type)
+                enum_type: The target enum type for conversion
+                for_serialization: Whether this is for serialization (to_dict) or not
+                
+            Returns:
+                The converted value (lowercase string for storage, enum for runtime use)
+            """
+            if value is None:
+                return None
+                
+            # Handle list of values
+            if isinstance(value, (list, tuple, set)):
+                converted = [convert_value(v, enum_type, for_serialization) for v in value]
+                # Return the same type as input (list, tuple, or set)
+                if isinstance(value, tuple):
+                    return tuple(converted)
+                elif isinstance(value, set):
+                    return set(converted)
+                return converted
+                
+            # If value is already the correct type
+            if isinstance(value, enum_type):
+                # Always return lowercase string value for storage
+                val = value.value if hasattr(value, 'value') else str(value)
+                return str(val).lower()
+            
+            # If value is already a string, ensure it's lowercase
             if isinstance(value, str):
+                # First try to normalize the string value
+                normalized_value = value.lower().replace(' ', '_')
+                
+                # Try to find enum by name or value (case-insensitive)
                 try:
-                    return enum_type(value.upper())
-                except (ValueError, AttributeError):
-                    warnings.warn(
-                        f"Invalid {enum_type.__name__} value: {value}",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-            return value
+                    for name, member in enum_type.__members__.items():
+                        member_value = str(member.value if hasattr(member, 'value') else str(member)).lower()
+                        if (name.lower() == normalized_value or 
+                            member_value == normalized_value or
+                            name.lower().replace('_', '') == normalized_value.replace('_', '')):
+                            # Return lowercase string value for storage
+                            return member_value.lower()
+                except (AttributeError, TypeError) as e:
+                    pass
+                    
+                # If no match found, return the normalized string
+                return normalized_value
+                
+            # For any other type, convert to lowercase string
+            return str(value).lower()
 
-        # Convert each list of enums to their string representations
-        if self.medical_specialties:
-            self.medical_specialties = [
-                (
-                    str(safe_convert(spec, MedicalSpecialty))
-                    if isinstance(spec, str)
-                    else str(spec.value) if hasattr(spec, "value") else str(spec)
-                )
-                for spec in self.medical_specialties
-            ]
+        # Define all enum fields and their corresponding enum types
+        enum_fields = {
+            'medical_specialties': MedicalSpecialty,
+            'anatomical_regions': AnatomicalRegion,
+            'imaging_modalities': ImagingModality,
+            'medical_entity_types': EntityType,
+            'document_types': DocumentType,
+            'regulatory_compliance': RegulatoryStandard,
+        }
+        
+        # Track if we're converting for serialization (to_dict) or deserialization (from_dict)
+        for_serialization = hasattr(self, '_serializing') and self._serializing
 
-        if self.anatomical_regions:
-            self.anatomical_regions = [
-                (
-                    str(safe_convert(region, AnatomicalRegion))
-                    if isinstance(region, str)
-                    else str(region.value) if hasattr(region, "value") else str(region)
-                )
-                for region in self.anatomical_regions
-            ]
-
-        if self.imaging_modalities:
-            self.imaging_modalities = [
-                (
-                    str(safe_convert(modality, ImagingModality))
-                    if isinstance(modality, str)
-                    else (
-                        str(modality.value)
-                        if hasattr(modality, "value")
-                        else str(modality)
-                    )
-                )
-                for modality in self.imaging_modalities
-            ]
-
-        if self.medical_entity_types:
-            self.medical_entity_types = [
-                (
-                    str(safe_convert(entity_type, EntityType))
-                    if isinstance(entity_type, str)
-                    else (
-                        str(entity_type.value)
-                        if hasattr(entity_type, "value")
-                        else str(entity_type)
-                    )
-                )
-                for entity_type in self.medical_entity_types
-            ]
-
-        if self.document_types:
-            self.document_types = [
-                (
-                    str(safe_convert(doc_type, DocumentType))
-                    if isinstance(doc_type, str)
-                    else (
-                        str(doc_type.value)
-                        if hasattr(doc_type, "value")
-                        else str(doc_type)
-                    )
-                )
-                for doc_type in self.document_types
-            ]
-
-        if self.regulatory_compliance:
-            self.regulatory_compliance = [
-                (
-                    str(safe_convert(std, RegulatoryStandard))
-                    if isinstance(std, str)
-                    else str(std.value) if hasattr(std, "value") else str(std)
-                )
-                for std in self.regulatory_compliance
-            ]
+        # Convert each enum field to store string values internally
+        for field_name, enum_type in enum_fields.items():
+            if hasattr(self, field_name):
+                current_value = getattr(self, field_name)
+                if current_value is None:
+                    continue
+                
+                # Convert the value (or list of values) to string representation
+                converted = convert_value(current_value, enum_type, for_serialization)
+                setattr(self, field_name, converted)
 
     def copy(self: T) -> T:
-        """Create a copy of the configuration.
-
-        This method ensures that domain_config and other fields are properly
-        handled during copying.
+        """Create a deep copy of the configuration.
+        
+        This method ensures that all fields, including nested objects and collections,
+        are properly copied. It handles special cases like domain_config and enum fields.
 
         Returns:
             A new instance with the same parameters and the same type as self
+            
+        Example:
+            >>> config = MedicalModelConfig(...)
+            >>> config_copy = config.copy()
+            >>> assert config == config_copy
+            >>> assert config is not config_copy
         """
-        # Get the dictionary representation
+        # Get the dictionary representation with all fields
         data = self.to_dict()
-
-        # Create a new instance using from_dict which handles all the
-        # special cases
-        return self.__class__.from_dict(data)
+        
+        # Create a new instance using from_dict which handles all the special cases
+        new_instance = self.__class__.from_dict(data)
+        
+        # Copy any additional attributes that might not be in the dataclass fields
+        for attr_name, attr_value in self.__dict__.items():
+            if not hasattr(new_instance, attr_name) and not attr_name.startswith('_'):
+                try:
+                    # Try to do a deep copy if possible
+                    import copy
+                    setattr(new_instance, attr_name, copy.deepcopy(attr_value))
+                except (TypeError, AttributeError):
+                    # Fall back to shallow copy if deep copy fails
+                    setattr(new_instance, attr_name, attr_value)
+        
+        return new_instance
 
     def _initialize_dependent_configs(self) -> None:
         """Initialize any dependent configuration objects.
@@ -585,19 +613,74 @@ class MedicalModelConfig(BaseMedicalConfig):
             raise ValueError(f"cache_ttl must be non-negative, got {self.cache_ttl}")
 
     def _validate_medical_domain_parameters(self) -> None:
-        """Validate medical domain-specific parameters."""
+        """Validate medical domain-specific parameters.
+        
+        This method validates that all medical domain parameters have valid values.
+        It handles both enum values and string representations of enums.
+        """
+        def get_enum_value(value, enum_class):
+            """Get the string value from an enum or return the value as is."""
+            if hasattr(value, 'value'):
+                return value.value
+            if isinstance(value, str):
+                return value.lower()
+            return value
+
         # Validate medical specialties
-        if not self.medical_specialties:
+        if hasattr(self, 'medical_specialties') and self.medical_specialties:
+            valid_values = {e.value.lower(): e for e in MedicalSpecialty}
+            invalid = []
+            
+            for i, spec in enumerate(self.medical_specialties):
+                spec_value = get_enum_value(spec, MedicalSpecialty)
+                if isinstance(spec_value, str):
+                    spec_value = spec_value.lower()
+                    # Convert string to enum if it's a valid value
+                    if spec_value in valid_values:
+                        self.medical_specialties[i] = valid_values[spec_value]
+                    else:
+                        invalid.append(spec)
+                elif not isinstance(spec, MedicalSpecialty):
+                    invalid.append(spec)
+            
+            if invalid:
+                valid = [e.value for e in MedicalSpecialty]
+                raise ValueError(
+                    f"Invalid medical specialty: {invalid[0]}. "
+                    f"Must be one of: {', '.join(valid)}"
+                )
+        else:
             warnings.warn(
-                "No medical specialties specified. The model may not perform "
-                "well "
+                "No medical specialties specified. The model may not perform well "
                 "without domain specialization.",
                 UserWarning,
                 stacklevel=2,
             )
 
         # Validate anatomical regions
-        if not self.anatomical_regions:
+        if hasattr(self, 'anatomical_regions') and self.anatomical_regions:
+            valid_values = {e.value.lower(): e for e in AnatomicalRegion}
+            invalid = []
+            
+            for i, region in enumerate(self.anatomical_regions):
+                region_value = get_enum_value(region, AnatomicalRegion)
+                if isinstance(region_value, str):
+                    region_value = region_value.lower()
+                    # Convert string to enum if it's a valid value
+                    if region_value in valid_values:
+                        self.anatomical_regions[i] = valid_values[region_value]
+                    else:
+                        invalid.append(region)
+                elif not isinstance(region, AnatomicalRegion):
+                    invalid.append(region)
+            
+            if invalid:
+                valid = [e.value for e in AnatomicalRegion]
+                raise ValueError(
+                    f"Invalid anatomical region: {invalid[0]}. "
+                    f"Must be one of: {', '.join(valid)}"
+                )
+        else:
             warnings.warn(
                 "No anatomical regions specified. Entity recognition may be "
                 "limited.",
@@ -606,10 +689,32 @@ class MedicalModelConfig(BaseMedicalConfig):
             )
 
         # Validate imaging modalities
-        if not self.imaging_modalities:
+        if hasattr(self, 'imaging_modalities') and self.imaging_modalities:
+            valid_values = {e.value.lower(): e for e in ImagingModality}
+            invalid = []
+            
+            for i, modality in enumerate(self.imaging_modalities):
+                mod_value = get_enum_value(modality, ImagingModality)
+                if isinstance(mod_value, str):
+                    mod_value = mod_value.lower()
+                    # Convert string to enum if it's a valid value
+                    if mod_value in valid_values:
+                        self.imaging_modalities[i] = valid_values[mod_value]
+                    else:
+                        invalid.append(modality)
+                elif not isinstance(modality, ImagingModality):
+                    invalid.append(modality)
+            
+            if invalid:
+                valid = [e.value for e in ImagingModality]
+                raise ValueError(
+                    f"Invalid imaging modality: {invalid[0]}. "
+                    f"Must be one of: {', '.join(valid)}"
+                )
+        else:
             warnings.warn(
-                "No imaging modalities specified. Image-related features will "
-                "be disabled.",
+                "No imaging modalities specified. Image-related features will be "
+                "disabled.",
                 UserWarning,
                 stacklevel=2,
             )

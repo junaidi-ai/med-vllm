@@ -3,9 +3,35 @@ Comprehensive tests for medical model adapters.
 This file consolidates all adapter tests using a clean, maintainable pattern.
 """
 
+import sys
 import unittest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+# Mock torch and torch.nn before importing any adapter code
+class MockTorch:
+    class nn:
+        Module = object
+        Linear = object
+        Dropout = object
+        GELU = object
+        LayerNorm = object
+        Embedding = object
+        Parameter = object
+        
+        def __init__(self):
+            self.Module = self.Module
+            self.Linear = self.Linear
+            self.Dropout = self.Dropout
+            self.GELU = self.GELU
+            self.LayerNorm = self.LayerNorm
+            self.Embedding = self.Embedding
+            self.Parameter = self.Parameter
+
+# Set up the mock torch module
+sys.modules['torch'] = MagicMock()
+sys.modules['torch'].nn = MockTorch.nn
+
+# Now import the actual torch and nn for use in the test file
 import torch
 import torch.nn as nn
 

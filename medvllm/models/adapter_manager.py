@@ -12,7 +12,7 @@ from torch import nn
 from transformers import AutoConfig, PreTrainedModel
 
 from .adapter import create_medical_adapter
-from .adapters.medical_adapter_base import MedicalModelAdapterBase
+from .adapters.base import MedicalModelAdapterBase
 
 logger = logging.getLogger(__name__)
 

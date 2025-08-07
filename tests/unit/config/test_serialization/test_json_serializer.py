@@ -95,10 +95,10 @@ REQUIRED_FIELDS = {"model", "model_type", "max_medical_seq_length", "batch_size"
 @pytest.fixture
 def test_config() -> MedicalModelConfig:
     """Create a test configuration with all required fields."""
-    # Create a minimal valid configuration
+    # Create a minimal valid configuration using a supported model type
     config = MedicalModelConfig(
         model="biobert-base-cased",
-        model_type="medical_ner",  # Using a valid model type from SUPPORTED_MODEL_TYPES
+        model_type="biobert",  # Using a valid model type from SUPPORTED_MODEL_TYPES
         max_medical_seq_length=512,
         batch_size=32,
     )
@@ -125,7 +125,7 @@ class TestJSONSerializer:
         # Check that required fields are present
         required_fields = {
             "model": "biobert-base-cased",
-            "model_type": "medical_ner",
+            "model_type": "biobert",  # This is a valid model type in SUPPORTED_MODEL_TYPES
             "max_medical_seq_length": 512,
             "batch_size": 32,
         }
@@ -144,7 +144,7 @@ class TestJSONSerializer:
         # Check that the dictionary contains the expected fields
         assert isinstance(result, dict)
         assert result["model"] == "biobert-base-cased"
-        assert result["model_type"] == "medical_ner"
+        assert result["model_type"] == "biobert"
 
     def test_serialize_to_file(
         self, test_config: MedicalModelConfig, tmp_path: Path
@@ -166,7 +166,7 @@ class TestJSONSerializer:
         # Check that the file contains the expected fields
         expected_fields = {
             "model": "biobert-base-cased",
-            "model_type": "medical_ner",
+            "model_type": "biobert",  # Valid model type
             "max_medical_seq_length": 512,
             "batch_size": 32,
         }
@@ -183,7 +183,7 @@ class TestJSONSerializer:
         json_str = """
         {
             "model": "biobert-base-cased",
-            "model_type": "medical_ner",
+            "model_type": "biobert",
             "max_medical_seq_length": 512,
             "batch_size": 32,
             "learning_rate": 5e-5,
@@ -198,7 +198,7 @@ class TestJSONSerializer:
 
         # Then - Config should be created with valid fields
         assert config.model == "biobert-base-cased"
-        assert config.model_type == "medical_ner"  # Should match the provided model_type
+        assert config.model_type == "biobert"  # Should match the provided model_type
         assert config.max_medical_seq_length == 512
         assert config.batch_size == 32
 
@@ -208,7 +208,7 @@ class TestJSONSerializer:
         schema_json = json.dumps(
             {
                 "model": "mapping-test",
-                "model_type": "medical_ner",
+                "model_type": "biobert",
                 "max_sequence_length": 1024,  # This should map to max_medical_seq_length
                 "batch_size": 16,
                 "learning_rate": 2e-5,
@@ -221,7 +221,7 @@ class TestJSONSerializer:
 
         # Check field mapping worked correctly
         assert config.model == "mapping-test"
-        assert config.model_type == "medical_ner"  # Should match the string value, not enum
+        assert config.model_type == "biobert"  # Should match the string value, not enum
         assert config.max_medical_seq_length == 1024  # Mapped from max_sequence_length
         assert config.batch_size == 16
         if hasattr(config, "learning_rate"):

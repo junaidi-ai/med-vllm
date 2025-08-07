@@ -13,6 +13,24 @@ class MedicalModel(nn.Module):
     this would contain the actual model architecture and logic.
     """
     
+    @classmethod
+    def from_pretrained(cls, model_name: str, **kwargs) -> 'MedicalModel':
+        """Load a pre-trained medical model.
+        
+        Args:
+            model_name: Name or path of the pre-trained model to use.
+            **kwargs: Additional model-specific arguments.
+            
+        Returns:
+            An instance of MedicalModel initialized with pre-trained weights.
+            
+        Example:
+            >>> model = MedicalModel.from_pretrained("medical-model-base")
+        """
+        # In a real implementation, this would load weights from a checkpoint
+        # For now, we'll just create a new instance with the given model name
+        return cls(model_name=model_name, **kwargs)
+    
     def __init__(self, model_name: Optional[str] = None, **kwargs):
         """Initialize the medical model.
         

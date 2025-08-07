@@ -12,7 +12,7 @@ import torch.distributed as dist
 from torch import nn
 
 
-class MedicalModelAdapter(nn.Module):
+class MedicalModelAdapterBase(nn.Module):
     """Abstract base class for medical model adapters.
 
     This class defines the interface that all medical model adapters must implement

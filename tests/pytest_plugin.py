@@ -69,400 +69,92 @@ def pytest_configure():
     
     torch.randn = randn
     
-    # Add tensor function and basic tensor operations
-    class MockTensor:
-        def __init__(self, data):
-            self.data = data
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            # Initialize shape based on the data
-            self._shape = self._compute_shape(data)
-            
-        def _compute_shape(self, data):
-            """Recursively compute the shape of the data."""
-            # Handle scalar case
-            if isinstance(data, (int, float, bool)):
-                return (1,)
-                
-            # Handle empty list case
-            if not isinstance(data, (list, tuple)):
-                return (1,)  # Non-list data is treated as scalar
-                
-            if not data:
-                return (0,)  # Truly empty list has shape (0,)
-            
-            # Handle nested lists
-            shapes = []
-            current = data
-            while True:
-                if not isinstance(current, (list, tuple)):
-                    break
-                shapes.append(len(current))
-                if not current:  # Handle empty list in the hierarchy
-                    break
-                current = current[0]
-            
-            # Handle case where we have a list of non-sequences (1D tensor)
-            if not shapes:
-                return (1,)
-                
-            return tuple(shapes)
-            
-        def cpu(self):
-            self.device = torch.device("cpu")
-            return self
-            
-        def cuda(self):
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            return self
+    # Add the tests directory to the Python path to ensure mock_models is importable
+    import os
+    import sys
+    tests_dir = os.path.dirname(os.path.abspath(__file__))
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    
+    # Import the unified MockTensor from mock_models
+    # Import the mock models
+    from .utils.mock_models import MockMedicalModel
+    
+    # Create a base tensor class that won't cause recursion
+    class MockTensorBase:
+        def __init__(self, *args, **kwargs):
+            self.data = []
+            self.shape = ()
+            self.device = 'cpu'
             
         def to(self, *args, **kwargs):
-            # Handle device movement
-            for arg in args:
-                if isinstance(arg, (str, torch.device)):
-                    self.device = torch.device(arg)
-                    break
-            # Handle device in kwargs
-            if 'device' in kwargs:
-                self.device = torch.device(kwargs['device'])
+            # Simple mock for the to() method
+            if args and isinstance(args[0], (str, torch.device)):
+                self.device = str(args[0])
             return self
-            
-        def float(self):
-            return self
-            
-        def long(self):
-            return self
-            
-        def detach(self):
-            return self
-            
-        def numpy(self):
-            import numpy as np
-            return np.array(self.data)
-            
-        def item(self):
-            if isinstance(self.data, (list, tuple)) and len(self.data) == 1:
-                return self.data[0] if not isinstance(self.data[0], (list, tuple)) else self.data[0][0]
-            return self.data
-            
-        def unsqueeze(self, dim):
-            # Create a new list with an extra dimension at the specified position
-            if dim < 0:
-                dim = len(self._shape) + dim + 1
-            
-            # Create new data with an extra dimension
-            if dim == 0:
-                new_data = [self.data]
-                new_shape = (1,) + self._shape
-            elif dim == len(self._shape):
-                # Add new dimension at the end
-                if len(self._shape) == 0:
-                    new_data = [[x] for x in self.data] if isinstance(self.data, list) else [self.data]
-                else:
-                    new_data = [[x] for x in self.data] if self._shape[0] > 0 else []
-                new_shape = self._shape + (1,)
-            else:
-                # For other dimensions, we need to recurse
-                if not self._shape:
-                    new_data = [self.data]
-                    new_shape = (1,)
-                else:
-                    new_data = [MockTensor(x).unsqueeze(dim-1).data 
-                              for x in self.data] if self._shape[0] > 0 else []
-                    new_shape = self._shape[:dim] + (1,) + self._shape[dim:]
-            
-            result = MockTensor(new_data)
-            result._shape = new_shape
-            return result
-                
-        def squeeze(self, dim=None):
-            if dim is None:
-                # Remove all dimensions of size 1
-                if not self._shape:
-                    return self
-                    
-                # Find all dimensions that are not 1
-                new_shape = [d for d in self._shape if d != 1]
-                if not new_shape:
-                    # If all dimensions were 1, return a scalar
-                    return MockTensor(self.item())
-                    
-                # Create new data with squeezed dimensions
-                new_data = self.data
-                for d in reversed(range(len(self._shape))):
-                    if self._shape[d] == 1:
-                        if isinstance(new_data, list) and len(new_data) == 1:
-                            new_data = new_data[0]
-                
-                result = MockTensor(new_data)
-                result._shape = tuple(new_shape)
-                return result
-            else:
-                # Remove specific dimension if its size is 1
-                if dim < 0:
-                    dim = len(self._shape) + dim
-                if dim < 0 or dim >= len(self._shape):
-                    raise IndexError(f"Dimension out of range (expected to be in range of [{-(len(self._shape))}, {len(self._shape)-1}], but got {dim})")
-                
-                if self._shape[dim] != 1:
-                    return self
-                    
-                # Create new shape without the squeezed dimension
-                new_shape = self._shape[:dim] + self._shape[dim+1:]
-                
-                # Create new data with the squeezed dimension
-                def squeeze_dim(data, current_dim=0):
-                    if current_dim == dim:
-                        if isinstance(data, list) and len(data) == 1:
-                            return data[0]
-                        return data
-                    if not isinstance(data, list):
-                        return data
-                    return [squeeze_dim(x, current_dim + 1) for x in data]
-                
-                new_data = squeeze_dim(self.data)
-                result = MockTensor(new_data)
-                result._shape = new_shape
-                return result
-                
-        def dim(self):
-            return len(self._shape)
-            
-        def size(self, dim=None):
-            if dim is None:
-                return self._shape
-            if dim < 0:
-                dim = len(self._shape) + dim
-            if dim < 0 or dim >= len(self._shape):
-                raise IndexError(f"Dimension out of range (expected to be in range of [{-(len(self._shape))}, {len(self._shape)-1}], but got {dim})")
-            return self._shape[dim]
-            
-        @property
-        def shape(self):
-            return self._shape
             
         def __getitem__(self, idx):
-            if not isinstance(idx, tuple):
-                idx = (idx,)
+            # Basic indexing support
+            return self.data[idx] if hasattr(self.data, '__getitem__') else None
             
-            # Special case: CLS token selection with [:, 0]
-            if (len(idx) == 2 and 
-                isinstance(idx[0], slice) and 
-                (idx[1] == 0 or idx[1] == slice(None, 1, None))):
-                # For [:, 0] or [:, :1], return first token for each sequence in the batch
-                batch_size = self._shape[0] if self._shape else 1
-                hidden_size = self._shape[-1] if self._shape else 128
-                new_shape = (batch_size, hidden_size)
-                result_tensor = MockTensor([[0.0] * hidden_size for _ in range(batch_size)])
-                result_tensor._shape = new_shape
-                return result_tensor
-            
-            # Handle basic indexing for other cases
-            try:
-                result = self.data
-                for i in idx:
-                    if isinstance(i, slice):
-                        result = result[i]
-                    elif isinstance(i, int):
-                        result = result[i] if i < len(result) else result[0]  # Handle out of bounds
-                    else:
-                        # Handle other index types (e.g., tensor)
-                        result = result[i] if hasattr(result, '__len__') and i < len(result) else result[0]
-            except (IndexError, TypeError, AttributeError):
-                # If indexing fails, return a scalar with shape (1,)
-                return MockTensor(0.0)
-            
-            # Create new shape based on the indexing
-            if not hasattr(result, '__len__') or not result:
-                # Scalar or empty result
-                new_shape = (1,) if isinstance(result, (int, float)) else (0,)
-            else:
-                # Compute shape for non-empty sequences
-                if isinstance(result[0], (int, float)):
-                    new_shape = (len(result),)
-                else:
-                    # For nested sequences, compute shape recursively
-                    new_shape = (len(result),) + self._compute_shape(result[0])
-            
-            # Create result tensor with correct shape
-            result_tensor = MockTensor(result)
-            result_tensor._shape = new_shape
-            return result_tensor
-            
+        def __setitem__(self, idx, value):
+            # Basic item assignment support
+            if hasattr(self.data, '__setitem__'):
+                self.data[idx] = value
+                
         def __len__(self):
-            return self._shape[0] if self._shape else 0
-            
-        def __iter__(self):
-            # Return an iterator of MockTensors
-            if not self._shape:
-                return iter([])
-            return (MockTensor(self.data[i]).squeeze(0) for i in range(self._shape[0]))
-            
-        def __contains__(self, item):
-            return item in self.data
-            
-        def unsqueeze(self, dim):
-            # Create a new list with an extra dimension at the specified position
-            if dim < 0:
-                dim = len(self._shape) + dim + 1
-            
-            # Create new data with an extra dimension
-            if dim == 0:
-                new_data = [self.data]
-                new_shape = (1,) + self._shape
-            elif dim == len(self._shape):
-                # Add new dimension at the end
-                if len(self._shape) == 0:
-                    new_data = [[x] for x in self.data] if isinstance(self.data, list) else [self.data]
-                else:
-                    new_data = [[x] for x in self.data] if self._shape[0] > 0 else []
-                new_shape = self._shape + (1,)
-            else:
-                # For other dimensions, we need to recurse
-                if not self._shape:
-                    new_data = [self.data]
-                    new_shape = (1,)
-                else:
-                    new_data = [MockTensor(x).unsqueeze(dim-1).data 
-                              for x in self.data] if self._shape[0] > 0 else []
-                    new_shape = self._shape[:dim] + (1,) + self._shape[dim:]
-            
-            result = MockTensor(new_data)
-            result._shape = new_shape
-            return result
-                
-        def __add__(self, other):
-            if isinstance(other, MockTensor):
-                return MockTensor(self._process_nested(self.data, lambda x, y: x + y, other.data))
-            return MockTensor(self._process_nested(self.data, lambda x, y: x + y, other))
-            
-        def __sub__(self, other):
-            if isinstance(other, MockTensor):
-                return MockTensor(self._process_nested(self.data, lambda x, y: x - y, other.data))
-            return MockTensor(self._process_nested(self.data, lambda x, y: x - y, other))
-            
-        def _process_nested(self, data, op, other_data=None):
-            if isinstance(data, list):
-                if other_data is not None and isinstance(other_data, list):
-                    return [self._process_nested(d, op, o) for d, o in zip(data, other_data)]
-                return [self._process_nested(d, op, other_data) for d in data]
-            elif other_data is not None:
-                return op(data, other_data)
-            return op(data)
-            
-            # Create a new list with an extra dimension at the specified position
-            if dim < 0:
-                dim = len(self.shape) + dim + 1
-            
-            if dim == 0:
-                # Add new dimension at the beginning
-                return MockTensor([self.data])
-            elif dim == 1 and len(self.shape) == 1:
-                # Add new dimension at position 1 for 1D tensors
-                return MockTensor([[x] for x in self.data])
-            else:
-                # For other cases, just return a copy with the same data
-                return MockTensor(self.data)
-                
-        def squeeze(self, dim=None):
-            # Remove dimensions of size 1
-            if dim is None:
-                # Remove all dimensions of size 1
-                if isinstance(self.data, list) and len(self.data) == 1:
-                    if isinstance(self.data[0], list):
-                        return MockTensor(self.data[0]).squeeze()
-                    return MockTensor(self.data[0])
-                return self
-            else:
-                # Remove specific dimension if its size is 1
-                if dim < 0:
-                    dim = len(self.shape) + dim
-                if dim < 0 or dim >= len(self.shape):
-                    raise IndexError(f"Dimension out of range (expected to be in range of [{-len(self.shape)}, {len(self.shape)-1}], but got {dim})")
-                if self.shape[dim] == 1:
-                    if len(self.shape) == 1:
-                        return MockTensor(self.data[0] if isinstance(self.data, list) else self.data)
-                    # For simplicity, just return a copy with the same data
-                    return MockTensor(self.data)
-                return self
-                
-        def to(self, *args, **kwargs):
-            # For testing, just return self
-            return self
-            
-        def _process_nested(self, data, func):
-            """Helper method to process nested lists with a function."""
-            if isinstance(data, list):
-                return [self._process_nested(x, func) for x in data]
-            return func(data)
-            
-        def __sub__(self, other):
-            # Handle scalar subtraction (e.g., 1.0 - tensor)
-            if isinstance(other, (int, float)):
-                # Create a new MockTensor with the same shape but filled with the scalar value
-                if isinstance(self.data, list):
-                    # Handle nested lists of any depth
-                    result = self._process_nested(self.data, lambda x: other - x)
-                    return MockTensor(result)
-                else:
-                    # Scalar case
-                    return MockTensor(other - self.data)
-            # Handle tensor subtraction
-            elif isinstance(other, MockTensor):
-                # Simple element-wise subtraction for tensors of the same shape
-                if isinstance(self.data, (list, int, float)) and isinstance(other.data, (list, int, float)):
-                    # For testing, just return a new MockTensor with the same shape
-                    if isinstance(self.data, list):
-                        return MockTensor([[0.0] * len(row) if isinstance(row, list) else 0.0 for row in self.data])
-                    return MockTensor(0.0)
-            return self
-            
-        def __rsub__(self, other):
-            # Handle right-side subtraction (e.g., 1.0 - tensor)
-            # For right subtraction (other - self), we can reuse __sub__ with swapped operands
-            if isinstance(other, (int, float)):
-                if isinstance(self.data, list):
-                    result = self._process_nested(self.data, lambda x: other - x)
-                    return MockTensor(result)
-                else:
-                    return MockTensor(other - self.data)
-            return self
-            
-        def __mul__(self, other):
-            # Handle scalar multiplication
-            if isinstance(other, (int, float)):
-                if isinstance(self.data, list):
-                    # Handle nested lists of any depth
-                    result = self._process_nested(self.data, lambda x: x * other)
-                    return MockTensor(result)
-                else:
-                    # Scalar case
-                    return MockTensor(self.data * other)
-            # Handle tensor multiplication
-            elif isinstance(other, MockTensor):
-                # For testing, just return a new MockTensor with the same shape
-                if isinstance(self.data, list):
-                    return MockTensor([[0.0] * len(row) if isinstance(row, list) else 0.0 for row in self.data])
-                return MockTensor(0.0)
-            return self
-            
-        def __rmul__(self, other):
-            # Multiplication is commutative, so just call __mul__
-            return self.__mul__(other)
+            return len(self.data) if hasattr(self.data, '__len__') else 0
     
-    def tensor(data, *args, **kwargs):
-        if isinstance(data, MockTensor):
-            return data
-        return MockTensor(data)
-
-    torch.tensor = tensor
-    torch.Tensor = type('Tensor', (object,), {
-        'to': lambda self, *args, **kwargs: self,
-        'cuda': lambda self, *args, **kwargs: self,
-        'cpu': lambda self: self,
-        'shape': property(lambda self: (1,)),
-        'device': 'cpu',
-        'dtype': torch.float32,
-    })
+    # Create a factory function for our mock tensor
+    def create_mock_tensor(*args, **kwargs):
+        tensor = object.__new__(MockTensorBase)
+        MockTensorBase.__init__(tensor, *args, **kwargs)
+        return tensor
+    
+    # Set up mock implementations for torch functions
+    class MockTorch:
+        @staticmethod
+        def tensor(data, *args, **kwargs):
+            return create_mock_tensor(data, *args, **kwargs)
+            
+        @staticmethod
+        def Tensor(*args, **kwargs):
+            return create_mock_tensor(*args, **kwargs)
+        
+        @staticmethod
+        def randn(*args, **kwargs):
+            return create_mock_tensor(*args, **kwargs)
+            
+        @staticmethod
+        def zeros(*args, **kwargs):
+            return create_mock_tensor(*args, **kwargs)
+            
+        @staticmethod
+        def ones(*args, **kwargs):
+            return create_mock_tensor(*args, **kwargs)
+            
+        @staticmethod
+        def FloatTensor(*args, **kwargs):
+            return create_mock_tensor(*args, **kwargs)
+            
+        @staticmethod
+        def LongTensor(*args, **kwargs):
+            return create_mock_tensor(*args, **kwargs)
+    
+    # Apply the mocks
+    torch.tensor = MockTorch.tensor
+    torch.Tensor = MockTorch.Tensor
+    torch.FloatTensor = MockTorch.FloatTensor
+    torch.LongTensor = MockTorch.LongTensor
+    
+    # Add common tensor creation functions
+    torch.randn = MockTorch.randn
+    torch.zeros = MockTorch.zeros
+    torch.ones = MockTorch.ones
+    
+    # Additional tensor operations that might be needed
+    torch.empty = MockTorch.zeros  # Use zeros as a simple mock for empty
+    torch.full = MockTorch.ones    # Use ones as a simple mock for full
 
     # Mock torch.nn.functional with all required functions
     def mock_relu(x):

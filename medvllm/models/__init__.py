@@ -5,7 +5,7 @@ from .adapter import (
     ClinicalBERTAdapter,
     create_medical_adapter,
 )
-from .adapters import MedicalModelAdapter
+from .adapters import MedicalModelAdapterBase
 from .medical_models import BioBERTLoader, ClinicalBERTLoader
 from .medical_model import MedicalModel, MedicalModelBase
 from .ner import MedicalNERModel
@@ -15,7 +15,7 @@ __all__ = [
     "ClinicalBERTLoader",
     "MedicalModel",
     "MedicalModelBase",
-    "MedicalModelAdapter",
+    "MedicalModelAdapterBase",
     "MedicalNERModel",
     "BioBERTAdapter",
     "ClinicalBERTAdapter",

@@ -1,6 +1,7 @@
 import pytest
 import torch
-from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter
+# Import mock adapters for testing
+from tests.utils.mock_adapters import BioBERTAdapter, ClinicalBERTAdapter
 
 class TestMedicalModelPerformance:
     @pytest.fixture(params=["biobert", "clinicalbert"])

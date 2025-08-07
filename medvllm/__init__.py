@@ -78,7 +78,7 @@ if HAS_TORCH:
             ClinicalBERTAdapter,
         )
         from .models.adapter_manager import AdapterManager
-        from .models.adapters.medical_adapter_base import MedicalModelAdapterBase
+        from .models.adapters.base import MedicalModelAdapterBase
         from .sampling_params import SamplingParams
         
         # Import models module

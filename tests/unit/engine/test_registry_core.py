@@ -108,10 +108,12 @@ def test_get_metadata():
 
 def test_get_nonexistent_metadata():
     """Test that getting metadata for a non-existent model raises an error."""
+    from medvllm.engine.model_runner.exceptions import ModelNotFoundError
+    
     registry = ModelRegistry()
     registry._models = {}  # Reset models for test isolation
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ModelNotFoundError):
         registry.get_metadata("nonexistent-model")
 
 

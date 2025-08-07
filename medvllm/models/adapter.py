@@ -12,12 +12,12 @@ import torch.nn as nn
 from transformers import PreTrainedModel
 
 # Import from modular adapter structure
-from .adapters import BioBERTAdapter, ClinicalBERTAdapter, MedicalModelAdapter
+from .adapters import BioBERTAdapter, ClinicalBERTAdapter, MedicalModelAdapterBase
 
 
 def create_medical_adapter(
     model_type: str, model: Union[nn.Module, PreTrainedModel], config: Dict[str, Any]
-) -> "MedicalModelAdapterBase":
+) -> MedicalModelAdapterBase:
     """Factory function to create a medical model adapter.
 
     Args:
@@ -52,7 +52,7 @@ def create_medical_adapter(
 
 # Export all adapter classes for backward compatibility
 __all__ = [
-    "MedicalModelAdapter",
+    "MedicalModelAdapterBase",
     "BioBERTAdapter",
     "ClinicalBERTAdapter",
     "create_medical_adapter",

@@ -261,20 +261,53 @@ sys.modules["transformers.models"] = mock_transformers.models
 sys.modules["transformers.models.auto"] = mock_auto
 sys.modules["transformers.models.auto.modeling_auto"] = mock_auto_modeling
 
-# Now import our adapter implementation
-from medvllm.models.adapters import (
-    BioBERTAdapter,
-    ClinicalBERTAdapter,
-    MedicalModelAdapter,
-)
+# Import the base module first to ensure it's available
+import sys
+import os
+
+# Add the project root to the Python path if needed
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Now import our adapter implementation with absolute imports
+try:
+    from medvllm.models.adapters.base import MedicalModelAdapterBase
+    from medvllm.models.adapters.biobert import BioBERTAdapter
+    from medvllm.models.adapters.clinicalbert import ClinicalBERTAdapter
+    
+    # Verify the imports worked
+    assert MedicalModelAdapterBase is not None
+    assert BioBERTAdapter is not None
+    assert ClinicalBERTAdapter is not None
+    
+except ImportError as e:
+    import traceback
+    print("\n=== DEBUG: Import Error Details ===", file=sys.stderr)
+    print(f"Error: {e}", file=sys.stderr)
+    print("\nPython path:", sys.path, file=sys.stderr)
+    print("\nCurrent working directory:", os.getcwd(), file=sys.stderr)
+    print("\nTraceback:", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    
+    # Try to diagnose the issue further
+    try:
+        import medvllm.models.adapters
+        print("\nmedvllm.models.adapters module found at:", medvllm.models.adapters.__file__, file=sys.stderr)
+        print("Contents of medvllm.models.adapters:", dir(medvllm.models.adapters), file=sys.stderr)
+    except Exception as e2:
+        print("\nCould not import medvllm.models.adapters:", e2, file=sys.stderr)
+    
+    print("\n=== END DEBUG ===\n", file=sys.stderr)
+    raise
 
 # Import the factory function from the correct module
 from medvllm.models.adapter import create_medical_adapter
 
 
 # Test implementations
-class TestMedicalModelAdapter(MedicalModelAdapter):
-    """Concrete implementation of MedicalModelAdapter for testing."""
+class TestMedicalModelAdapter(MedicalModelAdapterBase):
+    """Concrete implementation of MedicalModelAdapterBase for testing."""
 
     def __init__(self, model, config=None, **kwargs):
         """Initialize the test adapter with a model and optional config."""
@@ -444,7 +477,7 @@ class TestMedicalModelAdapter(MedicalModelAdapter):
 
 
 def test_medical_model_adapter_initialization():
-    """Test basic initialization of MedicalModelAdapter."""
+    """Test basic initialization of MedicalModelAdapterBase."""
     mock_model = MagicMock()
     config = {"test_param": "value"}
 
