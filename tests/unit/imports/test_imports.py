@@ -39,22 +39,23 @@ class TestCriticalImports(unittest.TestCase):
     def test_pydantic_import(self):
         """Test that pydantic can be imported."""
         import sys
-        import importlib
-        
+
         # Clear pydantic from sys.modules to ensure a fresh import
         for mod in list(sys.modules):
-            if mod == 'pydantic' or mod.startswith('pydantic.'):
+            if mod == "pydantic" or mod.startswith("pydantic."):
                 del sys.modules[mod]
-        
+
         try:
             # Import pydantic fresh
             import pydantic
-            self.assertTrue(hasattr(pydantic, '__file__'), "pydantic module is missing __file__")
-            
+
+            self.assertTrue(hasattr(pydantic, "__file__"), "pydantic module is missing __file__")
+
             # Import BaseModel
             from pydantic import BaseModel
+
             self.assertTrue(True, "Successfully imported BaseModel from pydantic")
-            
+
         except ImportError as e:
             self.fail(f"Failed to import pydantic: {e}")
 
@@ -63,6 +64,7 @@ class TestCriticalImports(unittest.TestCase):
         # First try without importing LLMEngine
         try:
             import medvllm  # noqa: F401
+
             print("Successfully imported medvllm package")
             self.assertTrue(True, "Med-vLLM package imported successfully")
         except ImportError as e:
@@ -72,6 +74,7 @@ class TestCriticalImports(unittest.TestCase):
         # Now try importing LLMEngine specifically
         try:
             from medvllm.engine.llm_engine import LLMEngine  # noqa: F401
+
             print("Successfully imported LLMEngine")
             self.assertTrue(True, "LLMEngine imported successfully")
         except ImportError as e:
@@ -83,8 +86,10 @@ class TestCriticalImports(unittest.TestCase):
         # Test core model components
         try:
             # Import from the correct paths based on the project structure
-            from medvllm.models.attention.medical_attention import MedicalMultiheadAttention  # noqa: F401
-            
+            from medvllm.models.attention.medical_attention import (
+                MedicalMultiheadAttention,
+            )  # noqa: F401
+
             # Check if the medical_layers module exists and import from it
             try:
                 from medvllm.models.layers.medical_layers import MedicalFeedForward  # noqa: F401
@@ -93,7 +98,7 @@ class TestCriticalImports(unittest.TestCase):
                 print(f"Warning: Could not import medical_layers: {e}")
                 # If medical_layers is not available, that's okay for now
                 pass
-            
+
             # If we get here, imports were successful
             self.assertTrue(True, "Core modules imported successfully")
         except ImportError as e:

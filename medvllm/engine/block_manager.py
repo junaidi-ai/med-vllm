@@ -7,7 +7,6 @@ from medvllm.engine.sequence import Sequence
 
 
 class Block:
-
     def __init__(self, block_id):
         self.block_id = block_id
         self.ref_count = 0
@@ -25,7 +24,6 @@ class Block:
 
 
 class BlockManager:
-
     def __init__(self, num_blocks: int, block_size: int):
         assert num_blocks > 0
         self.block_size = block_size
@@ -76,11 +74,7 @@ class BlockManager:
         cache_miss = False
         for i in range(seq.num_blocks):
             token_ids = seq.block(i)
-            h = (
-                self.compute_hash(token_ids, h)
-                if len(token_ids) == self.block_size
-                else -1
-            )
+            h = self.compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
 
             block_id = self.hash_to_block_id.get(h, -1)
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:

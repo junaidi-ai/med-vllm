@@ -6,13 +6,14 @@ This example shows how to:
 2. Configure adapter-specific settings
 3. Use the adapted model for medical text generation
 """
+
 import os
 import sys
 
 # Add the parent directory to the path so we can import medvllm
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from medvllm import LLM, AdapterManager, SamplingParams
+from medvllm import AdapterManager
 from medvllm.config import Config
 
 
@@ -26,7 +27,6 @@ def biobert_specific_example():
         import torch.nn as nn
 
         from medvllm.models.adapter import BioBERTAdapter
-        from medvllm.models.adapter_manager import AdapterManager
 
         # Create a mock BioBERT model for demonstration
         class MockBioBERTModel(nn.Module):
@@ -87,7 +87,6 @@ def clinicalbert_specific_example():
         import torch.nn as nn
 
         from medvllm.models.adapter import ClinicalBERTAdapter
-        from medvllm.models.adapter_manager import AdapterManager
 
         # Create a mock ClinicalBERT model for demonstration
         class MockClinicalBERTModel(nn.Module):
@@ -163,7 +162,6 @@ def tensor_parallelism_example():
         import torch.nn as nn
 
         from medvllm.models.adapter import BioBERTAdapter
-        from medvllm.models.adapter_manager import AdapterManager
 
         # Create a mock model for demonstration
         class MockModel(nn.Module):
@@ -284,7 +282,7 @@ def main():
             max_num_seqs=4,
         )
 
-        print(f"Configuration:")
+        print("Configuration:")
         print(f"  - Model: {config.model}")
         print(f"  - Use Medical Adapter: {config.use_medical_adapter}")
         print(f"  - Adapter Type: {config.adapter_type or 'Auto-detect'}")
@@ -318,7 +316,7 @@ def main():
         max_model_len=512,
     )
 
-    print(f"Configuration:")
+    print("Configuration:")
     print(f"  - Model: {config2.model}")
     print(f"  - Adapter Type: {config2.adapter_type}")
     print(f"  - Custom Config: {config2.adapter_config}")

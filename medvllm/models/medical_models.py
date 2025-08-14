@@ -7,23 +7,19 @@ handling model-specific configurations and tokenization requirements.
 from __future__ import annotations
 
 from typing import (
-    TYPE_CHECKING,
     Any,
     Dict,
     Generic,
-    List,
     Optional,
     Tuple,
     Type,
     TypeVar,
     Union,
     cast,
-    overload,
     runtime_checkable,
 )
 
 import torch
-from torch import device
 
 # Lazy imports for transformers
 try:
@@ -38,25 +34,27 @@ try:
         PreTrainedTokenizerBase,
         PreTrainedTokenizerFast,
     )
+
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
+
     # Define dummy classes for type checking
     class PretrainedConfig:
         pass
-    
+
     class PreTrainedModel:
         pass
-    
+
     class PreTrainedTokenizer:
         pass
-    
+
     class PreTrainedTokenizerBase:
         pass
-    
+
     class PreTrainedTokenizerFast:
         pass
-    
+
     # Define dummy variables for the Auto* classes
     AutoConfig = None
     AutoModel = None
@@ -67,7 +65,7 @@ except ImportError:
 try:
     from typing_extensions import Protocol, runtime_checkable
 except ImportError:
-    from typing import Protocol, runtime_checkable  # type: ignore
+    from typing import Protocol  # type: ignore
 
 # Define type variables for model and tokenizer types with proper bounds
 ModelT = TypeVar("ModelT", bound=PreTrainedModel)
@@ -88,9 +86,7 @@ ModelClassType = Type[PreTrainedModel]
 # Define a protocol for model classes that can be used with our loaders
 class SupportsFromPretrained(Protocol):
     @classmethod
-    def from_pretrained(
-        cls, pretrained_model_name_or_path: str, *args, **kwargs
-    ) -> Any: ...
+    def from_pretrained(cls, pretrained_model_name_or_path: str, *args, **kwargs) -> Any: ...
 
 
 class MedicalModelLoader(Generic[ModelT, TokenizerT]):

@@ -1,7 +1,6 @@
 """Medical dataset implementations and utilities."""
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import datasets
 import torch
@@ -23,9 +22,7 @@ class MedicalDataset:
     ) -> None:
         self.config = config
         if isinstance(tokenizer, str):
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                tokenizer, **(tokenizer_kwargs or {})
-            )
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer, **(tokenizer_kwargs or {}))
         elif tokenizer is not None:
             self.tokenizer = tokenizer
         else:
@@ -141,8 +138,7 @@ def get_medical_dataset(name: str, **kwargs: Any) -> MedicalDataset:
 
     if name not in DATASET_CONFIGS:
         raise ValueError(
-            f"Unknown dataset: {name}. "
-            f"Available datasets: {list(DATASET_CONFIGS.keys())}"
+            f"Unknown dataset: {name}. " f"Available datasets: {list(DATASET_CONFIGS.keys())}"
         )
 
     # Create config from dictionary and update with any kwargs

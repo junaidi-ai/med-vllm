@@ -11,38 +11,18 @@ from __future__ import annotations
 import json
 import os
 import warnings
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import (
-    TYPE_CHECKING,
     Any,
-    AnyStr,
-    Callable,
-    ClassVar,
     Dict,
-    Generic,
     List,
-    Literal,
-    Mapping,
-    NamedTuple,
     Optional,
-    Protocol,
-    Sequence,
-    Set,
     Tuple,
     Type,
-    TypedDict,
-    TypeGuard,
     TypeVar,
     Union,
-    cast,
-    final,
-    get_args,
-    get_origin,
-    get_type_hints,
-    overload,
-    runtime_checkable,
 )
 
 # Type variable for class methods that return an instance of the class
@@ -106,14 +86,12 @@ SUPPORTED_MODEL_TYPES = {
     "roberta",
     "gpt2",
     "t5",
-    
     # Medical model types
     "medical_bert",
     "biobert",
     "clinical_bert",
     "pubmed_bert",
     "bluebert",
-    
     # Legacy model types (kept for backward compatibility)
     "medical_llm",
     "medical_ner",
@@ -125,8 +103,12 @@ SUPPORTED_MODEL_TYPES = {
 }
 
 # Default configuration values
-DEFAULT_MEDICAL_SPECIALTIES = ["family_medicine"]  # Changed from 'general_medicine' to 'family_medicine' to match MedicalSpecialty enum
-DEFAULT_ANATOMICAL_REGIONS = ["head"]  # Changed from 'full_body' to 'head' to match AnatomicalRegion enum
+DEFAULT_MEDICAL_SPECIALTIES = [
+    "family_medicine"
+]  # Changed from 'general_medicine' to 'family_medicine' to match MedicalSpecialty enum
+DEFAULT_ANATOMICAL_REGIONS = [
+    "head"
+]  # Changed from 'full_body' to 'head' to match AnatomicalRegion enum
 DEFAULT_IMAGING_MODALITIES = ["xray", "ct", "mri", "ultrasound"]
 DEFAULT_ENTITY_TYPES = ["disease", "symptom", "medication", "procedure"]
 DEFAULT_DOCUMENT_TYPES = ["clinical_note", "discharge_summary", "radiology_report"]
@@ -202,9 +184,7 @@ class MedicalModelConfig(BaseMedicalConfig):
     model: str = field(
         default="",
         metadata={
-            "description": (
-                "Path to the model directory or model identifier. " "Required field."
-            ),
+            "description": ("Path to the model directory or model identifier. " "Required field."),
             "required": True,
         },
     )
@@ -222,19 +202,13 @@ class MedicalModelConfig(BaseMedicalConfig):
 
     pretrained_model_name_or_path: Optional[str] = field(
         default=None,
-        metadata={
-            "description": (
-                "Name or path of the pretrained model from Hugging Face Hub"
-            )
-        },
+        metadata={"description": ("Name or path of the pretrained model from Hugging Face Hub")},
     )
 
     # Model architecture parameters
     max_medical_seq_length: int = field(
         default=DEFAULT_MAX_SEQ_LENGTH,
-        metadata={
-            "description": "Maximum sequence length for medical text " "processing"
-        },
+        metadata={"description": "Maximum sequence length for medical text " "processing"},
     )
 
     # Training and inference parameters
@@ -245,9 +219,7 @@ class MedicalModelConfig(BaseMedicalConfig):
 
     enable_uncertainty_estimation: bool = field(
         default=False,
-        metadata={
-            "description": ("Whether to enable uncertainty estimation in model outputs")
-        },
+        metadata={"description": ("Whether to enable uncertainty estimation in model outputs")},
     )
 
     uncertainty_threshold: float = field(
@@ -308,9 +280,7 @@ class MedicalModelConfig(BaseMedicalConfig):
             "knowledge_bases": ["umls", "snomed_ct", "loinc"],
             "confidence_threshold": 0.8,
         },
-        metadata={
-            "description": "Configuration for entity linking to " "knowledge bases"
-        },
+        metadata={"description": "Configuration for entity linking to " "knowledge bases"},
     )
 
     # Document processing
@@ -376,45 +346,48 @@ class MedicalModelConfig(BaseMedicalConfig):
         """
         # Call parent's __post_init__ first to set up basic fields
         super().__post_init__()
-        
+
         # Convert between string and enum representations
         self._convert_enums()
-        
+
         # Set default pretrained paths if not specified
         self._set_default_pretrained_paths()
-        
+
         # Initialize any dependent configs
         self._initialize_dependent_configs()
-        
+
         # Validate all parameters
         self._validate_medical_parameters()
 
     def _convert_enums(self) -> None:
         """Convert between string and enum values for all enum fields.
-        
+
         This method ensures type safety and consistency when loading serialized data.
         It handles both string-to-enum and enum-to-string conversions based on the field type.
-        
+
         For serialization (to_dict), all enums are converted to their string values.
         For deserialization (from_dict), strings are converted to the appropriate enum type.
-        
+
         Note: This method ensures that enum values are stored as lowercase strings in the internal
         state to maintain consistency with test expectations.
         """
-        def convert_value(value: Any, enum_type: Type[Enum], for_serialization: bool = False) -> Any:
+
+        def convert_value(
+            value: Any, enum_type: Type[Enum], for_serialization: bool = False
+        ) -> Any:
             """Convert a value between string and enum representation.
-            
+
             Args:
                 value: The value to convert (can be string, enum, or other type)
                 enum_type: The target enum type for conversion
                 for_serialization: Whether this is for serialization (to_dict) or not
-                
+
             Returns:
                 The converted value (lowercase string for storage, enum for runtime use)
             """
             if value is None:
                 return None
-                
+
             # Handle list of values
             if isinstance(value, (list, tuple, set)):
                 converted = [convert_value(v, enum_type, for_serialization) for v in value]
@@ -424,48 +397,52 @@ class MedicalModelConfig(BaseMedicalConfig):
                 elif isinstance(value, set):
                     return set(converted)
                 return converted
-                
+
             # If value is already the correct type
             if isinstance(value, enum_type):
                 # Always return lowercase string value for storage
-                val = value.value if hasattr(value, 'value') else str(value)
+                val = value.value if hasattr(value, "value") else str(value)
                 return str(val).lower()
-            
+
             # If value is already a string, ensure it's lowercase
             if isinstance(value, str):
                 # First try to normalize the string value
-                normalized_value = value.lower().replace(' ', '_')
-                
+                normalized_value = value.lower().replace(" ", "_")
+
                 # Try to find enum by name or value (case-insensitive)
                 try:
                     for name, member in enum_type.__members__.items():
-                        member_value = str(member.value if hasattr(member, 'value') else str(member)).lower()
-                        if (name.lower() == normalized_value or 
-                            member_value == normalized_value or
-                            name.lower().replace('_', '') == normalized_value.replace('_', '')):
+                        member_value = str(
+                            member.value if hasattr(member, "value") else str(member)
+                        ).lower()
+                        if (
+                            name.lower() == normalized_value
+                            or member_value == normalized_value
+                            or name.lower().replace("_", "") == normalized_value.replace("_", "")
+                        ):
                             # Return lowercase string value for storage
                             return member_value.lower()
-                except (AttributeError, TypeError) as e:
+                except (AttributeError, TypeError):
                     pass
-                    
+
                 # If no match found, return the normalized string
                 return normalized_value
-                
+
             # For any other type, convert to lowercase string
             return str(value).lower()
 
         # Define all enum fields and their corresponding enum types
         enum_fields = {
-            'medical_specialties': MedicalSpecialty,
-            'anatomical_regions': AnatomicalRegion,
-            'imaging_modalities': ImagingModality,
-            'medical_entity_types': EntityType,
-            'document_types': DocumentType,
-            'regulatory_compliance': RegulatoryStandard,
+            "medical_specialties": MedicalSpecialty,
+            "anatomical_regions": AnatomicalRegion,
+            "imaging_modalities": ImagingModality,
+            "medical_entity_types": EntityType,
+            "document_types": DocumentType,
+            "regulatory_compliance": RegulatoryStandard,
         }
-        
+
         # Track if we're converting for serialization (to_dict) or deserialization (from_dict)
-        for_serialization = hasattr(self, '_serializing') and self._serializing
+        for_serialization = hasattr(self, "_serializing") and self._serializing
 
         # Convert each enum field to store string values internally
         for field_name, enum_type in enum_fields.items():
@@ -473,20 +450,20 @@ class MedicalModelConfig(BaseMedicalConfig):
                 current_value = getattr(self, field_name)
                 if current_value is None:
                     continue
-                
+
                 # Convert the value (or list of values) to string representation
                 converted = convert_value(current_value, enum_type, for_serialization)
                 setattr(self, field_name, converted)
 
     def copy(self: T) -> T:
         """Create a deep copy of the configuration.
-        
+
         This method ensures that all fields, including nested objects and collections,
         are properly copied. It handles special cases like domain_config and enum fields.
 
         Returns:
             A new instance with the same parameters and the same type as self
-            
+
         Example:
             >>> config = MedicalModelConfig(...)
             >>> config_copy = config.copy()
@@ -495,21 +472,22 @@ class MedicalModelConfig(BaseMedicalConfig):
         """
         # Get the dictionary representation with all fields
         data = self.to_dict()
-        
+
         # Create a new instance using from_dict which handles all the special cases
         new_instance = self.__class__.from_dict(data)
-        
+
         # Copy any additional attributes that might not be in the dataclass fields
         for attr_name, attr_value in self.__dict__.items():
-            if not hasattr(new_instance, attr_name) and not attr_name.startswith('_'):
+            if not hasattr(new_instance, attr_name) and not attr_name.startswith("_"):
                 try:
                     # Try to do a deep copy if possible
                     import copy
+
                     setattr(new_instance, attr_name, copy.deepcopy(attr_value))
                 except (TypeError, AttributeError):
                     # Fall back to shallow copy if deep copy fails
                     setattr(new_instance, attr_name, attr_value)
-        
+
         return new_instance
 
     def _initialize_dependent_configs(self) -> None:
@@ -602,8 +580,7 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         if self.max_medical_seq_length <= 0:
             raise ValueError(
-                "max_medical_seq_length must be positive, "
-                f"got {self.max_medical_seq_length}"
+                "max_medical_seq_length must be positive, " f"got {self.max_medical_seq_length}"
             )
 
         if self.batch_size <= 0:
@@ -614,23 +591,24 @@ class MedicalModelConfig(BaseMedicalConfig):
 
     def _validate_medical_domain_parameters(self) -> None:
         """Validate medical domain-specific parameters.
-        
+
         This method validates that all medical domain parameters have valid values.
         It handles both enum values and string representations of enums.
         """
+
         def get_enum_value(value, enum_class):
             """Get the string value from an enum or return the value as is."""
-            if hasattr(value, 'value'):
+            if hasattr(value, "value"):
                 return value.value
             if isinstance(value, str):
                 return value.lower()
             return value
 
         # Validate medical specialties
-        if hasattr(self, 'medical_specialties') and self.medical_specialties:
+        if hasattr(self, "medical_specialties") and self.medical_specialties:
             valid_values = {e.value.lower(): e for e in MedicalSpecialty}
             invalid = []
-            
+
             for i, spec in enumerate(self.medical_specialties):
                 spec_value = get_enum_value(spec, MedicalSpecialty)
                 if isinstance(spec_value, str):
@@ -642,7 +620,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                         invalid.append(spec)
                 elif not isinstance(spec, MedicalSpecialty):
                     invalid.append(spec)
-            
+
             if invalid:
                 valid = [e.value for e in MedicalSpecialty]
                 raise ValueError(
@@ -658,10 +636,10 @@ class MedicalModelConfig(BaseMedicalConfig):
             )
 
         # Validate anatomical regions
-        if hasattr(self, 'anatomical_regions') and self.anatomical_regions:
+        if hasattr(self, "anatomical_regions") and self.anatomical_regions:
             valid_values = {e.value.lower(): e for e in AnatomicalRegion}
             invalid = []
-            
+
             for i, region in enumerate(self.anatomical_regions):
                 region_value = get_enum_value(region, AnatomicalRegion)
                 if isinstance(region_value, str):
@@ -673,7 +651,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                         invalid.append(region)
                 elif not isinstance(region, AnatomicalRegion):
                     invalid.append(region)
-            
+
             if invalid:
                 valid = [e.value for e in AnatomicalRegion]
                 raise ValueError(
@@ -682,17 +660,16 @@ class MedicalModelConfig(BaseMedicalConfig):
                 )
         else:
             warnings.warn(
-                "No anatomical regions specified. Entity recognition may be "
-                "limited.",
+                "No anatomical regions specified. Entity recognition may be " "limited.",
                 UserWarning,
                 stacklevel=2,
             )
 
         # Validate imaging modalities
-        if hasattr(self, 'imaging_modalities') and self.imaging_modalities:
+        if hasattr(self, "imaging_modalities") and self.imaging_modalities:
             valid_values = {e.value.lower(): e for e in ImagingModality}
             invalid = []
-            
+
             for i, modality in enumerate(self.imaging_modalities):
                 mod_value = get_enum_value(modality, ImagingModality)
                 if isinstance(mod_value, str):
@@ -704,7 +681,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                         invalid.append(modality)
                 elif not isinstance(modality, ImagingModality):
                     invalid.append(modality)
-            
+
             if invalid:
                 valid = [e.value for e in ImagingModality]
                 raise ValueError(
@@ -713,8 +690,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                 )
         else:
             warnings.warn(
-                "No imaging modalities specified. Image-related features will be "
-                "disabled.",
+                "No imaging modalities specified. Image-related features will be " "disabled.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -730,14 +706,8 @@ class MedicalModelConfig(BaseMedicalConfig):
             raise ValueError(msg)
 
         # Validate entity span length
-        if (
-            not isinstance(self.max_entity_span_length, int)
-            or self.max_entity_span_length <= 0
-        ):
-            msg = (
-                f"max_entity_span_length must be positive, "
-                f"got {self.max_entity_span_length}"
-            )
+        if not isinstance(self.max_entity_span_length, int) or self.max_entity_span_length <= 0:
+            msg = f"max_entity_span_length must be positive, " f"got {self.max_entity_span_length}"
             raise ValueError(msg)
 
         # Validate entity types
@@ -769,15 +739,11 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         # Validate request timeout
         if self.request_timeout <= 0:
-            raise ValueError(
-                f"request_timeout must be positive, got {self.request_timeout}"
-            )
+            raise ValueError(f"request_timeout must be positive, got {self.request_timeout}")
 
         # Validate max retries
         if self.max_retries < 0:
-            raise ValueError(
-                f"max_retries must be non-negative, got {self.max_retries}"
-            )
+            raise ValueError(f"max_retries must be non-negative, got {self.max_retries}")
 
     def _validate_compliance_parameters(self) -> None:
         """Validate compliance and regulatory parameters."""
@@ -848,10 +814,7 @@ class MedicalModelConfig(BaseMedicalConfig):
             }
 
         if isinstance(value, (list, tuple, set)):
-            return [
-                cls._convert_to_serializable(v, serialize_enums, **kwargs)
-                for v in value
-            ]
+            return [cls._convert_to_serializable(v, serialize_enums, **kwargs) for v in value]
 
         if serialize_enums and isinstance(value, Enum):
             return value.value
@@ -970,17 +933,13 @@ class MedicalModelConfig(BaseMedicalConfig):
             # Check if the path exists and is a directory
             if os.path.isdir(pretrained_model_name_or_path):
                 # Try to load from JSON config file first
-                json_config_file = os.path.join(
-                    pretrained_model_name_or_path, "config.json"
-                )
+                json_config_file = os.path.join(pretrained_model_name_or_path, "config.json")
                 if os.path.exists(json_config_file):
                     with open(json_config_file, "r", encoding="utf-8") as f:
                         config_dict = json.load(f)
                 elif YAML_AVAILABLE:
                     # Fall back to YAML if JSON doesn't exist and YAML is available
-                    yaml_config_file = os.path.join(
-                        pretrained_model_name_or_path, "config.yaml"
-                    )
+                    yaml_config_file = os.path.join(pretrained_model_name_or_path, "config.yaml")
                     if os.path.exists(yaml_config_file):
                         with open(yaml_config_file, "r", encoding="utf-8") as f:
                             config_dict = yaml.safe_load(f) or {}
@@ -1017,7 +976,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                     )
                     with open(config_file, "r", encoding="utf-8") as f:
                         config_dict = json.load(f)
-                except Exception as e:
+                except Exception:
                     if not YAML_AVAILABLE:
                         raise
                     # Fall back to YAML if JSON doesn't exist and YAML is available
@@ -1073,9 +1032,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Convert the config dictionary to a config object
         return config_dict, kwargs
 
-    def save_pretrained(
-        self, save_directory: Union[str, os.PathLike], **kwargs: Any
-    ) -> None:
+    def save_pretrained(self, save_directory: Union[str, os.PathLike], **kwargs: Any) -> None:
         """Save the configuration to a directory.
 
         This method saves the configuration as JSON and YAML files in the
@@ -1107,24 +1064,19 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Verify the directory is writable
         if not os.access(save_dir, os.W_OK):
             raise OSError(
-                f"Directory {save_dir} is not writable. "
-                "Check permissions and try again."
+                f"Directory {save_dir} is not writable. " "Check permissions and try again."
             )
 
         # Get the configuration as a serializable dictionary
         try:
             config_dict = self.to_dict()
-            serialized = self._convert_to_serializable(
-                config_dict, serialize_enums=True
-            )
+            serialized = self._convert_to_serializable(config_dict, serialize_enums=True)
             if not isinstance(serialized, dict):
                 raise TypeError(
                     f"Serialized config must be a dictionary, got {type(serialized).__name__}"
                 )
         except Exception as e:
-            raise TypeError(
-                f"Failed to convert configuration to dictionary: {str(e)}"
-            ) from e
+            raise TypeError(f"Failed to convert configuration to dictionary: {str(e)}") from e
 
         # Save as JSON
         json_path = save_dir / "config.json"
@@ -1139,13 +1091,9 @@ class MedicalModelConfig(BaseMedicalConfig):
                     **kwargs,
                 )
         except (TypeError, OverflowError) as e:
-            raise TypeError(
-                f"Failed to serialize configuration to JSON: {str(e)}"
-            ) from e
+            raise TypeError(f"Failed to serialize configuration to JSON: {str(e)}") from e
         except OSError as e:
-            raise OSError(
-                f"Failed to write configuration to {json_path}: {str(e)}"
-            ) from e
+            raise OSError(f"Failed to write configuration to {json_path}: {str(e)}") from e
 
         # Save as YAML if available
         if YAML_AVAILABLE:
@@ -1158,11 +1106,7 @@ class MedicalModelConfig(BaseMedicalConfig):
                         default_flow_style=False,
                         allow_unicode=True,
                         sort_keys=kwargs.get("sort_keys", True),
-                        **{
-                            k: v
-                            for k, v in kwargs.items()
-                            if k not in ["indent", "ensure_ascii"]
-                        },
+                        **{k: v for k, v in kwargs.items() if k not in ["indent", "ensure_ascii"]},
                     )
             except yaml.YAMLError as e:
                 # Don't fail if YAML serialization fails, just log a warning
@@ -1215,8 +1159,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         """
         if not YAML_AVAILABLE:
             raise ImportError(
-                "PyYAML is required to use to_yaml(). "
-                "Please install it with: pip install pyyaml"
+                "PyYAML is required to use to_yaml(). " "Please install it with: pip install pyyaml"
             )
 
         try:
@@ -1258,16 +1201,12 @@ class MedicalModelConfig(BaseMedicalConfig):
                         f.write(yaml_str)
                     return None
                 except (IOError, OSError) as e:
-                    raise OSError(
-                        f"Failed to write YAML to {file_path}: {str(e)}"
-                    ) from e
+                    raise OSError(f"Failed to write YAML to {file_path}: {str(e)}") from e
 
             return yaml_str
 
         except (TypeError, ValueError) as e:
-            raise ValueError(
-                f"Failed to serialize configuration to YAML: {str(e)}"
-            ) from e
+            raise ValueError(f"Failed to serialize configuration to YAML: {str(e)}") from e
         except Exception as e:
             # Reraise any unhandled exceptions with additional context
             raise type(e)(f"Error in to_yaml(): {str(e)}") from e
@@ -1331,16 +1270,12 @@ class MedicalModelConfig(BaseMedicalConfig):
                         f.write(json_str)
                     return None
                 except IOError as e:
-                    raise ValueError(
-                        f"Failed to write JSON to {file_path}: {str(e)}"
-                    ) from e
+                    raise ValueError(f"Failed to write JSON to {file_path}: {str(e)}") from e
 
             return json_str
 
         except (TypeError, ValueError) as e:
-            raise ValueError(
-                f"Failed to serialize configuration to JSON: {str(e)}"
-            ) from e
+            raise ValueError(f"Failed to serialize configuration to JSON: {str(e)}") from e
 
     @classmethod
     def _convert_dict_values(
@@ -1601,9 +1536,7 @@ class MedicalModelConfig(BaseMedicalConfig):
         converted: List[Any] = []
         for i, item in enumerate(value):
             try:
-                converted_item = cls._convert_value(
-                    item, f"{field_name}[{i}]", element_type
-                )
+                converted_item = cls._convert_value(item, f"{field_name}[{i}]", element_type)
                 converted.append(converted_item)
             except (ValueError, TypeError) as e:
                 warnings.warn(f"Could not convert {field_name}[{i}]: {e}", stacklevel=2)

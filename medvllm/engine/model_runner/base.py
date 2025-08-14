@@ -1,23 +1,16 @@
 from __future__ import annotations
 
-import json
-import os
-import sys
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 import torch
 import torch.distributed as dist
-from pydantic import BaseModel
-from torch import Tensor
-from torch.cuda import Stream
 
-from ..sequence import Sequence
 from .model import ModelManager
 from .sampling import SamplingManager
 from .types import *
 
 if TYPE_CHECKING:
-    from torch.distributed import ProcessGroup
+    pass
 
 
 class ModelRunner:
@@ -144,9 +137,7 @@ class ModelRunner:
             )
 
         # Delegate to the model manager
-        logits, past_key_values = self.model_manager.run_model(
-            input_ids, positions, is_prefill
-        )
+        logits, past_key_values = self.model_manager.run_model(input_ids, positions, is_prefill)
         self.past_key_values = past_key_values
         return logits
 

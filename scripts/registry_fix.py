@@ -43,9 +43,7 @@ def patch_registry():
 
     # Apply the patch
     ModelRegistry.register = patched_register
-    print(
-        "Registry patched to handle duplicate registrations gracefully", file=sys.stderr
-    )
+    print("Registry patched to handle duplicate registrations gracefully", file=sys.stderr)
 
 
 # Apply the patch when this module is imported

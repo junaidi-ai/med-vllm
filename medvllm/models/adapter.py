@@ -6,7 +6,7 @@ with support for tensor parallelism, CUDA optimization, and medical domain-speci
 The adapters are now modularized in the adapters/ subdirectory for better maintainability.
 """
 
-from typing import Any, Dict, Type, Union
+from typing import Any, Dict, Union
 
 import torch.nn as nn
 from transformers import PreTrainedModel
@@ -16,13 +16,15 @@ from .adapters import BioBERTAdapter, ClinicalBERTAdapter, MedicalModelAdapterBa
 
 
 def create_medical_adapter(
-    model_type: str, model: Union[nn.Module, PreTrainedModel], config: Dict[str, Any]
+    model_type: Union[str, nn.Module, PreTrainedModel],
+    model: Union[str, nn.Module, PreTrainedModel],
+    config: Dict[str, Any],
 ) -> MedicalModelAdapterBase:
     """Factory function to create a medical model adapter.
 
     Args:
-        model_type: Type of medical model (biobert, clinicalbert)
-        model: Underlying model to adapt (can be a PyTorch Module or HuggingFace PreTrainedModel)
+        model_type: Type of medical model (biobert, clinicalbert) OR the model if called with (model, model_type, config)
+        model: Underlying model to adapt OR the model type string if called with (model, model_type, config)
         config: Configuration dictionary for the adapter
 
     Returns:
@@ -31,22 +33,32 @@ def create_medical_adapter(
     Raises:
         ValueError: If model_type is not supported
     """
-    model_type = model_type.lower()
+    # Support both call signatures:
+    #   (model_type: str, model: nn.Module, config)
+    #   (model: nn.Module, model_type: str, config)
+    if isinstance(model_type, str) and not isinstance(model, str):
+        adapter_type = model_type
+        adapter_model = model  # type: ignore[assignment]
+    else:
+        # Called as (model, model_type, config)
+        adapter_model = model_type  # type: ignore[assignment]
+        adapter_type = model  # type: ignore[assignment]
 
-    if model_type in ["biobert", "bio_bert", "dmis-lab/biobert"]:
+    adapter_type = str(adapter_type).lower()
+
+    if adapter_type in ["biobert", "bio_bert", "dmis-lab/biobert"]:
         # Cast to nn.Module to satisfy mypy
-        return BioBERTAdapter(model=model, config=config)
-    elif model_type in [
+        return BioBERTAdapter(model=adapter_model, config=config)
+    elif adapter_type in [
         "clinicalbert",
         "clinical_bert",
         "emilyalsentzer/bio_clinicalbert",
     ]:
         # Cast to nn.Module to satisfy mypy
-        return ClinicalBERTAdapter(model=model, config=config)
+        return ClinicalBERTAdapter(model=adapter_model, config=config)
     else:
         raise ValueError(
-            f"Unsupported model type: {model_type}. "
-            f"Supported types: biobert, clinicalbert"
+            f"Unsupported model type: {adapter_type}. " f"Supported types: biobert, clinicalbert"
         )
 
 

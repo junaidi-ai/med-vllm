@@ -61,9 +61,7 @@ class ModelConfig(BaseModel):
     max_sequence_length: int = Field(
         default=512, description="Maximum sequence length for the model"
     )
-    do_lower_case: bool = Field(
-        default=True, description="Whether to lowercase the input"
-    )
+    do_lower_case: bool = Field(default=True, description="Whether to lowercase the input")
     use_fast_tokenizer: bool = Field(
         default=True, description="Whether to use fast tokenizer if available"
     )

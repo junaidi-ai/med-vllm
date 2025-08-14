@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import contextlib
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import torch
-from torch import Tensor
-from torch.cuda import Stream
 
 from .types import *
 
@@ -108,9 +105,7 @@ class CUDAGraphManager:
         with torch.no_grad():
             for _ in range(num_warmup):
                 # Create dummy inputs
-                input_ids = torch.randint(
-                    0, 1000, (batch_size, seq_len), device=self.runner.device
-                )
+                input_ids = torch.randint(0, 1000, (batch_size, seq_len), device=self.runner.device)
                 positions = (
                     torch.arange(0, seq_len, device=self.runner.device)
                     .unsqueeze(0)
@@ -122,13 +117,9 @@ class CUDAGraphManager:
                 positions_t = positions.to(device=self.runner.device)
 
                 # Convert to _Tensor if needed (for type checking)
-                if hasattr(input_ids_t, "_as_tensor") and callable(
-                    input_ids_t._as_tensor
-                ):
+                if hasattr(input_ids_t, "_as_tensor") and callable(input_ids_t._as_tensor):
                     input_ids_t = input_ids_t._as_tensor()
-                if hasattr(positions_t, "_as_tensor") and callable(
-                    positions_t._as_tensor
-                ):
+                if hasattr(positions_t, "_as_tensor") and callable(positions_t._as_tensor):
                     positions_t = positions_t._as_tensor()
 
                 # Run the model with type ignore since we've handled the conversion

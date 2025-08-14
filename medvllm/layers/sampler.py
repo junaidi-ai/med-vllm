@@ -3,7 +3,6 @@ from torch import nn
 
 
 class Sampler(nn.Module):
-
     def __init__(self):
         super().__init__()
 
@@ -14,7 +13,5 @@ class Sampler(nn.Module):
         probs = torch.softmax(logits, dim=-1, dtype=torch.float)
         # logprobs = torch.log_softmax(logits, dim=-1, dtype=torch.float)
         epsilon = 1e-10
-        sample_tokens = probs.div_(
-            torch.empty_like(probs).exponential_(1) + epsilon
-        ).argmax(dim=-1)
+        sample_tokens = probs.div_(torch.empty_like(probs).exponential_(1) + epsilon).argmax(dim=-1)
         return torch.where(temperatures == 0, greedy_tokens, sample_tokens)

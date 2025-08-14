@@ -41,9 +41,7 @@ class MedicalLayerNorm(nn.Module):
             self.weight = nn.Parameter(
                 torch.empty(self.normalized_shape, device=device, dtype=dtype)
             )
-            self.bias = nn.Parameter(
-                torch.empty(self.normalized_shape, device=device, dtype=dtype)
-            )
+            self.bias = nn.Parameter(torch.empty(self.normalized_shape, device=device, dtype=dtype))
         else:
             self.register_parameter("weight", None)
             self.register_parameter("bias", None)
@@ -60,9 +58,7 @@ class MedicalLayerNorm(nn.Module):
         """Forward pass for layer normalization."""
         # Use FusedLayerNorm if available and on CUDA
         if input.is_cuda and hasattr(torch.ops.torch, "native_layer_norm"):
-            return F.layer_norm(
-                input, self.normalized_shape, self.weight, self.bias, self.eps
-            )
+            return F.layer_norm(input, self.normalized_shape, self.weight, self.bias, self.eps)
 
         # Fall back to manual implementation if needed
         mean = input.mean(dim=-1, keepdim=True)
@@ -75,9 +71,8 @@ class MedicalLayerNorm(nn.Module):
         return output
 
     def extra_repr(self) -> str:
-        return (
-            "{normalized_shape}, eps={eps}, "
-            "elementwise_affine={elementwise_affine}".format(**self.__dict__)
+        return "{normalized_shape}, eps={eps}, " "elementwise_affine={elementwise_affine}".format(
+            **self.__dict__
         )
 
 
@@ -112,9 +107,7 @@ class MedicalFeedForward(nn.Module):
         self.w3 = nn.Linear(d_model, d_ff, bias=True, device=device, dtype=dtype)
 
         # Layer normalization
-        self.layer_norm = MedicalLayerNorm(
-            d_model, eps=layer_norm_eps, device=device, dtype=dtype
-        )
+        self.layer_norm = MedicalLayerNorm(d_model, eps=layer_norm_eps, device=device, dtype=dtype)
 
         # Activation function
         self.activation = self._get_activation_fn(activation)
@@ -202,12 +195,8 @@ class MedicalTransformerEncoderLayer(nn.Module):
         )
 
         # Layer normalization
-        self.norm1 = MedicalLayerNorm(
-            d_model, eps=layer_norm_eps, device=device, dtype=dtype
-        )
-        self.norm2 = MedicalLayerNorm(
-            d_model, eps=layer_norm_eps, device=device, dtype=dtype
-        )
+        self.norm1 = MedicalLayerNorm(d_model, eps=layer_norm_eps, device=device, dtype=dtype)
+        self.norm2 = MedicalLayerNorm(d_model, eps=layer_norm_eps, device=device, dtype=dtype)
 
         # Dropout
         self.dropout1 = nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()

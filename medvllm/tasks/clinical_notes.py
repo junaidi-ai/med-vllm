@@ -44,9 +44,7 @@ class ClinicalNotesGenerator(nn.Module):
         ]
 
         # Add special tokens to the tokenizer
-        self.tokenizer.add_special_tokens(
-            {"additional_special_tokens": self.section_tokens}
-        )
+        self.tokenizer.add_special_tokens({"additional_special_tokens": self.section_tokens})
         self.model.resize_token_embeddings(len(self.tokenizer))
 
     def forward(
@@ -131,9 +129,7 @@ class ClinicalNotesGenerator(nn.Module):
         for i in range(len(prompts)):
             for j in range(num_return_sequences):
                 seq_idx = i * num_return_sequences + j
-                gen_text = self.tokenizer.decode(
-                    outputs[seq_idx], skip_special_tokens=True
-                )
+                gen_text = self.tokenizer.decode(outputs[seq_idx], skip_special_tokens=True)
 
                 # Calculate sequence probability (approximate)
                 with torch.no_grad():
@@ -190,14 +186,10 @@ class ClinicalNotesGenerator(nn.Module):
             if "history" in section_name:
                 prompt += f"Age: {patient_info.get('age', 'N/A')}\n"
                 prompt += f"Sex: {patient_info.get('sex', 'N/A')}\n"
-                prompt += (
-                    f"Presenting complaint: {patient_info.get('complaint', 'N/A')}\n"
-                )
+                prompt += f"Presenting complaint: {patient_info.get('complaint', 'N/A')}\n"
 
             # Generate section
-            generated = self.generate(
-                prompt, max_length=max_section_length, **generation_kwargs
-            )
+            generated = self.generate(prompt, max_length=max_section_length, **generation_kwargs)
 
             if generated:
                 sections[section_name] = generated[0].note

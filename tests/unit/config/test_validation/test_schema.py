@@ -9,13 +9,11 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 from pydantic import BaseModel
-from pydantic import ValidationError as PydanticValidationError
 
 from medvllm.medical.config.validation.exceptions import (
     FieldTypeError,
     FieldValueError,
     RequiredFieldError,
-    SchemaValidationError,
 )
 
 # Import the actual implementation
@@ -132,9 +130,7 @@ class TestSchemaValidation:
 
         assert expected_error_msg in str(exc_info.value).lower()
 
-    def test_validate_config_schema_optional_fields(
-        self, valid_data: Dict[str, Any]
-    ) -> None:
+    def test_validate_config_schema_optional_fields(self, valid_data: Dict[str, Any]) -> None:
         """Test that optional fields can be omitted."""
         # Given
         data = valid_data.copy()
@@ -146,9 +142,7 @@ class TestSchemaValidation:
         # Then
         assert result.optional_field is None
 
-    def test_validate_config_schema_none_for_optional(
-        self, valid_data: Dict[str, Any]
-    ) -> None:
+    def test_validate_config_schema_none_for_optional(self, valid_data: Dict[str, Any]) -> None:
         """Test that None is allowed for optional fields."""
         # Given
         data = valid_data.copy()
@@ -163,9 +157,7 @@ class TestSchemaValidation:
     def test_validate_config_schema_already_validated(self) -> None:
         """Test that an already validated object is returned as-is."""
         # Given
-        obj = TestSchema(
-            name="test", age=30, nested=NestedModel(name="nested", value=42)
-        )
+        obj = TestSchema(name="test", age=30, nested=NestedModel(name="nested", value=42))
 
         # When
         result = validate_config_schema(obj, TestSchema)

@@ -7,8 +7,4 @@ and documenting the medical model configuration.
 from .schema import MedicalModelConfigSchema, ModelType
 from .medical_config import MedicalModelConfig
 
-__all__ = [
-    "MedicalModelConfig",
-    "MedicalModelConfigSchema", 
-    "ModelType"
-]
+__all__ = ["MedicalModelConfig", "MedicalModelConfigSchema", "ModelType"]

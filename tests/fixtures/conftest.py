@@ -6,10 +6,9 @@ This module provides reusable fixtures for testing the medical model configurati
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Union
+from typing import Any, Dict, List
 
 import pytest
-import yaml
 
 from medvllm.medical.config import MedicalModelConfig
 

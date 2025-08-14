@@ -108,9 +108,7 @@ def set_nested_value(
     for i, key in enumerate(keys[:-1]):
         if key not in current:
             if not create_missing:
-                raise KeyError(
-                    f"Key '{key}' not found in path '{'.'.join(keys[:i+1])}'"
-                )
+                raise KeyError(f"Key '{key}' not found in path '{'.'.join(keys[:i+1])}'")
             current[key] = {}
         current = current[key]
 
@@ -139,10 +137,7 @@ def to_serializable(obj: Any) -> Any:
     if hasattr(obj, "__dataclass_fields__"):
         import dataclasses
 
-        return {
-            f.name: to_serializable(getattr(obj, f.name))
-            for f in dataclasses.fields(obj)
-        }
+        return {f.name: to_serializable(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
 
     # Handle enums
     if isinstance(obj, type) and issubclass(obj, type):
@@ -164,9 +159,7 @@ def to_serializable(obj: Any) -> Any:
 
     # Handle other objects with __dict__
     if hasattr(obj, "__dict__"):
-        return {
-            k: to_serializable(v) for k, v in vars(obj).items() if not k.startswith("_")
-        }
+        return {k: to_serializable(v) for k, v in vars(obj).items() if not k.startswith("_")}
 
     # Fallback to string representation
     return str(obj)

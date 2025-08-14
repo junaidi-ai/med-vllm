@@ -9,7 +9,6 @@ import tempfile
 import types
 from unittest.mock import MagicMock, patch
 
-import pytest
 import torch
 
 mock_transformers = types.ModuleType("transformers")
@@ -117,7 +116,6 @@ class TestAdapterIntegration:
     @patch("medvllm.engine.model_runner.model.ModelManager._setup_adapter")
     def test_model_manager_integration(self, mock_setup):
         """Test integration with ModelManager."""
-        from medvllm.config import Config
         from medvllm.engine.model_runner.model import ModelManager
 
         # Create a mock runner with config

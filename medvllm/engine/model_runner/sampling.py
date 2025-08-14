@@ -3,14 +3,9 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
     List,
     Optional,
-    Tuple,
-    Type,
     Union,
-    cast,
 )
 
 import torch
@@ -96,18 +91,14 @@ class SamplingManager:
 
         # Process the logits with the processor
         if input_ids_tensor is not None:
-            result = self.logits_processor(
-                to_tensort(logits_tensor), to_tensort(input_ids_tensor)
-            )
+            result = self.logits_processor(to_tensort(logits_tensor), to_tensort(input_ids_tensor))
         else:
             # For the None case, we need to handle it specially since we can't convert None to _Tensor
             result = self.logits_processor(to_tensort(logits_tensor), None)  # type: ignore[call-arg]
 
         # Ensure the result is a tensor of the correct type
         if not isinstance(result, torch.Tensor):
-            return torch.tensor(
-                result, device=logits_tensor.device, dtype=logits_tensor.dtype
-            )
+            return torch.tensor(result, device=logits_tensor.device, dtype=logits_tensor.dtype)
         return result
 
     def sample(
@@ -139,9 +130,7 @@ class SamplingManager:
         # Get temperatures from sequences with proper fallback
         temperatures: List[float] = []
         for seq in seqs:
-            if hasattr(seq, "sampling_params") and hasattr(
-                seq.sampling_params, "temperature"
-            ):
+            if hasattr(seq, "sampling_params") and hasattr(seq.sampling_params, "temperature"):
                 temp = seq.sampling_params.temperature
                 temperatures.append(float(temp) if temp is not None else 1.0)
             else:
@@ -168,9 +157,7 @@ class SamplingManager:
 
         return token_ids
 
-    def prepare_temperature(
-        self, temperature: Optional[float] = None
-    ) -> Optional[torch.Tensor]:
+    def prepare_temperature(self, temperature: Optional[float] = None) -> Optional[torch.Tensor]:
         """Prepare temperature tensor for sampling.
 
         Args:
@@ -180,9 +167,7 @@ class SamplingManager:
             A tensor containing the temperature value on the correct device, or None.
         """
         if temperature is not None:
-            return torch.tensor(
-                temperature, device=self.runner.device, dtype=torch.float32
-            )
+            return torch.tensor(temperature, device=self.runner.device, dtype=torch.float32)
         return None
 
     def prepare_temperatures(
@@ -202,9 +187,7 @@ class SamplingManager:
 
         temperatures = []
         for seq in seqs:
-            if hasattr(seq, "sampling_params") and hasattr(
-                seq.sampling_params, "temperature"
-            ):
+            if hasattr(seq, "sampling_params") and hasattr(seq.sampling_params, "temperature"):
                 temp = seq.sampling_params.temperature
                 if temp is not None and temp > 0:
                     temperatures.append(temp)

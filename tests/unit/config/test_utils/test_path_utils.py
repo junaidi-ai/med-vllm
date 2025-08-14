@@ -2,7 +2,6 @@
 Tests for path utility functions.
 """
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

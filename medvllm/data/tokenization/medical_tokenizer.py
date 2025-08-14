@@ -3,7 +3,7 @@
 from typing import Dict, List, Optional, Union
 
 import torch
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoTokenizer
 
 # Common medical abbreviations and terms to add to the tokenizer
 MEDICAL_TERMS = [
@@ -88,9 +88,7 @@ MEDICAL_TERMS = [
 class MedicalTokenizer:
     """Wrapper around a tokenizer with medical term handling."""
 
-    def __init__(
-        self, tokenizer_name: str = "gpt2", add_medical_terms: bool = True, **kwargs
-    ):
+    def __init__(self, tokenizer_name: str = "gpt2", add_medical_terms: bool = True, **kwargs):
         """Initialize the medical tokenizer.
 
         Args:

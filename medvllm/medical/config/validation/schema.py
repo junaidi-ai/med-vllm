@@ -7,9 +7,7 @@ This module provides functions for validating configuration schemas.
 import inspect
 from typing import (
     Any,
-    Callable,
     Dict,
-    Mapping,
     Optional,
     Type,
     TypeVar,
@@ -21,7 +19,6 @@ from typing import (
 
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
-from pydantic.fields import FieldInfo
 
 # Type variable for Pydantic models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -36,14 +33,14 @@ from medvllm.medical.config.validation.exceptions import (
 
 def validate_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
     """Alias for validate_config_schema for backward compatibility.
-    
+
     Args:
         config: Configuration dictionary or object to validate
         config_class: Pydantic model class to validate against
-        
+
     Returns:
         Validated configuration object
-        
+
     Raises:
         SchemaValidationError: If validation fails
     """
@@ -66,13 +63,19 @@ def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
     if config is None:
         raise SchemaValidationError("Configuration cannot be None")
 
+    # If it's already a validated instance of the expected class, return as-is
+    if isinstance(config, config_class):
+        return config
+
     # Convert to dict if it's a model instance
     if isinstance(config, BaseModel):
-        config = config.dict()
+        # Support both Pydantic v1 and v2
+        if hasattr(config, "model_dump"):
+            config = config.model_dump()
+        else:
+            config = config.dict()
     elif not isinstance(config, dict):
-        raise SchemaValidationError(
-            f"Expected dict or BaseModel, got {type(config).__name__}"
-        )
+        raise SchemaValidationError(f"Expected dict or BaseModel, got {type(config).__name__}")
 
     try:
         # Check for missing required fields
@@ -117,7 +120,8 @@ def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
 
             # Handle lists of models
             origin = get_origin(field_type)
-            if origin is not None and issubclass(origin, list):
+            # origin can be non-class types (e.g., Union), guard before issubclass
+            if origin is not None and inspect.isclass(origin) and issubclass(origin, list):
                 args = get_args(field_type)
                 if (
                     args
@@ -130,6 +134,11 @@ def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
                         if isinstance(item, dict):
                             validate_config_schema(item, args[0])
 
+        # Additional value-level validations that are not covered by Pydantic types
+        # Ensure type-safety when comparing
+        if "age" in config and isinstance(config["age"], int) and config["age"] < 0:
+            raise FieldValueError("value is less than 0", field="age", value=config["age"])
+
         # Validate using Pydantic
         return config_class(**config)
 
@@ -141,10 +150,20 @@ def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
             field = ".".join(str(loc) for loc in error["loc"])
 
             if error_type == "value_error.missing":
-                raise RequiredFieldError(
-                    f"Missing required field: {field}", field=field
-                ) from e
-            elif error_type.startswith("type_error"):
+                raise RequiredFieldError(f"Missing required field: {field}", field=field) from e
+            # Map Pydantic v1 type errors and common Pydantic v2 type/parsing errors
+            elif error_type.startswith("type_error") or error_type in {
+                "string_type",
+                "int_parsing",
+                "bool_parsing",
+                "list_type",
+                "list_parsing",
+                "dict_type",
+                "float_parsing",
+                "bytes_type",
+                "enum",
+                "is_instance_of",
+            }:
                 raise FieldTypeError(
                     f"Invalid type for field '{field}': {msg}",
                     field=field,
@@ -157,12 +176,6 @@ def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
                     value=error.get("input"),
                 ) from e
 
-        # Validate field values
-        if "age" in config and config["age"] is not None and config["age"] < 0:
-            raise FieldValueError(
-                "value is less than 0", field="age", value=config["age"]
-            )
-
         # Create the model instance
         try:
             config = config_class(**config)
@@ -173,9 +186,7 @@ def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
                 error_type = error["type"]
 
                 if error_type == "value_error.missing":
-                    raise RequiredFieldError(
-                        f"Missing required field: {field}", field=field
-                    ) from e
+                    raise RequiredFieldError(f"Missing required field: {field}", field=field) from e
                 elif error_type.startswith("type_error"):
                     raise FieldTypeError(
                         f"Invalid type for field '{field}': {msg}",
@@ -189,9 +200,7 @@ def validate_config_schema(config: Any, config_class: Type[ModelT]) -> ModelT:
                         value=error.get("input"),
                     ) from e
 
-            raise SchemaValidationError(
-                f"Configuration validation failed: {str(e)}"
-            ) from e
+            raise SchemaValidationError(f"Configuration validation failed: {str(e)}") from e
 
     return config
 

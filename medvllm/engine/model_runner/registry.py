@@ -34,71 +34,65 @@ Thread Safety:
 
 from __future__ import annotations
 
-import logging
 import threading
 import time
-from collections import OrderedDict as OrderedDictType
-from collections import defaultdict, deque
-from dataclasses import asdict, dataclass, field
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from functools import lru_cache
-from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     TypeVar,
     ClassVar,
     Deque,
     Dict,
     Generic,
     List,
-    Literal,
     Optional,
     Tuple,
     Type,
     Union,
     cast,
-    get_args,
-    get_origin,
-    overload,
 )
 
 import torch
 from torch import nn
+
 # Import transformers first to ensure it's properly initialized
 import transformers
 
 # Check if we're in a test environment with mock transformers
-is_test_env = hasattr(transformers, 'MockTransformers') or 'Mock' in str(type(transformers))
+is_test_env = hasattr(transformers, "MockTransformers") or "Mock" in str(type(transformers))
 
 if is_test_env:
     # In test environment, use mock versions of the classes
     print("Running in test environment with mock transformers")
-    
+
     # Define mock versions of required classes
     class MockPretrainedConfig:
         def __init__(self, *args, **kwargs):
             pass
-            
+
     class MockPreTrainedModel:
         def __init__(self, *args, **kwargs):
             pass
-            
+
     # Assign mock classes
     PretrainedConfig = MockPretrainedConfig
     PreTrainedModel = MockPreTrainedModel
     _PretrainedConfig = MockPretrainedConfig
     _PreTrainedModel = MockPreTrainedModel
-    
+
     # Other classes can be None or mock versions
-    AutoConfig = getattr(transformers, 'AutoConfig', None)
-    AutoModel = getattr(transformers, 'AutoModel', None)
-    AutoModelForCausalLM = getattr(transformers, 'AutoModelForCausalLM', None)
-    AutoModelForSequenceClassification = getattr(transformers, 'AutoModelForSequenceClassification', None)
-    BertConfig = getattr(transformers, 'BertConfig', None)
-    BertModel = getattr(transformers, 'BertModel', None)
+    AutoConfig = getattr(transformers, "AutoConfig", None)
+    AutoModel = getattr(transformers, "AutoModel", None)
+    AutoModelForCausalLM = getattr(transformers, "AutoModelForCausalLM", None)
+    AutoModelForSequenceClassification = getattr(
+        transformers, "AutoModelForSequenceClassification", None
+    )
+    BertConfig = getattr(transformers, "BertConfig", None)
+    BertModel = getattr(transformers, "BertModel", None)
 else:
     # In production/real environment, use real imports
     try:
@@ -112,7 +106,9 @@ else:
             PretrainedConfig,
             PreTrainedModel,
         )
-        from transformers.configuration_utils import PretrainedConfig as _PretrainedConfig
+        from transformers.configuration_utils import (
+            PretrainedConfig as _PretrainedConfig,
+        )
         from transformers.modeling_utils import PreTrainedModel as _PreTrainedModel
     except ImportError as e:
         raise ImportError(
@@ -124,25 +120,32 @@ else:
 from typing_extensions import TypeVar
 
 # Import medical model loaders for type hints
+_HAS_MEDICAL_MODELS = False
 try:
     from medvllm.models.medical_models import (
         MedicalModelLoader,
         BioBERTLoader,
         ClinicalBERTLoader,
     )
+
+    _HAS_MEDICAL_MODELS = True
 except ImportError:
     # Define dummy classes if the imports fail (for testing)
     class MedicalModelLoader:  # type: ignore
         """Dummy MedicalModelLoader class for when medvllm.models is not available."""
+
         pass
-        
+
     class BioBERTLoader(MedicalModelLoader):  # type: ignore
         """Dummy BioBERTLoader class for when medvllm.models is not available."""
+
         pass
-        
+
     class ClinicalBERTLoader(MedicalModelLoader):  # type: ignore
         """Dummy ClinicalBERTLoader class for when medvllm.models is not available."""
+
         pass
+
 
 from medvllm.utils.logging import get_logger
 
@@ -158,7 +161,16 @@ from medvllm.engine.model_runner.exceptions import (
 )
 
 # Import medical model loaders with type checking
-MEDICAL_MODELS_AVAILABLE: bool = False
+MEDICAL_MODELS_AVAILABLE: bool = _HAS_MEDICAL_MODELS
+
+# Broaden availability: if adapters package is present, we can register medical models
+if not MEDICAL_MODELS_AVAILABLE:
+    try:
+        from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter  # noqa: F401
+
+        MEDICAL_MODELS_AVAILABLE = True
+    except Exception:
+        MEDICAL_MODELS_AVAILABLE = False
 
 # Define type variables at module level
 if TYPE_CHECKING:
@@ -169,7 +181,7 @@ if TYPE_CHECKING:
         PreTrainedTokenizerFast,
     )
     from transformers.configuration_utils import PretrainedConfig
-    from typing_extensions import TypeGuard, TypeVar
+    from typing_extensions import TypeVar
 
     from medvllm.models.adapters.medical_adapter_base import MedicalModelAdapterBase
 
@@ -235,9 +247,7 @@ class ModelMetadata:
             "model_type": self.model_type.name,
             "model_class": self.model_class.__name__ if self.model_class else None,
             "config_class": self.config_class.__name__ if self.config_class else None,
-            "tokenizer_class": (
-                self.tokenizer_class.__name__ if self.tokenizer_class else None
-            ),
+            "tokenizer_class": (self.tokenizer_class.__name__ if self.tokenizer_class else None),
             "description": self.description,
             "version": self.version,
             "tags": self.tags,
@@ -443,51 +453,52 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
         """
         with self._lock:
             try:
-                # Validate input parameters
-                if not name or not isinstance(name, str):
-                    raise ValueError("Model name must be a non-empty string")
-                    
-                # Validate model_type - handle both enum values and raw values
-                is_valid = False
-                
-                # Check if it's already a valid ModelType enum
+                # Validate model name
+                self._validate_model_name(name)
+
+                # Normalize/validate model_type to a ModelType enum
+                mt_enum: ModelType
                 if isinstance(model_type, ModelType):
-                    is_valid = True
-                # Check if it's a string that matches a ModelType name or value
-                elif isinstance(model_type, (str, int)):
+                    mt_enum = model_type
+                elif isinstance(model_type, str):
                     try:
-                        ModelType(model_type)
-                        is_valid = True
-                    except ValueError:
-                        is_valid = False
-                # Check if it's a mock ModelType (like in tests)
-                elif hasattr(model_type, 'name') and hasattr(model_type, 'value'):
-                    try:
-                        # Try to find a matching ModelType
-                        ModelType[model_type.name]
-                        is_valid = True
-                    except (KeyError, AttributeError):
-                        is_valid = False
-                
-                # Check if model already exists (before validation to match test expectations)
-                if name in self._models:
-                    if not force:
+                        mt_enum = ModelType[model_type.upper()]
+                    except KeyError as e:
+                        valid_types = ", ".join([t.name for t in ModelType])
                         raise ValueError(
-                            f"Model with name '{name}' is already registered"
-                        )
+                            f"Invalid model type string: {model_type}. Must be one of: {valid_types}"
+                        ) from e
+                elif isinstance(model_type, int):
+                    try:
+                        mt_enum = ModelType(model_type)
+                    except ValueError as e:
+                        valid_types = ", ".join([f"{t.name} ({t.value})" for t in ModelType])
+                        raise ValueError(
+                            f"Invalid model type value: {model_type}. Must be one of: {valid_types}"
+                        ) from e
+                elif hasattr(model_type, "name") and hasattr(model_type, "value"):
+                    # Handle mock-like enums in tests
+                    try:
+                        mt_enum = ModelType[getattr(model_type, "name")]
+                    except Exception as e:
+                        valid_types = ", ".join([t.name for t in ModelType])
+                        raise ValueError(
+                            f"Invalid model type: {model_type}. Must be one of: {valid_types}"
+                        ) from e
+                else:
+                    raise ValueError("Invalid model type provided")
+
+                # Duplicate check
+                if name in self._models and not force:
+                    raise ValueError(f"Model with name '{name}' is already registered")
+                # If forcing, remove old entry
+                if name in self._models and force:
                     del self._models[name]
-                    
-                # Validate model type
-                if not is_valid:
-                    valid_types = ", ".join([f"{t.name} ({t.value})" for t in ModelType])
-                    raise ValueError(
-                        f"Invalid model type: {model_type}. Must be one of: {valid_types}"
-                    )
 
                 # Create and store model metadata
                 metadata = ModelMetadata(
                     name=name,
-                    model_type=model_type,
+                    model_type=mt_enum,
                     model_class=model_class,
                     config_class=config_class,
                     tokenizer_class=tokenizer_class,
@@ -497,18 +508,17 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                     parameters=parameters or {**custom_metadata},
                 )
 
-                # Store the metadata
                 self._models[name] = metadata
 
-                # Store the loader if provided
+                # Store loader mappings if provided
                 if loader is not None and hasattr(self, "_loaders"):
                     self._loaders[name] = loader
+                    type_key = mt_enum.name.lower()
+                    self._loaders[type_key] = loader
 
-                logger.info(f"Registered model: {name}")
-
-            except ValueError as e:
-                logger.error(f"Validation error registering model {name}: {e}")
-                raise  # Re-raise ValueError directly
+            except ValueError:
+                # Re-raise explicit value errors (invalid args, duplicates)
+                raise
             except Exception as e:
                 raise ModelRegistrationError(
                     f"Failed to register model: {str(e)}", model_name=name, error=str(e)
@@ -526,7 +536,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
         with self._lock:
             if name not in self._models:
                 raise ModelNotFoundError(
-                    f"Cannot unregister: model not found in registry", model_name=name
+                    "Cannot unregister: model not found in registry", model_name=name
                 )
 
             # Remove from cache if loaded
@@ -552,14 +562,10 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
         """
         with self._lock:
             if name not in self._models:
-                raise ModelNotFoundError(
-                    f"Model not found in registry", model_name=name
-                )
+                raise ModelNotFoundError("Model not found in registry", model_name=name)
             return self._models[name]
 
-    def list_models(
-        self, model_type: Optional[ModelType] = None
-    ) -> List[Dict[str, Any]]:
+    def list_models(self, model_type: Optional[ModelType] = None) -> List[Dict[str, Any]]:
         """List all registered models, optionally filtered by type.
 
         Args:
@@ -572,9 +578,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
             if model_type is None:
                 return [model.to_dict() for model in self._models.values()]
             return [
-                model.to_dict()
-                for model in self._models.values()
-                if model.model_type == model_type
+                model.to_dict() for model in self._models.values() if model.model_type == model_type
             ]
 
     def is_registered(self, name: str) -> bool:
@@ -598,8 +602,8 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
             # Import at runtime to avoid circular imports
             from transformers import BertConfig, BertModel
 
-            from medvllm.models.adapters.biobert_adapter import BioBERTAdapter
-            from medvllm.models.adapters.clinicalbert_adapter import ClinicalBERTAdapter
+            # Import adapters from the adapters package (module names are biobert.py / clinicalbert.py)
+            from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter
 
             # Register BioBERT
             self.register(
@@ -671,9 +675,9 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
             raise ModelLoadingError(
                 "Medical models are not available. Please ensure all required dependencies are installed.",
                 model_name=name,
-                error="MEDICAL_MODELS_AVAILABLE is False"
+                error="MEDICAL_MODELS_AVAILABLE is False",
             )
-            
+
         from torch.nn import Module
         from transformers import AutoConfig
 
@@ -684,9 +688,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
         loader_class = self._get_medical_loader(model_type)
 
         if loader_class is None:
-            raise ModelLoadingError(
-                f"No registered loader for model type: {model_type}"
-            )
+            raise ModelLoadingError(f"No registered loader for model type: {model_type}")
 
         # Validate loader class type
         if not isinstance(loader_class, type) or not issubclass(
@@ -835,16 +837,20 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                                 # Backward compatibility: (timestamp, model)
                                 timestamp, cached_model = cached_item
                             else:
-                                logger.warning(f"Invalid cache entry format for model '{name}': {cached_item}")
+                                logger.warning(
+                                    f"Invalid cache entry format for model '{name}': {cached_item}"
+                                )
                                 raise ValueError("Invalid cache entry format")
-                            
+
                             # Check if cache entry is still valid (within TTL)
                             current_time = time.time()
                             if current_time - timestamp < self.CACHE_TTL:
                                 self._cache_hits += 1
-                                logger.debug(f"Cache hit for model '{name}' (age: {current_time - timestamp:.2f}s < {self.CACHE_TTL}s)")
+                                logger.debug(
+                                    f"Cache hit for model '{name}' (age: {current_time - timestamp:.2f}s < {self.CACHE_TTL}s)"
+                                )
                                 return cast(ModelT, cached_model)
-                            
+
                             logger.debug(
                                 f"Cache entry for model '{name}' expired (age: {current_time - timestamp:.2f}s >= {self.CACHE_TTL}s), reloading"
                             )
@@ -852,7 +858,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                         except (ValueError, TypeError, IndexError) as e:
                             logger.warning(f"Error processing cache entry for model '{name}': {e}")
                             self._model_cache.pop(name, None)
-            
+
             self._cache_misses += 1
 
         # Acquire lock to ensure thread safety during model loading
@@ -864,9 +870,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                 # Check if the model is registered
                 if name in self._models:
                     metadata = self._models[name]
-                    logger.debug(
-                        f"Loading registered model '{name}' with metadata: {metadata}"
-                    )
+                    logger.debug(f"Loading registered model '{name}' with metadata: {metadata}")
 
                     # Handle medical models with specialized loaders
                     if metadata.model_type in (
@@ -875,9 +879,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                     ):
                         try:
                             load_start = time.time()
-                            model = self._load_medical_model(
-                                name, metadata, device, **kwargs
-                            )
+                            model = self._load_medical_model(name, metadata, device, **kwargs)
                             load_duration = time.time() - load_start
                             metadata.update_load_metrics(load_duration)
 
@@ -914,9 +916,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                             return model
 
                         except Exception as load_error:
-                            error_msg = (
-                                f"Failed to load model '{name}': {str(load_error)}"
-                            )
+                            error_msg = f"Failed to load model '{name}': {str(load_error)}"
                             logger.error(error_msg, exc_info=True)
                             raise ModelLoadingError(
                                 error_msg, model_name=name, error=str(load_error)
@@ -947,7 +947,9 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                         return model
 
                     except Exception as hub_error:
-                        error_msg = f"Failed to load model '{name}' from Hugging Face Hub: {str(hub_error)}"
+                        error_msg = (
+                            f"Failed to load model '{name}' from Hugging Face Hub: {str(hub_error)}"
+                        )
                         logger.error(error_msg, exc_info=True)
                         raise ModelLoadingError(
                             error_msg, model_name=name, error=str(hub_error)
@@ -1044,14 +1046,10 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
             if metadata.model_class:
                 model = cast(
                     ModelT,
-                    metadata.model_class.from_pretrained(
-                        name, config=config, **model_args
-                    ),
+                    metadata.model_class.from_pretrained(name, config=config, **model_args),
                 )
             else:
-                model = cast(
-                    ModelT, AutoModel.from_pretrained(name, config=config, **model_args)
-                )
+                model = cast(ModelT, AutoModel.from_pretrained(name, config=config, **model_args))
 
             # Move to device if specified
             if device is not None:
@@ -1168,15 +1166,17 @@ def get_registry() -> "ModelRegistry[PreTrainedModel, PretrainedConfig]":
         with ModelRegistry._class_lock:
             if ModelRegistry._instance is None:
                 # Create a new instance with explicit type parameters
-                registry: ModelRegistry[PreTrainedModel, PretrainedConfig] = (
-                    ModelRegistry()
-                )
+                registry: ModelRegistry[PreTrainedModel, PretrainedConfig] = ModelRegistry()
                 registry._register_default_models()
+                # Register medical models if adapters are available
+                if MEDICAL_MODELS_AVAILABLE:
+                    try:
+                        registry._register_medical_models()
+                    except Exception as e:
+                        logger.warning(f"Failed to register medical models during init: {e}")
                 # _initialized is now handled in __new__
                 ModelRegistry._instance = registry
-    return cast(
-        ModelRegistry[PreTrainedModel, PretrainedConfig], ModelRegistry._instance
-    )
+    return cast(ModelRegistry[PreTrainedModel, PretrainedConfig], ModelRegistry._instance)
 
 
 # Create a global instance of the registry for backward compatibility

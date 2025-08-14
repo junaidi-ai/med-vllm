@@ -6,15 +6,13 @@ and documenting the medical model configuration.
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from medvllm.medical.config.types.models import (
-    ClinicalMetrics,
     DomainConfig,
     EntityLinkingConfig,
-    MetricConfig,
 )
 
 # Type variables for generics
@@ -95,9 +93,7 @@ class MedicalModelConfigSchema(BaseModel):
         gt=0,
     )
 
-    batch_size: int = Field(
-        default=32, description="Default batch size for inference.", gt=0
-    )
+    batch_size: int = Field(default=32, description="Default batch size for inference.", gt=0)
 
     enable_uncertainty_estimation: bool = Field(
         default=False,
@@ -111,9 +107,7 @@ class MedicalModelConfigSchema(BaseModel):
         le=1.0,
     )
 
-    cache_ttl: int = Field(
-        default=3600, description="Time-to-live for cache in seconds", ge=0
-    )
+    cache_ttl: int = Field(default=3600, description="Time-to-live for cache in seconds", ge=0)
 
     # Medical domain configuration
     medical_specialties: List[str] = Field(
@@ -158,9 +152,7 @@ class MedicalModelConfigSchema(BaseModel):
     )
 
     # API configuration
-    max_retries: int = Field(
-        default=3, description="Maximum number of retries for API calls", ge=0
-    )
+    max_retries: int = Field(default=3, description="Maximum number of retries for API calls", ge=0)
 
     request_timeout: int = Field(
         default=30, description="Timeout in seconds for API requests", ge=0
@@ -191,9 +183,7 @@ class MedicalModelConfigSchema(BaseModel):
     )
 
     # Internal fields
-    config_version: str = Field(
-        default="1.0.0", description="Configuration schema version"
-    )
+    config_version: str = Field(default="1.0.0", description="Configuration schema version")
 
     # Pydantic v2 style config
     model_config = ConfigDict(

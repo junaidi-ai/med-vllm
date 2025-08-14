@@ -39,14 +39,10 @@ class DummyModule:
         self.error = error
 
     def __getattr__(self, name: str) -> None:
-        raise ImportError(
-            f"{self.name} is required but could not be imported: {self.error}"
-        )
+        raise ImportError(f"{self.name} is required but could not be imported: {self.error}")
 
     def __call__(self, *args: Any, **kwargs: Any) -> None:
-        raise ImportError(
-            f"{self.name} is required but could not be imported: {self.error}"
-        )
+        raise ImportError(f"{self.name} is required but could not be imported: {self.error}")
 
 
 def lazy_import(name: str, pkg: str) -> Any:
@@ -80,17 +76,18 @@ if HAS_TORCH:
         from .models.adapter_manager import AdapterManager
         from .models.adapters.base import MedicalModelAdapterBase
         from .sampling_params import SamplingParams
-        
+
         # Import models module
         from . import models
-        
+
         # Create a dummy tokenizers module for compatibility
         class DummyTokenizerModule:
             """Dummy tokenizers module for compatibility."""
+
             pass
-            
+
         tokenizers = DummyTokenizerModule()
-        
+
     except ImportError as e:
         if "torch" in str(e).lower():
             LLM = DummyModule("LLM", e)  # type: ignore

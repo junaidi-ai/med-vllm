@@ -1,11 +1,10 @@
 """FlashAttention integration for medical models."""
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 try:
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -86,9 +85,7 @@ def _flash_attention_forward(
         value = value.transpose(1, 2)
 
         # Unpad
-        query_unpad, indices_q, cu_seqlens_q, max_seqlen_q = unpad_input(
-            query, key_padding_mask
-        )
+        query_unpad, indices_q, cu_seqlens_q, max_seqlen_q = unpad_input(query, key_padding_mask)
         key_unpad, _, cu_seqlens_k, max_seqlen_k = unpad_input(key, key_padding_mask)
         value_unpad, _, _, _ = unpad_input(value, key_padding_mask)
 
@@ -113,9 +110,7 @@ def _flash_attention_forward(
         )
 
         # Pad the output back to the original shape
-        attn_output = pad_input(
-            attn_output.squeeze(0), indices_q, batch_size, max_seqlen_q
-        )
+        attn_output = pad_input(attn_output.squeeze(0), indices_q, batch_size, max_seqlen_q)
     else:
         # No padding, use standard FlashAttention
         query = query.transpose(1, 2)  # [batch, seq_len, num_heads, head_dim]
@@ -204,15 +199,9 @@ def enable_flash_attention(
                 def _attn(query, key, value, attention_mask=None, head_mask=None):
                     # Reshape for FlashAttention
                     batch_size = query.size(0)
-                    q = query.view(
-                        batch_size, -1, attn.num_heads, attn.head_dim
-                    ).transpose(1, 2)
-                    k = key.view(
-                        batch_size, -1, attn.num_heads, attn.head_dim
-                    ).transpose(1, 2)
-                    v = value.view(
-                        batch_size, -1, attn.num_heads, attn.head_dim
-                    ).transpose(1, 2)
+                    q = query.view(batch_size, -1, attn.num_heads, attn.head_dim).transpose(1, 2)
+                    k = key.view(batch_size, -1, attn.num_heads, attn.head_dim).transpose(1, 2)
+                    v = value.view(batch_size, -1, attn.num_heads, attn.head_dim).transpose(1, 2)
 
                     # Apply FlashAttention
                     dropout_p = cfg.dropout if attn.training else 0.0

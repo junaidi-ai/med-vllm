@@ -19,11 +19,10 @@ Test files:
 import json
 import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-from unittest.mock import MagicMock, PropertyMock, patch
+from typing import Any, Dict, Union
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -55,9 +54,7 @@ class MedicalModelConfig:
     max_seq_len = 1024
     _model_exists = False  # Control whether model path exists for testing
 
-    def __init__(
-        self, model: str, medical_specialties=None, anatomical_regions=None, **kwargs
-    ):
+    def __init__(self, model: str, medical_specialties=None, anatomical_regions=None, **kwargs):
         self.model = str(model)  # Always convert to string to match expected behavior
 
         # Handle string input for medical_specialties
@@ -67,9 +64,7 @@ class MedicalModelConfig:
             ]
         else:
             self.medical_specialties = [
-                str(s)
-                for s in (medical_specialties or [])
-                if s is not None and str(s).strip()
+                str(s) for s in (medical_specialties or []) if s is not None and str(s).strip()
             ]
 
         # Handle string input for anatomical_regions
@@ -79,9 +74,7 @@ class MedicalModelConfig:
             ]
         else:
             self.anatomical_regions = [
-                str(r)
-                for r in (anatomical_regions or [])
-                if r is not None and str(r).strip()
+                str(r) for r in (anatomical_regions or []) if r is not None and str(r).strip()
             ]
 
         # Set default values for required fields
@@ -115,7 +108,6 @@ class MedicalModelConfig:
 
     def to_json(self, file_path: Union[str, Path]) -> None:
         """Mock to_json method."""
-        import json
 
         with open(file_path, "w") as f:
             json.dump(self.to_dict(), f)
@@ -123,7 +115,6 @@ class MedicalModelConfig:
     @classmethod
     def from_json(cls, file_path: Union[str, Path]) -> "MedicalModelConfig":
         """Mock from_json method."""
-        import json
 
         with open(file_path, "r") as f:
             config_dict = json.load(f)
@@ -159,9 +150,7 @@ class MedicalModelConfig:
 
 # Patch the actual import
 sys.modules["medvllm.medical.config.medical_config"] = MagicMock()
-sys.modules["medvllm.medical.config.medical_config"].MedicalModelConfig = (
-    MedicalModelConfig
-)
+sys.modules["medvllm.medical.config.medical_config"].MedicalModelConfig = MedicalModelConfig
 
 
 # Mock the serialization module
@@ -172,9 +161,7 @@ class MockConfigSerializer:
 
 
 sys.modules["medvllm.medical.config.serialization"] = MagicMock()
-sys.modules["medvllm.medical.config.serialization"].ConfigSerializer = (
-    MockConfigSerializer
-)
+sys.modules["medvllm.medical.config.serialization"].ConfigSerializer = MockConfigSerializer
 
 
 # Mock the schema module
@@ -232,9 +219,7 @@ class TestMedicalModelConfigBasic:
     def test_medical_specialties_validation(self):
         """Test validation of medical_specialties field."""
         # Test with string
-        config = MedicalModelConfig(
-            model="test-model", medical_specialties="cardiology, neurology"
-        )
+        config = MedicalModelConfig(model="test-model", medical_specialties="cardiology, neurology")
         assert config.medical_specialties == ["cardiology", "neurology"]
 
         # Test with list
@@ -250,15 +235,11 @@ class TestMedicalModelConfigBasic:
     def test_anatomical_regions_validation(self):
         """Test validation of anatomical_regions field."""
         # Test with string
-        config = MedicalModelConfig(
-            model="test-model", anatomical_regions="head, chest"
-        )
+        config = MedicalModelConfig(model="test-model", anatomical_regions="head, chest")
         assert config.anatomical_regions == ["head", "chest"]
 
         # Test with list
-        config = MedicalModelConfig(
-            model="test-model", anatomical_regions=["head", "chest"]
-        )
+        config = MedicalModelConfig(model="test-model", anatomical_regions=["head", "chest"])
         assert config.anatomical_regions == ["head", "chest"]
 
         # Test with None
@@ -323,9 +304,7 @@ class TestMedicalModelConfig:
         ):
             pytest.skip("Mock doesn't filter out empty strings")
 
-        config = MedicalModelConfig(
-            model="test-model", medical_specialties=medical_specialties
-        )
+        config = MedicalModelConfig(model="test-model", medical_specialties=medical_specialties)
         assert config.medical_specialties == expected
 
     @pytest.mark.parametrize(
@@ -349,9 +328,7 @@ class TestMedicalModelConfig:
             and expected == []
         ):
             pytest.skip("Skipping empty string test as our mock handles it differently")
-        config = MedicalModelConfig(
-            model="test-model", anatomical_regions=anatomical_regions
-        )
+        config = MedicalModelConfig(model="test-model", anatomical_regions=anatomical_regions)
         assert config.anatomical_regions == expected
 
     def test_serialization_roundtrip(self, tmp_path, sample_config):

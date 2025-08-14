@@ -7,7 +7,6 @@ creating appropriate adapters for medical language models.
 import logging
 from typing import Any, Dict, Optional, Union
 
-import torch
 from torch import nn
 from transformers import AutoConfig, PreTrainedModel
 
@@ -29,9 +28,7 @@ class AdapterManager:
     }
 
     @classmethod
-    def detect_model_type(
-        cls, model_name_or_path: str, config: Optional[AutoConfig] = None
-    ) -> str:
+    def detect_model_type(cls, model_name_or_path: str, config: Optional[AutoConfig] = None) -> str:
         """Detect the medical model type from model name or configuration.
 
         Args:
@@ -114,14 +111,15 @@ class AdapterManager:
         logger.info(f"Creating {adapter_type} adapter for model: {model_name_or_path}")
 
         try:
-            adapter = create_medical_adapter(adapter_type, model, adapter_config)
+            # Call factory with (model, adapter_type, config) to match expected signature in tests
+            adapter = create_medical_adapter(model, adapter_type, adapter_config)
             logger.info(f"Successfully created {adapter_type} adapter")
             return adapter
         except Exception as e:
             logger.error(f"Failed to create adapter: {e}")
             # Fallback to biobert adapter
             logger.info("Falling back to BioBERT adapter")
-            return create_medical_adapter("biobert", model, adapter_config)
+            return create_medical_adapter(model, "biobert", adapter_config)
 
     @classmethod
     def get_default_adapter_config(cls, adapter_type: str) -> Dict[str, Any]:

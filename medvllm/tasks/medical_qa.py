@@ -1,7 +1,7 @@
 """Medical Question Answering task implementation."""
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -137,9 +137,7 @@ class MedicalQA(nn.Module):
 
             if best_pred is not None:
                 # Convert token indices to text
-                answer_tokens = inputs["input_ids"][i][
-                    best_pred["start"] : best_pred["end"] + 1
-                ]
+                answer_tokens = inputs["input_ids"][i][best_pred["start"] : best_pred["end"] + 1]
                 answer = self.tokenizer.decode(answer_tokens, skip_special_tokens=True)
 
                 predictions.append(

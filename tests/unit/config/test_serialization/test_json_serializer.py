@@ -8,16 +8,11 @@ covering serialization and deserialization of configuration objects.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, Union
-from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
-from pydantic import ValidationError
 
 from medvllm.medical.config.models.medical_config import MedicalModelConfig
-from medvllm.medical.config.models.schema import MedicalModelConfigSchema, ModelType
 from medvllm.medical.config.serialization.json_serializer import JSONSerializer
 
 # Test data - must match the schema exactly
@@ -35,7 +30,7 @@ SCHEMA_COMPATIBLE_JSON = """
     "uncertainty_threshold": 0.7,
     "cache_ttl": 3600,
     "medical_specialties": ["cardiology", "radiology", "neurology"],
-    "anatomical_regions": ["head", "torso", "limbs"],
+    "anatomical_regions": ["head", "thorax", "abdomen"],
     "imaging_modalities": ["xray", "mri", "ct"],
     "medical_entity_types": ["disease", "symptom", "treatment"],
     "ner_confidence_threshold": 0.5,
@@ -66,7 +61,7 @@ SCHEMA_COMPATIBLE_DICT = {
     "uncertainty_threshold": 0.7,
     "cache_ttl": 3600,
     "medical_specialties": ["cardiology", "radiology", "neurology"],
-    "anatomical_regions": ["head", "torso", "limbs"],
+    "anatomical_regions": ["head", "thorax", "abdomen"],
     "imaging_modalities": ["xray", "mri", "ct"],
     "medical_entity_types": ["disease", "symptom", "treatment"],
     "ner_confidence_threshold": 0.5,
@@ -133,9 +128,7 @@ class TestJSONSerializer:
         # Check each required field
         for field, expected_value in required_fields.items():
             assert field in result, f"Missing required field: {field}"
-            assert (
-                result[field] == expected_value
-            ), f"Incorrect value for {field}: {result[field]}"
+            assert result[field] == expected_value, f"Incorrect value for {field}: {result[field]}"
 
         # Check that the learning_rate and num_train_epochs are not in the result
         # since they are not part of the default configuration
@@ -146,13 +139,11 @@ class TestJSONSerializer:
         assert result["model"] == "biobert-base-cased"
         assert result["model_type"] == "biobert"
 
-    def test_serialize_to_file(
-        self, test_config: MedicalModelConfig, tmp_path: Path
-    ) -> None:
+    def test_serialize_to_file(self, test_config: MedicalModelConfig, tmp_path: Path) -> None:
         """Test serialization of a configuration to a file."""
         # Test serialization to file
         file_path = tmp_path / "test_config.json"
-        
+
         # Get JSON string and write to file
         json_str = JSONSerializer.to_json(test_config)
         with open(file_path, "w") as f:
@@ -173,9 +164,9 @@ class TestJSONSerializer:
 
         for field, expected_value in expected_fields.items():
             assert field in data, f"Missing field in output: {field}"
-            assert data[field] == expected_value, (
-                f"Incorrect value for {field} in file: {data[field]}"
-            )
+            assert (
+                data[field] == expected_value
+            ), f"Incorrect value for {field} in file: {data[field]}"
 
     def test_deserialize_with_extra_fields(self) -> None:
         """Test that extra fields in JSON are handled appropriately."""

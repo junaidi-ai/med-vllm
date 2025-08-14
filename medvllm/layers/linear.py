@@ -1,9 +1,9 @@
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union, cast
+from typing import TypeVar, cast
 
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from torch import Tensor, nn
+from torch import nn
 
 T = TypeVar("T", bound="LinearBase")
 
@@ -14,7 +14,6 @@ def divide(numerator: int, denominator: int) -> int:
 
 
 class LinearBase(nn.Module):
-
     def __init__(
         self,
         input_size: int,
@@ -33,7 +32,6 @@ class LinearBase(nn.Module):
 
 
 class ReplicatedLinear(LinearBase):
-
     def __init__(
         self,
         input_size: int,
@@ -60,7 +58,6 @@ class ReplicatedLinear(LinearBase):
 
 
 class ColumnParallelLinear(LinearBase):
-
     def __init__(
         self,
         input_size: int,
@@ -71,9 +68,7 @@ class ColumnParallelLinear(LinearBase):
         self.input_size_per_partition = input_size
         self.output_size_per_partition = divide(output_size, self.tp_size)
 
-        self.weight = nn.Parameter(
-            torch.empty(self.output_size_per_partition, self.input_size)
-        )
+        self.weight = nn.Parameter(torch.empty(self.output_size_per_partition, self.input_size))
         # Store weight_loader as a bound method to avoid mypy issues
         self._weight_loader = self.weight_loader.__get__(self)
         if bias:
@@ -105,7 +100,6 @@ class ColumnParallelLinear(LinearBase):
 
 
 class MergedColumnParallelLinear(ColumnParallelLinear):
-
     def __init__(
         self,
         input_size: int,
@@ -131,21 +125,14 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
         shard_offset = int(
             sum(self.output_sizes[:loaded_shard_id]) // self.tp_size
         )  # Convert to int
-        shard_size = int(
-            self.output_sizes[loaded_shard_id] // self.tp_size
-        )  # Convert to int
-        param_data = param_data.narrow(
-            dim=tp_dim, start=shard_offset, length=shard_size
-        )
-        loaded_weight = loaded_weight.chunk(chunks=self.tp_size, dim=tp_dim)[
-            self.tp_rank
-        ]
+        shard_size = int(self.output_sizes[loaded_shard_id] // self.tp_size)  # Convert to int
+        param_data = param_data.narrow(dim=tp_dim, start=shard_offset, length=shard_size)
+        loaded_weight = loaded_weight.chunk(chunks=self.tp_size, dim=tp_dim)[self.tp_rank]
         assert param_data.size() == loaded_weight.size()
         param_data.copy_(loaded_weight)
 
 
 class QKVParallelLinear(ColumnParallelLinear):
-
     def __init__(
         self,
         hidden_size: int,
@@ -161,9 +148,7 @@ class QKVParallelLinear(ColumnParallelLinear):
         self.num_heads = divide(self.total_num_heads, tp_size)
         self.num_kv_heads = divide(self.total_num_kv_heads, tp_size)
         input_size = hidden_size
-        output_size = (
-            self.total_num_heads + 2 * self.total_num_kv_heads
-        ) * self.head_size
+        output_size = (self.total_num_heads + 2 * self.total_num_kv_heads) * self.head_size
         super().__init__(input_size, output_size, bias)
 
     def weight_loader(
@@ -187,9 +172,7 @@ class QKVParallelLinear(ColumnParallelLinear):
             shard_offset = self.num_heads * self.head_size
         else:
             shard_size = self.num_kv_heads * self.head_size
-            shard_offset = (
-                self.num_heads * self.head_size + self.num_kv_heads * self.head_size
-            )
+            shard_offset = self.num_heads * self.head_size + self.num_kv_heads * self.head_size
 
         if self.tp_dim is not None:
             tp_dim = int(cast(int, self.tp_dim))  # Ensure tp_dim is an int
@@ -200,7 +183,6 @@ class QKVParallelLinear(ColumnParallelLinear):
 
 
 class RowParallelLinear(LinearBase):
-
     def __init__(
         self,
         input_size: int,
@@ -211,9 +193,7 @@ class RowParallelLinear(LinearBase):
         self.input_size_per_partition = divide(input_size, self.tp_size)
         self.output_size_per_partition = output_size
 
-        self.weight = nn.Parameter(
-            torch.empty(self.output_size, self.input_size_per_partition)
-        )
+        self.weight = nn.Parameter(torch.empty(self.output_size, self.input_size_per_partition))
         # Store weight_loader as a bound method to avoid mypy issues
         self._weight_loader = self.weight_loader.__get__(self)
         if bias:

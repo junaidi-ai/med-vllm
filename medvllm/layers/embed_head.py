@@ -3,13 +3,12 @@ from typing import List, Optional
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from torch import Tensor, nn
+from torch import nn
 
 from medvllm.utils.context import get_context
 
 
 class VocabParallelEmbedding(nn.Module):
-
     def __init__(
         self,
         num_embeddings: int,
@@ -23,9 +22,7 @@ class VocabParallelEmbedding(nn.Module):
         self.num_embeddings_per_partition = self.num_embeddings // self.tp_size
         self.vocab_start_idx = self.num_embeddings_per_partition * self.tp_rank
         self.vocab_end_idx = self.vocab_start_idx + self.num_embeddings_per_partition
-        self.weight = nn.Parameter(
-            torch.empty(self.num_embeddings_per_partition, embedding_dim)
-        )
+        self.weight = nn.Parameter(torch.empty(self.num_embeddings_per_partition, embedding_dim))
         # Store weight_loader as a bound method to avoid mypy issues
         self._weight_loader = self.weight_loader.__get__(self)
 
@@ -34,7 +31,9 @@ class VocabParallelEmbedding(nn.Module):
         shard_size = int(param_data.size(0))  # Convert to int explicitly
         start_idx = self.tp_rank * shard_size
         loaded_weight = loaded_weight.narrow(
-            dim=0, start=int(start_idx), length=shard_size  # Convert to int explicitly
+            dim=0,
+            start=int(start_idx),
+            length=shard_size,  # Convert to int explicitly
         )
         assert param_data.size() == loaded_weight.size()
         param_data.copy_(loaded_weight)
@@ -51,7 +50,6 @@ class VocabParallelEmbedding(nn.Module):
 
 
 class ParallelLMHead(VocabParallelEmbedding):
-
     def __init__(
         self,
         num_embeddings: int,

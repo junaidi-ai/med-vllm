@@ -2,7 +2,7 @@
 
 import argparse
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import torch
@@ -128,9 +128,7 @@ def benchmark_adapter(
     # Benchmark
     latencies = []
     with torch.no_grad():
-        for _ in tqdm(
-            range(num_iterations), desc=f"Batch {batch_size}, Seq {seq_length}"
-        ):
+        for _ in tqdm(range(num_iterations), desc=f"Batch {batch_size}, Seq {seq_length}"):
             if use_cuda_graphs and torch.cuda.is_available():
                 # Replay graph
                 start_time = time.time()
@@ -223,8 +221,7 @@ def main():
             # Convert to half precision if using mixed precision
             if args.use_mixed_precision and torch.cuda.is_available():
                 test_data = {
-                    k: v.half() if v.dtype == torch.float32 else v
-                    for k, v in test_data.items()
+                    k: v.half() if v.dtype == torch.float32 else v for k, v in test_data.items()
                 }
 
             # Benchmark
@@ -254,9 +251,7 @@ def main():
 
     # Print summary
     print("\n" + "=" * 80)
-    print(
-        f"{'BATCH':<6} | {'SEQ_LEN':<8} | {'LATENCY (ms)':<12} | {'THROUGHPUT (tokens/s)':<20}"
-    )
+    print(f"{'BATCH':<6} | {'SEQ_LEN':<8} | {'LATENCY (ms)':<12} | {'THROUGHPUT (tokens/s)':<20}")
     print("-" * 80)
 
     for result in results:

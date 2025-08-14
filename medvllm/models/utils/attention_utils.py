@@ -1,9 +1,8 @@
 """Utility functions for attention mechanisms in medical models."""
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
@@ -85,18 +84,14 @@ def apply_attention(
             torch.ones(seq_len, seq_len, dtype=torch.bool, device=query.device),
             diagonal=1,
         )
-        attn_scores = attn_scores.masked_fill(
-            causal_mask.unsqueeze(0).unsqueeze(0), float("-inf")
-        )
+        attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), float("-inf"))
 
     # Apply softmax to get attention weights
     attn_weights = F.softmax(attn_scores, dim=-1)
 
     # Apply dropout
     if dropout_p > 0.0 and attn_weights is not None:
-        attn_weights = F.dropout(
-            attn_weights, p=dropout_p, training=attn_weights.requires_grad
-        )
+        attn_weights = F.dropout(attn_weights, p=dropout_p, training=attn_weights.requires_grad)
 
     # Apply attention weights to values
     output = torch.matmul(attn_weights, value)

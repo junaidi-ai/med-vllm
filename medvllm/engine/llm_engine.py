@@ -1,11 +1,9 @@
 import atexit
-import importlib
 import logging
 from dataclasses import fields
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, Union
+from typing import Any, List, Tuple
 
-import torch
 import torch.multiprocessing as mp
 from tqdm import tqdm
 
@@ -20,6 +18,7 @@ try:
     import transformers
     from transformers import AutoTokenizer
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
@@ -30,14 +29,13 @@ logger = logging.getLogger(__name__)
 
 
 class LLMEngine:
-
     def __init__(self, model: str, **kwargs: Any) -> None:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError(
                 "The transformers package is required for LLMEngine. "
                 "Please install it with: pip install transformers"
             )
-            
+
         config_fields = {field.name for field in fields(Config)}
         config_kwargs = {k: v for k, v in kwargs.items() if k in config_fields}
         config = Config(model, **config_kwargs)
@@ -77,9 +75,7 @@ class LLMEngine:
                 p.terminate()
             p.join()
 
-    def add_request(
-        self, prompt: str | list[int], sampling_params: SamplingParams
-    ) -> None:
+    def add_request(self, prompt: str | list[int], sampling_params: SamplingParams) -> None:
         """Add a new request to the engine's queue.
 
         Args:
@@ -187,9 +183,7 @@ class LLMEngine:
         seq_count = len(seqs)
         if len(processed_token_ids) < seq_count:
             # Add empty lists for missing sequences
-            processed_token_ids.extend(
-                [[] for _ in range(seq_count - len(processed_token_ids))]
-            )
+            processed_token_ids.extend([[] for _ in range(seq_count - len(processed_token_ids))])
         elif len(processed_token_ids) > seq_count:
             # Truncate if we have too many
             processed_token_ids = processed_token_ids[:seq_count]

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import ctypes
 import json
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-import numpy as np
 import torch
 from pydantic import BaseModel
-from torch import Tensor
 
 from .types import *
 
@@ -18,7 +15,7 @@ if TYPE_CHECKING:
 
 class MemoryManager:
     """Manages shared memory and KV cache for the model with medical optimizations.
-    
+
     Features:
     - Medical domain-specific cache eviction policies
     - Distributed cache coherence
@@ -28,7 +25,7 @@ class MemoryManager:
 
     def __init__(self, runner: "ModelRunner") -> None:
         """Initialize the memory manager with medical optimizations.
-        
+
         Args:
             runner: The parent ModelRunner instance.
         """
@@ -36,11 +33,11 @@ class MemoryManager:
         self.shm: Optional[SharedMemoryT] = None
         self.kv_cache: Optional[Dict[str, Any]] = None
         self.cache_stats = {
-            'hits': 0,
-            'misses': 0,
-            'evictions': 0,
-            'total_used_blocks': 0,
-            'total_blocks': 0
+            "hits": 0,
+            "misses": 0,
+            "evictions": 0,
+            "total_used_blocks": 0,
+            "total_blocks": 0,
         }
         self.medical_entities_cache: Dict[str, Any] = {}
         self.distributed_enabled = False
@@ -69,28 +66,28 @@ class MemoryManager:
 
         # Initialize KV cache structure
         self.kv_cache = {
-            'blocks': None,
-            'block_size': 256,  # Default block size, can be tuned
-            'free_blocks': [],
-            'allocated_blocks': {},
-            'block_metadata': {},
-            'total_blocks': 0
+            "blocks": None,
+            "block_size": 256,  # Default block size, can be tuned
+            "free_blocks": [],
+            "allocated_blocks": {},
+            "block_metadata": {},
+            "total_blocks": 0,
         }
-        
+
         # Calculate number of blocks
-        block_size_bytes = self.kv_cache['block_size'] * 2  # Assuming float16
+        block_size_bytes = self.kv_cache["block_size"] * 2  # Assuming float16
         num_blocks = cache_bytes // block_size_bytes
-        
+
         if num_blocks > 0:
             # Allocate blocks
-            self.kv_cache['blocks'] = torch.empty(
-                num_blocks * self.kv_cache['block_size'],
+            self.kv_cache["blocks"] = torch.empty(
+                num_blocks * self.kv_cache["block_size"],
                 dtype=torch.float16,
-                device=self.runner.device
+                device=self.runner.device,
             )
-            self.kv_cache['free_blocks'] = list(range(num_blocks))
-            self.kv_cache['total_blocks'] = num_blocks
-            self.cache_stats['total_blocks'] = num_blocks
+            self.kv_cache["free_blocks"] = list(range(num_blocks))
+            self.kv_cache["total_blocks"] = num_blocks
+            self.cache_stats["total_blocks"] = num_blocks
 
         # Get model config
         config = self.runner.model_config
@@ -98,10 +95,7 @@ class MemoryManager:
         # Calculate shape for KV cache
         num_layers = getattr(config, "num_hidden_layers", 0)
         num_heads = getattr(config, "num_attention_heads", 0)
-        head_dim = (
-            getattr(config, "head_dim", 0)
-            or getattr(config, "hidden_size", 0) // num_heads
-        )
+        head_dim = getattr(config, "head_dim", 0) or getattr(config, "hidden_size", 0) // num_heads
 
         if num_layers == 0 or num_heads == 0 or head_dim == 0:
             raise ValueError(
@@ -181,9 +175,7 @@ class MemoryManager:
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             raise ValueError("Failed to deserialize data from shared memory") from e
 
-    def write_shm(
-        self, data: Union[BaseModel, Dict, List, str, int, float, bool, None]
-    ) -> None:
+    def write_shm(self, data: Union[BaseModel, Dict, List, str, int, float, bool, None]) -> None:
         """Write data to shared memory.
 
         Args:
@@ -234,20 +226,20 @@ class MemoryManager:
             self.shm = None
 
         if self.kv_cache is not None:
-            if 'blocks' in self.kv_cache and isinstance(self.kv_cache['blocks'], torch.Tensor):
-                del self.kv_cache['blocks']
+            if "blocks" in self.kv_cache and isinstance(self.kv_cache["blocks"], torch.Tensor):
+                del self.kv_cache["blocks"]
             self.kv_cache = None
-            
+
         # Clean up medical entities cache
         self.medical_entities_cache.clear()
-        
+
         # Reset statistics
         self.cache_stats = {
-            'hits': 0,
-            'misses': 0,
-            'evictions': 0,
-            'total_used_blocks': 0,
-            'total_blocks': self.cache_stats.get('total_blocks', 0)
+            "hits": 0,
+            "misses": 0,
+            "evictions": 0,
+            "total_used_blocks": 0,
+            "total_blocks": self.cache_stats.get("total_blocks", 0),
         }
 
     def __del__(self) -> None:

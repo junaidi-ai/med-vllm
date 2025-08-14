@@ -206,12 +206,8 @@ def convert_string_to_type(value: str, target_type: type | None) -> Any:
         try:
             parsed_list = json.loads(value)
             if not isinstance(parsed_list, list):
-                raise ValueError(
-                    f"Expected a JSON array, got {type(parsed_list).__name__}"
-                )
-            return [
-                convert_string_to_type(str(item), item_type) for item in parsed_list
-            ]
+                raise ValueError(f"Expected a JSON array, got {type(parsed_list).__name__}")
+            return [convert_string_to_type(str(item), item_type) for item in parsed_list]
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON for list conversion: {e}")
     elif is_dict_type(target_type):
@@ -227,9 +223,7 @@ def convert_string_to_type(value: str, target_type: type | None) -> Any:
         try:
             parsed_dict = json.loads(value)
             if not isinstance(parsed_dict, dict):
-                raise ValueError(
-                    f"Expected a JSON object, got {type(parsed_dict).__name__}"
-                )
+                raise ValueError(f"Expected a JSON object, got {type(parsed_dict).__name__}")
             return {
                 convert_string_to_type(str(k), key_type): (
                     convert_string_to_type(str(v), value_type)
@@ -295,8 +289,7 @@ def validate_type(value: Any, type_hint: type) -> bool:
             return True  # If we can't determine the key/value types, accept any dict
         key_type, value_type = dict_types
         return all(
-            validate_type(k, key_type) and validate_type(v, value_type)
-            for k, v in value.items()
+            validate_type(k, key_type) and validate_type(v, value_type) for k, v in value.items()
         )
 
     # Handle other types using isinstance
@@ -312,9 +305,7 @@ def validate_type(value: Any, type_hint: type) -> bool:
         return False
 
 
-def is_subclass_or_instance(
-    obj: Any, class_or_tuple: Union[type, Tuple[type, ...]]
-) -> bool:
+def is_subclass_or_instance(obj: Any, class_or_tuple: Union[type, Tuple[type, ...]]) -> bool:
     """Safely check if an object is a subclass or instance of a class.
 
     This works with typing types like List[str] and Union types.
@@ -340,8 +331,7 @@ def is_subclass_or_instance(
     if hasattr(obj, "__origin__"):
         if obj.__origin__ is Union:
             return any(
-                is_subclass_or_instance(arg, class_or_tuple)
-                for arg in getattr(obj, "__args__", ())
+                is_subclass_or_instance(arg, class_or_tuple) for arg in getattr(obj, "__args__", ())
             )
         return is_subclass_or_instance(obj.__origin__, class_or_tuple)
     return False

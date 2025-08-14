@@ -138,9 +138,7 @@ class TestTypeUtils:
             (Dict[str, List[int]], str, List[int]),
         ],
     )
-    def test_get_dict_types(
-        self, type_hint: Any, expected_key: type, expected_value: type
-    ) -> None:
+    def test_get_dict_types(self, type_hint: Any, expected_key: type, expected_value: type) -> None:
         """Test get_dict_types function."""
         key_type, value_type = get_dict_types(type_hint)
         assert key_type == expected_key
@@ -177,9 +175,7 @@ class TestTypeUtils:
             ('{"a": 1, "b": 2}', Dict[str, int], {"a": 1, "b": 2}),
         ],
     )
-    def test_convert_string_to_type(
-        self, value: str, type_hint: type, expected: Any
-    ) -> None:
+    def test_convert_string_to_type(self, value: str, type_hint: type, expected: Any) -> None:
         """Test convert_string_to_type function."""
         assert convert_string_to_type(value, type_hint) == expected
 

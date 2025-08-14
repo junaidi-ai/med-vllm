@@ -48,6 +48,10 @@ if PYYAML_AVAILABLE:
         file and string I/O.
         """
 
+        def __init__(self, **kwargs: Any) -> None:
+            """Accept optional dumper/loader options without enforcing them."""
+            self._options = dict(kwargs)
+
         @classmethod
         def is_available(cls) -> bool:
             """Check if YAML serialization is available (PyYAML is installed).
@@ -81,8 +85,7 @@ if PYYAML_AVAILABLE:
             """
             if not PYYAML_AVAILABLE:
                 raise ImportError(
-                    "PyYAML is required for YAML serialization. "
-                    "Install with: pip install pyyaml"
+                    "PyYAML is required for YAML serialization. " "Install with: pip install pyyaml"
                 )
 
             try:
@@ -118,6 +121,22 @@ if PYYAML_AVAILABLE:
             except Exception as e:
                 msg = f"Failed to serialize configuration: {e}"
                 raise ValueError(msg) from e
+
+        # Bridge methods used by ConfigSerializer
+        @classmethod
+        def _serialize_to_str(cls, data: Dict[str, Any], **yaml_kwargs: Any) -> str:
+            """Implement base hook to serialize a dict to a YAML string."""
+            yaml_kwargs.setdefault("sort_keys", False)
+            yaml_kwargs.setdefault("allow_unicode", True)
+            return yaml.safe_dump(data, **yaml_kwargs)
+
+        @classmethod
+        def _deserialize_from_str(cls, data: str, **yaml_kwargs: Any) -> Dict[str, Any]:
+            """Implement base hook to deserialize a YAML string to a dict."""
+            loaded = yaml.safe_load(data, **yaml_kwargs)
+            if not isinstance(loaded, dict):
+                raise ValueError("YAML content did not parse to a dictionary")
+            return loaded
 
         @classmethod
         def from_yaml(
@@ -169,9 +188,7 @@ if PYYAML_AVAILABLE:
                     try:
                         # Convert to string if it's bytes
                         yaml_str = (
-                            yaml_data.decode("utf-8")
-                            if isinstance(yaml_data, bytes)
-                            else yaml_data
+                            yaml_data.decode("utf-8") if isinstance(yaml_data, bytes) else yaml_data
                         )
                         # Try to parse as YAML
                         config_dict = yaml.safe_load(yaml_str, **yaml_kwargs)
@@ -183,9 +200,7 @@ if PYYAML_AVAILABLE:
                             and len(yaml_data) < 260
                             and any(c in yaml_data for c in "/\\")
                         ):
-                            raise ValueError(
-                                f"File not found or invalid YAML: {yaml_data}"
-                            )
+                            raise ValueError(f"File not found or invalid YAML: {yaml_data}")
                         raise ValueError(f"Invalid YAML: {e}")
 
                 # If we got here but config_dict is None,
@@ -211,8 +226,7 @@ else:
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             raise ImportError(
-                "PyYAML is required for YAML serialization. "
-                "Install with: pip install pyyaml"
+                "PyYAML is required for YAML serialization. " "Install with: pip install pyyaml"
             )
 
         @classmethod
@@ -224,14 +238,12 @@ else:
         def to_yaml(cls, *args: Any, **kwargs: Any) -> Any:
             """Raise ImportError when PyYAML is not available."""
             raise ImportError(
-                "PyYAML is required for YAML serialization. "
-                "Install with: pip install pyyaml"
+                "PyYAML is required for YAML serialization. " "Install with: pip install pyyaml"
             )
 
         @classmethod
         def from_yaml(cls, *args: Any, **kwargs: Any) -> Any:
             """Raise ImportError when PyYAML is not available."""
             raise ImportError(
-                "PyYAML is required for YAML deserialization. "
-                "Install with: pip install pyyaml"
+                "PyYAML is required for YAML deserialization. " "Install with: pip install pyyaml"
             )

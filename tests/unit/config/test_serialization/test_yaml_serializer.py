@@ -6,18 +6,15 @@ covering serialization and deserialization of configuration objects.
 """
 
 import builtins
-import os
 import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Dict, List, Optional, Union
-from unittest.mock import MagicMock, patch
+from typing import Any, Optional
+from unittest.mock import patch
 
 import pytest
-import yaml
 
 from medvllm.medical.config.serialization.yaml_serializer import (
-    PYYAML_AVAILABLE,
     YAMLSerializer,
 )
 
@@ -165,14 +162,10 @@ class TestYAMLSerializer:
         """Test deserialization from a non-existent file."""
         non_existent_file = tmp_path / "nonexistent/file.yaml"
         # The file doesn't exist, so it should raise an error
-        with pytest.raises(
-            ValueError, match=f"File not found: .*nonexistent/file.yaml"
-        ):
+        with pytest.raises(ValueError, match="File not found: .*nonexistent/file.yaml"):
             YAMLSerializer.from_yaml(non_existent_file)
 
-    def test_serialize_file_io_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_serialize_file_io_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test handling of IOError during file serialization."""
         # Create a read-only directory to cause permission error
         read_only_dir = tmp_path / "readonly"
@@ -250,9 +243,7 @@ class TestYAMLSerializer:
                 assert yaml_serializer.YAMLSerializer is not None
 
                 # Test that methods raise ImportError with the correct message
-                with pytest.raises(
-                    ImportError, match="PyYAML is required for YAML serialization"
-                ):
+                with pytest.raises(ImportError, match="PyYAML is required for YAML serialization"):
                     yaml_serializer.YAMLSerializer.to_yaml(SAMPLE_CONFIG)
 
                 with pytest.raises(
@@ -269,8 +260,6 @@ class TestYAMLSerializer:
                     original_serializer
                 )
             if original_serialization is not None:
-                sys.modules["medvllm.medical.config.serialization"] = (
-                    original_serialization
-                )
+                sys.modules["medvllm.medical.config.serialization"] = original_serialization
             # Restore the original import
             builtins.__import__ = original_import

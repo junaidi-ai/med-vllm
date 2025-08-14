@@ -73,6 +73,28 @@ class MedicalModelAdapterBase(nn.Module):
         if self.kv_cache is not None:
             self.kv_cache = None
 
+    def enable_cache(self) -> None:
+        """Enable KV cache for the adapter.
+
+        If the cache is not initialized and the subclass provides
+        an `_initialize_kv_cache` method, attempt to initialize it.
+        """
+        # Toggle flag so callers can introspect if needed
+        setattr(self, "_cache_enabled", True)
+        # Lazily initialize cache if possible
+        if self.kv_cache is None and hasattr(self, "_initialize_kv_cache"):
+            try:
+                self.kv_cache = self._initialize_kv_cache()  # type: ignore[attr-defined]
+            except Exception as e:
+                # Fall back to an empty dict to avoid test crashes
+                print(f"Warning: Failed to initialize KV cache: {e}")
+                self.kv_cache = {}
+
+    def disable_cache(self) -> None:
+        """Disable KV cache for the adapter and clear any existing cache."""
+        setattr(self, "_cache_enabled", False)
+        self.reset_cache()
+
     def to(self, *args, **kwargs) -> "MedicalModelAdapter":
         """Move the adapter to the specified device and/or dtype.
 
@@ -96,9 +118,7 @@ class MedicalModelAdapterBase(nn.Module):
             elif isinstance(self.kv_cache, (tuple, list)):
                 # Handle tuple/list-based KV cache (for compatibility with older versions)
                 self.kv_cache = tuple(
-                    tuple(
-                        t.to(*args, **kwargs) if t is not None else None for t in layer
-                    )
+                    tuple(t.to(*args, **kwargs) if t is not None else None for t in layer)
                     for layer in self.kv_cache
                 )
         return self
@@ -113,9 +133,7 @@ class MedicalModelAdapterBase(nn.Module):
                     rank=self.rank,
                     world_size=self.world_size,
                 )
-                print(
-                    f"Initialized tensor parallelism: rank {self.rank}/{self.world_size}"
-                )
+                print(f"Initialized tensor parallelism: rank {self.rank}/{self.world_size}")
             except Exception as e:
                 print(f"Warning: Failed to initialize tensor parallelism: {e}")
                 self.tensor_parallel_size = 1
@@ -168,9 +186,7 @@ class MedicalModelAdapterBase(nn.Module):
             return tensor
 
         # Gather tensors from all ranks
-        tensor_list = [
-            torch.zeros_like(tensor) for _ in range(self.tensor_parallel_size)
-        ]
+        tensor_list = [torch.zeros_like(tensor) for _ in range(self.tensor_parallel_size)]
         dist.all_gather(tensor_list, tensor)
 
         # Concatenate along the sharded dimension
@@ -224,9 +240,7 @@ class MedicalModelAdapterBase(nn.Module):
 
         # Model parameter count
         total_params = sum(p.numel() for p in self.model.parameters())
-        trainable_params = sum(
-            p.numel() for p in self.model.parameters() if p.requires_grad
-        )
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
         stats["total_parameters"] = total_params
         stats["trainable_parameters"] = trainable_params

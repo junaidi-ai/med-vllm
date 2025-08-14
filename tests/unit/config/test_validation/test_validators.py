@@ -54,9 +54,7 @@ class TestMedicalConfigValidator:
         """Return a sample configuration object for testing."""
         return MockConfig(**SAMPLE_CONFIG)
 
-    def test_validate_tensor_parallel_size_valid(
-        self, validator: MedicalConfigValidator
-    ) -> None:
+    def test_validate_tensor_parallel_size_valid(self, validator: MedicalConfigValidator) -> None:
         """Test validation of valid tensor_parallel_size values."""
         # Valid values should not raise exceptions
         for value in [1, 2, 4, 8]:
@@ -86,9 +84,7 @@ class TestMedicalConfigValidator:
         # Should not raise
         validator.validate_entity_linking(config)
 
-    def test_validate_entity_linking_disabled(
-        self, validator: MedicalConfigValidator
-    ) -> None:
+    def test_validate_entity_linking_disabled(self, validator: MedicalConfigValidator) -> None:
         """Test validation when entity linking is disabled."""
         config = MockConfig(entity_linking={"enabled": False, "knowledge_bases": []})
         # Should not raise

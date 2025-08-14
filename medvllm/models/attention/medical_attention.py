@@ -4,7 +4,6 @@ This module provides optimized attention implementations specifically designed
 for medical NLP tasks, with support for various attention patterns and optimizations.
 """
 
-import math
 from typing import Optional, Tuple
 
 import torch
@@ -75,18 +74,12 @@ class MedicalMultiheadAttention(nn.Module):
             self.register_parameter("in_proj_weight", None)
 
         # Output projection
-        self.out_proj = nn.Linear(
-            embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
-        )
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias, device=device, dtype=dtype)
 
         # Optional bias for key and value
         if add_bias_kv:
-            self.bias_k = nn.Parameter(
-                torch.empty((1, 1, embed_dim), device=device, dtype=dtype)
-            )
-            self.bias_v = nn.Parameter(
-                torch.empty((1, 1, embed_dim), device=device, dtype=dtype)
-            )
+            self.bias_k = nn.Parameter(torch.empty((1, 1, embed_dim), device=device, dtype=dtype))
+            self.bias_v = nn.Parameter(torch.empty((1, 1, embed_dim), device=device, dtype=dtype))
         else:
             # Initialize as None and let mypy know these will be Optional[Parameter]
             self.bias_k = None
@@ -146,9 +139,7 @@ class MedicalMultiheadAttention(nn.Module):
         # Project query, key, value
         if self._qkv_same_embed_dim:
             # Self-attention case
-            q, k, v = F.linear(query, self.in_proj_weight, self.in_proj_bias).chunk(
-                3, dim=-1
-            )
+            q, k, v = F.linear(query, self.in_proj_weight, self.in_proj_bias).chunk(3, dim=-1)
         else:
             # Cross-attention case
             q = F.linear(query, self.q_proj_weight, None)
@@ -165,21 +156,9 @@ class MedicalMultiheadAttention(nn.Module):
                 key_padding_mask = F.pad(key_padding_mask, (0, 1))
 
         # Reshape for multi-head attention
-        q = (
-            q.contiguous()
-            .view(q.size(0), -1, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-        k = (
-            k.contiguous()
-            .view(k.size(0), -1, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-        v = (
-            v.contiguous()
-            .view(v.size(0), -1, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-        )
+        q = q.contiguous().view(q.size(0), -1, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.contiguous().view(k.size(0), -1, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.contiguous().view(v.size(0), -1, self.num_heads, self.head_dim).transpose(1, 2)
 
         # Scale the dot product
         scaling = float(self.head_dim) ** -0.5
@@ -197,9 +176,7 @@ class MedicalMultiheadAttention(nn.Module):
 
         # Apply key padding mask if provided
         if key_padding_mask is not None:
-            attn_output_weights = attn_output_weights.view(
-                -1, self.num_heads, q.size(2), k.size(2)
-            )
+            attn_output_weights = attn_output_weights.view(-1, self.num_heads, q.size(2), k.size(2))
             attn_output_weights = attn_output_weights.masked_fill(
                 key_padding_mask.unsqueeze(1).unsqueeze(2),
                 float("-inf"),
@@ -208,18 +185,14 @@ class MedicalMultiheadAttention(nn.Module):
 
         # Apply softmax to get attention weights
         attn_output_weights = F.softmax(attn_output_weights, dim=-1)
-        attn_output_weights = F.dropout(
-            attn_output_weights, p=self.dropout, training=self.training
-        )
+        attn_output_weights = F.dropout(attn_output_weights, p=self.dropout, training=self.training)
 
         # Apply attention weights to values
         attn_output = torch.bmm(attn_output_weights, v)
 
         # Reshape and project back to embedding dimension
         attn_output = (
-            attn_output.transpose(0, 1)
-            .contiguous()
-            .view(-1, self.num_heads * self.head_dim)
+            attn_output.transpose(0, 1).contiguous().view(-1, self.num_heads * self.head_dim)
         )
         attn_output = self.out_proj(attn_output)
 

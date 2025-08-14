@@ -4,18 +4,17 @@ This module provides functions to register medical models with the model registr
 including pre-configured models and their loaders with adapter support.
 """
 
-from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union, cast
+from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union
 
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizer
 
-from medvllm.engine.model_runner.registry import ModelRegistry, ModelType, registry
+from medvllm.engine.model_runner.registry import ModelType, registry
 from medvllm.models.adapter import create_medical_adapter
 from medvllm.models.medical_models import (
     BioBERTLoader,
     ClinicalBERTLoader,
     MedicalModelLoader,
-    MedicalTokenizer,
 )
 
 # Define type variables for the model and tokenizer types

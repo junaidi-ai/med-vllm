@@ -1,7 +1,6 @@
 """Medical Named Entity Recognition task implementation."""
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from torch import nn
@@ -34,15 +33,11 @@ class MedicalNER(MedicalTask, nn.Module):
         super().__init__()
         self.model = AutoModel.from_pretrained(model_name, **kwargs)
         if isinstance(tokenizer, str):
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                tokenizer, **(tokenizer_kwargs or {})
-            )
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer, **(tokenizer_kwargs or {}))
         elif tokenizer is not None:
             self.tokenizer = tokenizer
         else:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                model_name, **(tokenizer_kwargs or {})
-            )
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, **(tokenizer_kwargs or {}))
         self.dropout = nn.Dropout(0.1)
         self.classifier = nn.Linear(self.model.config.hidden_size, num_labels)
         self.num_labels = num_labels
@@ -73,9 +68,7 @@ class MedicalNER(MedicalTask, nn.Module):
         Returns:
             Dictionary with logits and loss (if labels provided)
         """
-        outputs = self.model(
-            input_ids=input_ids, attention_mask=attention_mask, **kwargs
-        )
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
 
         sequence_output = outputs[0]
         sequence_output = self.dropout(sequence_output)
@@ -131,9 +124,7 @@ class MedicalNER(MedicalTask, nn.Module):
             offsets = []
 
             # Get word tokens and their positions
-            if not hasattr(self.tokenizer, "tokenize") or not callable(
-                self.tokenizer.tokenize
-            ):
+            if not hasattr(self.tokenizer, "tokenize") or not callable(self.tokenizer.tokenize):
                 raise ValueError("Tokenizer must have a callable 'tokenize' method")
             tokens = self.tokenizer.tokenize(text)
             word_ids = inputs.word_ids(batch_index=i)

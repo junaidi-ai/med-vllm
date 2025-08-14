@@ -4,7 +4,7 @@ This module provides the ClinicalBERT adapter that handles clinical domain-speci
 features, terminology, weight conversion, and contextual clinical note processing.
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union, Type, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -12,12 +12,15 @@ import torch.nn as nn
 # Lazy imports for transformers
 try:
     from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
+
     # Define a dummy class for type checking
     class PreTrainedTokenizerBase:
         pass
+
     AutoTokenizer = None
 
 from .base import MedicalModelAdapterBase
@@ -34,28 +37,30 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
     """
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> 'ClinicalBERTAdapter':
+    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> "ClinicalBERTAdapter":
         """Load a pre-trained ClinicalBERT model and return an adapter instance.
-        
+
         Args:
             model_name_or_path: Name or path of the pre-trained model
             **kwargs: Additional arguments to pass to the model and adapter
-            
+
         Returns:
             An instance of ClinicalBERTAdapter with the loaded model
-            
+
         Example:
             >>> adapter = ClinicalBERTAdapter.from_pretrained("emilyalsentzer/Bio_ClinicalBERT")
         """
         if not TRANSFORMERS_AVAILABLE:
-            raise ImportError("The transformers library is required to load pre-trained models. "
-                           "Please install it with: pip install transformers")
-        
+            raise ImportError(
+                "The transformers library is required to load pre-trained models. "
+                "Please install it with: pip install transformers"
+            )
+
         from transformers import AutoModel
-        
+
         # Load the model and tokenizer
         model = AutoModel.from_pretrained(model_name_or_path, **kwargs)
-        
+
         # Create config dictionary for the adapter
         config = {
             "model_name_or_path": model_name_or_path,
@@ -64,10 +69,10 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
             "memory_efficient": kwargs.get("memory_efficient", True),
             "enable_mixed_precision": kwargs.get("enable_mixed_precision", False),
         }
-        
+
         # Create and return the adapter instance
         return cls(model=model, config=config)
-    
+
     def __init__(self, model: nn.Module, config: Dict[str, Any]):
         super().__init__(model, config)
         self.model_type = "clinicalbert"
@@ -81,9 +86,9 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
         if not config.get("skip_tokenizer_setup", False):
             self._setup_clinical_tokenizer()
 
-        # Initialize weights and handle clinical embeddings
-        self._initialize_weights()
+        # Handle clinical embeddings before initializing weights
         self._setup_clinical_embeddings()
+        self._initialize_weights()
 
     def _setup_clinical_tokenizer(self) -> None:
         """Set up ClinicalBERT-specific tokenizer with clinical vocabulary."""
@@ -187,15 +192,11 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
     def _setup_clinical_embeddings(self) -> None:
         """Set up clinical-specific embedding handling."""
         # Store original embedding layer for potential weight conversion
-        if hasattr(self.model, "embeddings") and hasattr(
-            self.model.embeddings, "word_embeddings"
-        ):
+        if hasattr(self.model, "embeddings") and hasattr(self.model.embeddings, "word_embeddings"):
             self.original_embeddings = self.model.embeddings.word_embeddings
             self.vocab_size = self.original_embeddings.num_embeddings
             self.embedding_dim = self.original_embeddings.embedding_dim
-        elif hasattr(self.model, "bert") and hasattr(
-            self.model.bert.embeddings, "word_embeddings"
-        ):
+        elif hasattr(self.model, "bert") and hasattr(self.model.bert.embeddings, "word_embeddings"):
             self.original_embeddings = self.model.bert.embeddings.word_embeddings
             self.vocab_size = self.original_embeddings.num_embeddings
             self.embedding_dim = self.original_embeddings.embedding_dim
@@ -234,8 +235,7 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
                 for i in range(self.vocab_size, new_vocab_size):
                     # Initialize with slight variation around mean
                     new_embeddings.weight[i] = (
-                        mean_embedding
-                        + torch.randn_like(mean_embedding) * std_embedding * 0.1
+                        mean_embedding + torch.randn_like(mean_embedding) * std_embedding * 0.1
                     )
 
         # Replace the embedding layer in the model
@@ -294,6 +294,55 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
             outputs = self.model(input_ids, **kwargs)
 
         return outputs
+
+    def _preserve_clinical_terms(self, text: str) -> str:
+        """Preserve clinical terms and abbreviations during tokenization."""
+        import re
+
+        clinical_patterns = [
+            r"\b\d+\s*mg\b",
+            r"\b\d+\s*ml\b",
+            r"\b\d+\s*mcg\b",
+            r"\b[A-Z]{2,}\b",
+            r"\b\w+(-\w+)+\b",
+            r"\b\d+/\d+\b",
+        ]
+
+        preserved_terms = {}
+        for i, pattern in enumerate(clinical_patterns):
+            matches = re.findall(pattern, text)
+            for j, match in enumerate(matches):
+                placeholder = f"__CLINICAL_TERM_{i}_{j}__"
+                preserved_terms[placeholder] = match
+                text = text.replace(match, placeholder, 1)
+
+        return text
+
+    def preprocess_biomedical_text(
+        self, text: Union[str, List[str]], **kwargs
+    ) -> Dict[str, torch.Tensor]:
+        """Preprocess clinical text with ClinicalBERT-specific tokenization."""
+        if self.tokenizer is None:
+            raise RuntimeError("ClinicalBERT tokenizer not initialized")
+
+        defaults = {
+            "max_length": 512,
+            "padding": True,
+            "truncation": True,
+            "return_tensors": "pt",
+            "add_special_tokens": True,
+        }
+
+        tokenizer_kwargs = {**defaults, **kwargs}
+
+        if isinstance(text, str):
+            text = self._preserve_clinical_terms(text)
+        elif isinstance(text, list):
+            text = [self._preserve_clinical_terms(t) for t in text]
+
+        encoded = self.tokenizer(text, **tokenizer_kwargs)
+
+        return encoded
 
     def _initialize_kv_cache(self) -> Dict[str, torch.Tensor]:
         """Initialize KV cache for efficient inference."""
@@ -384,9 +433,7 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
                             )
 
                 # Shard feed-forward layers
-                if hasattr(layer, "intermediate") and hasattr(
-                    layer.intermediate, "dense"
-                ):
+                if hasattr(layer, "intermediate") and hasattr(layer.intermediate, "dense"):
                     layer.intermediate.dense.weight.data = self._shard_tensor(
                         layer.intermediate.dense.weight.data, dim=0
                     )
@@ -539,27 +586,19 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
             try:
                 # Convert attention weights
                 if hasattr(hf_layer, "attention") and hasattr(model_layer, "attention"):
-                    self._convert_attention_weights(
-                        hf_layer.attention, model_layer.attention
-                    )
+                    self._convert_attention_weights(hf_layer.attention, model_layer.attention)
 
                 # Convert feed-forward weights
-                if hasattr(hf_layer, "intermediate") and hasattr(
-                    model_layer, "intermediate"
-                ):
+                if hasattr(hf_layer, "intermediate") and hasattr(model_layer, "intermediate"):
                     with torch.no_grad():
                         model_layer.intermediate.dense.weight.copy_(
                             hf_layer.intermediate.dense.weight
                         )
-                        model_layer.intermediate.dense.bias.copy_(
-                            hf_layer.intermediate.dense.bias
-                        )
+                        model_layer.intermediate.dense.bias.copy_(hf_layer.intermediate.dense.bias)
 
                 if hasattr(hf_layer, "output") and hasattr(model_layer, "output"):
                     with torch.no_grad():
-                        model_layer.output.dense.weight.copy_(
-                            hf_layer.output.dense.weight
-                        )
+                        model_layer.output.dense.weight.copy_(hf_layer.output.dense.weight)
                         model_layer.output.dense.bias.copy_(hf_layer.output.dense.bias)
 
             except Exception as e:
@@ -570,38 +609,22 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
         try:
             with torch.no_grad():
                 # Convert self-attention weights
-                if hasattr(hf_attention.self, "query") and hasattr(
-                    model_attention.self, "query"
-                ):
-                    model_attention.self.query.weight.copy_(
-                        hf_attention.self.query.weight
-                    )
+                if hasattr(hf_attention.self, "query") and hasattr(model_attention.self, "query"):
+                    model_attention.self.query.weight.copy_(hf_attention.self.query.weight)
                     model_attention.self.query.bias.copy_(hf_attention.self.query.bias)
 
-                if hasattr(hf_attention.self, "key") and hasattr(
-                    model_attention.self, "key"
-                ):
+                if hasattr(hf_attention.self, "key") and hasattr(model_attention.self, "key"):
                     model_attention.self.key.weight.copy_(hf_attention.self.key.weight)
                     model_attention.self.key.bias.copy_(hf_attention.self.key.bias)
 
-                if hasattr(hf_attention.self, "value") and hasattr(
-                    model_attention.self, "value"
-                ):
-                    model_attention.self.value.weight.copy_(
-                        hf_attention.self.value.weight
-                    )
+                if hasattr(hf_attention.self, "value") and hasattr(model_attention.self, "value"):
+                    model_attention.self.value.weight.copy_(hf_attention.self.value.weight)
                     model_attention.self.value.bias.copy_(hf_attention.self.value.bias)
 
                 # Convert output projection weights
-                if hasattr(hf_attention, "output") and hasattr(
-                    model_attention, "output"
-                ):
-                    model_attention.output.dense.weight.copy_(
-                        hf_attention.output.dense.weight
-                    )
-                    model_attention.output.dense.bias.copy_(
-                        hf_attention.output.dense.bias
-                    )
+                if hasattr(hf_attention, "output") and hasattr(model_attention, "output"):
+                    model_attention.output.dense.weight.copy_(hf_attention.output.dense.weight)
+                    model_attention.output.dense.bias.copy_(hf_attention.output.dense.bias)
 
         except Exception as e:
             print(f"Warning: Could not convert ClinicalBERT attention weights: {e}")

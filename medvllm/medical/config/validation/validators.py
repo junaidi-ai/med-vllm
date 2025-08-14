@@ -70,11 +70,7 @@ class MedicalConfigValidator:
         # Check if entity linking is enabled and has knowledge bases
         if entity_linking.get("enabled", False):
             knowledge_bases = entity_linking.get("knowledge_bases")
-            if (
-                not knowledge_bases
-                or not isinstance(knowledge_bases, list)
-                or not knowledge_bases
-            ):
+            if not knowledge_bases or not isinstance(knowledge_bases, list) or not knowledge_bases:
                 raise ValidationError(
                     "Entity linking is enabled but no knowledge " "bases are specified",
                     field="entity_linking.knowledge_bases",
@@ -109,10 +105,7 @@ class MedicalConfigValidator:
             version: Version in which the parameter will be removed
             alternative: Alternative parameter or approach to use (optional)
         """
-        msg = (
-            f"'{param_name}' is deprecated and will be removed in "
-            f"version {version}."
-        )
+        msg = f"'{param_name}' is deprecated and will be removed in " f"version {version}."
         if alternative:
             msg += f" Use '{alternative}' instead."
         warnings.warn(msg, DeprecationWarning, stacklevel=3)
@@ -124,37 +117,35 @@ default_validator = MedicalConfigValidator()
 
 def validate_config(config: "BaseMedicalConfig") -> None:
     """Validate a configuration using the default validator.
-    
+
     This is a convenience function that uses the default validator instance
     to validate the configuration.
-    
+
     Args:
         config: The configuration to validate
-        
+
     Raises:
         ValidationError: If validation fails
     """
     default_validator.validate(config)
 
 
-def validate_field(
-    config: "BaseMedicalConfig", field_name: str, value: Any
-) -> None:
+def validate_field(config: "BaseMedicalConfig", field_name: str, value: Any) -> None:
     """Validate a single field in a configuration.
-    
+
     This is a convenience function that validates a single field in a configuration
     using the default validator.
-    
+
     Args:
         config: The configuration containing the field
         field_name: The name of the field to validate
         value: The value to validate
-        
+
     Raises:
         ValidationError: If validation fails
     """
     if not hasattr(default_validator, f"validate_{field_name}"):
         raise ValueError(f"No validator found for field: {field_name}")
-        
+
     validator = getattr(default_validator, f"validate_{field_name}")
     validator(config, value)

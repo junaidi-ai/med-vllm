@@ -5,7 +5,6 @@ import sys
 import types
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 mock_transformers = types.ModuleType("transformers")
 mock_config = types.ModuleType("transformers.configuration_utils")
@@ -44,9 +43,7 @@ class TestAdapterManager:
 
         for model_name in test_cases:
             detected = AdapterManager.detect_model_type(model_name)
-            assert (
-                detected == "clinicalbert"
-            ), f"Failed to detect clinicalbert for {model_name}"
+            assert detected == "clinicalbert", f"Failed to detect clinicalbert for {model_name}"
 
     def test_detect_model_type_pubmedbert(self):
         """Test detection of PubMedBERT models."""
@@ -58,9 +55,7 @@ class TestAdapterManager:
 
         for model_name in test_cases:
             detected = AdapterManager.detect_model_type(model_name)
-            assert (
-                detected == "pubmedbert"
-            ), f"Failed to detect pubmedbert for {model_name}"
+            assert detected == "pubmedbert", f"Failed to detect pubmedbert for {model_name}"
 
     def test_detect_model_type_bluebert(self):
         """Test detection of BlueBERT models."""
@@ -85,9 +80,7 @@ class TestAdapterManager:
 
         for model_name in unknown_models:
             detected = AdapterManager.detect_model_type(model_name)
-            assert (
-                detected == "biobert"
-            ), f"Failed to fallback to biobert for {model_name}"
+            assert detected == "biobert", f"Failed to fallback to biobert for {model_name}"
 
     def test_detect_model_type_with_config(self):
         """Test detection using model configuration."""
@@ -146,9 +139,7 @@ class TestAdapterManager:
         mock_hf_config.num_attention_heads = 16
         mock_hf_config.max_position_embeddings = 1024
 
-        enhanced = AdapterManager._enhance_adapter_config(
-            base_config, mock_model, mock_hf_config
-        )
+        enhanced = AdapterManager._enhance_adapter_config(base_config, mock_model, mock_hf_config)
 
         assert enhanced["vocab_size"] == 50000
         assert enhanced["hidden_size"] == 1024
@@ -196,9 +187,7 @@ class TestAdapterManager:
         """Test adapter creation with auto-detection."""
         mock_model = MagicMock()
 
-        with patch(
-            "medvllm.models.adapter_manager.create_medical_adapter"
-        ) as mock_create:
+        with patch("medvllm.models.adapter_manager.create_medical_adapter") as mock_create:
             mock_adapter = MagicMock()
             mock_create.return_value = mock_adapter
 

@@ -1,7 +1,7 @@
 """CLI commands for model management."""
 
 import json
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, Optional, Tuple
 
 import click
 from rich.console import Console
@@ -34,9 +34,7 @@ from medvllm.engine.model_runner.registry import ModelType
 )
 @click.option("--description", help="Description of the model")
 @click.option("--tag", "tags", multiple=True, help="Tags for the model")
-@click.option(
-    "--param", "params", multiple=True, help="Additional parameters (key=value)"
-)
+@click.option("--param", "params", multiple=True, help="Additional parameters (key=value)")
 def register(
     name: str,
     path: str,
@@ -51,9 +49,7 @@ def register(
         params_dict: Dict[str, str] = {}
         for p in params:
             if "=" not in p:
-                raise click.BadParameter(
-                    f"Invalid parameter format: {p}. Expected key=value"
-                )
+                raise click.BadParameter(f"Invalid parameter format: {p}. Expected key=value")
             key, value = p.split("=", 1)
             params_dict[key] = value
 
@@ -149,9 +145,7 @@ def list_models(model_type_str: Optional[str], output_json: bool) -> None:
             for model in models:
                 serializable_model = {}
                 for key, value in model.items():
-                    if hasattr(value, "name") and hasattr(
-                        value, "value"
-                    ):  # Handle enums
+                    if hasattr(value, "name") and hasattr(value, "value"):  # Handle enums
                         serializable_model[key] = value.name.lower()
                     else:
                         serializable_model[key] = value

@@ -3,7 +3,7 @@
 
 import sys
 import os
-import pytest
+
 
 def test_imports():
     print("\n=== Test function running ===")
@@ -17,12 +17,14 @@ def test_imports():
     print("\nTrying to import transformers...")
     try:
         import transformers
+
         print(f"Successfully imported transformers from: {transformers.__file__}")
         print(f"Transformers version: {transformers.__version__}")
-        
+
         print("\nTrying to import tokenization_utils_base...")
         try:
             from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
             print("Successfully imported PreTrainedTokenizerBase")
             assert True
         except ImportError as e:
@@ -37,14 +39,15 @@ def test_imports():
             except Exception as e:
                 print(f"Error listing transformers directory: {e}")
             assert False, f"Failed to import PreTrainedTokenizerBase: {e}"
-        
+
     except ImportError as e:
         print(f"Error importing transformers: {e}")
         print("\nInstalled packages:")
         try:
             import pkg_resources
+
             for dist in pkg_resources.working_set:
-                if 'transformers' in dist.project_name.lower():
+                if "transformers" in dist.project_name.lower():
                     print(f"  {dist.project_name} ({dist.version}) at {dist.location}")
         except Exception as e:
             print(f"Error getting installed packages: {e}")

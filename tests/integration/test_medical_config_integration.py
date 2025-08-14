@@ -6,13 +6,7 @@ using a mock implementation to avoid external dependencies.
 
 import json
 import os
-import random
-import string
 import sys
-import tempfile
-import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -30,9 +24,7 @@ pytestmark = [
 class MedicalModelConfig:
     """Mock MedicalModelConfig for integration testing."""
 
-    def __init__(
-        self, model, medical_specialties=None, anatomical_regions=None, **kwargs
-    ):
+    def __init__(self, model, medical_specialties=None, anatomical_regions=None, **kwargs):
         self.model = model
         self.medical_specialties = medical_specialties or []
         self.anatomical_regions = anatomical_regions or []
@@ -115,9 +107,7 @@ class TestMedicalConfigIntegration:
     def test_error_recovery_after_corruption(self, temp_config_file):
         """Test that we can recover after encountering a corrupted file."""
         # First create a valid config
-        config = MedicalModelConfig(
-            model="test-model", medical_specialties=["cardiology"]
-        )
+        config = MedicalModelConfig(model="test-model", medical_specialties=["cardiology"])
         config.to_json(temp_config_file)
 
         # Corrupt the file

@@ -2,16 +2,12 @@
 
 import math
 from typing import (
-    Any,
     Callable,
     Dict,
-    Generic,
-    List,
     Optional,
     Tuple,
     TypeVar,
     Union,
-    cast,
 )
 
 import torch
@@ -113,9 +109,7 @@ def create_sinusoidal_positional_embedding(
     scale = math.log(10000) / (half_dim - 1)
     # Create the position encodings
     position = torch.arange(num_positions, dtype=torch.float, device=device)
-    div_term = torch.exp(
-        torch.arange(half_dim, dtype=torch.float, device=device) * -scale
-    )
+    div_term = torch.exp(torch.arange(half_dim, dtype=torch.float, device=device) * -scale)
 
     # Create the sinusoidal encodings
     emb = position.unsqueeze(1) * div_term.unsqueeze(0)

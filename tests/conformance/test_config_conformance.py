@@ -15,7 +15,7 @@ mock_config = MagicMock()
 mock_config.model_type = "bert"  # Default to bert for tests
 mock_auto_config.from_pretrained.return_value = mock_config
 
-with patch('transformers.AutoConfig', mock_auto_config):
+with patch("transformers.AutoConfig", mock_auto_config):
     from medvllm.medical.config import MedicalModelConfig
 
 # Constants for conformance testing
@@ -89,12 +89,12 @@ COMPATIBILITY_MATRIX = {
 class TestConfigConformance:
     """Conformance tests for configuration system."""
 
-    @patch('transformers.AutoConfig.from_pretrained', return_value=mock_config)
+    @patch("transformers.AutoConfig.from_pretrained", return_value=mock_config)
     def test_required_fields_present(self, mock_from_pretrained, temp_model_dir) -> None:
         """Test that all required fields are present in the config class."""
         # Mock the AutoConfig.from_pretrained to avoid loading actual model config
         mock_config.model_type = "bert"  # Use a valid model type from SUPPORTED_MODEL_TYPES
-        
+
         # Create a config with a valid model type from SUPPORTED_MODEL_TYPES
         config = MedicalModelConfig(
             model=temp_model_dir,
@@ -102,9 +102,9 @@ class TestConfigConformance:
             medical_specialties=["cardiology"],
             anatomical_regions=["head"],
             imaging_modalities=["xray"],
-            medical_entity_types=["disease"]
+            medical_entity_types=["disease"],
         )
-        
+
         # Convert to dict and check for required fields
         config_dict = config.to_dict()
         missing_fields = []
@@ -112,7 +112,7 @@ class TestConfigConformance:
             if field not in config_dict and field != "model_name_or_path":
                 missing_fields.append(field)
         assert not missing_fields, f"Missing required fields: {', '.join(missing_fields)}"
-        
+
         # Verify that the model type is set correctly
         assert config.model_type == "bert"
         assert config.medical_specialties == ["cardiology"]
@@ -146,7 +146,7 @@ class TestConfigConformance:
                 type_errors.append(f"Field '{field_name}' is None")
         assert not type_errors, "\n".join(type_errors)
 
-    @patch('transformers.AutoConfig.from_pretrained', return_value=mock_config)
+    @patch("transformers.AutoConfig.from_pretrained", return_value=mock_config)
     def test_model_name_format(self, mock_from_pretrained, temp_model_dir) -> None:
         """Test that model names follow the required format."""
         # Create a config with a valid model type from SUPPORTED_MODEL_TYPES
@@ -156,16 +156,15 @@ class TestConfigConformance:
             medical_specialties=["cardiology"],
             anatomical_regions=["head"],
             imaging_modalities=["xray"],
-            medical_entity_types=["disease"]
+            medical_entity_types=["disease"],
         )
         model_name = config.model
         if model_name:  # Only check if model_name is not empty
             assert re.match(MODEL_NAME_PATTERN, model_name), (
-                f"Model name '{model_name}' does not match required format "
-                f"{MODEL_NAME_PATTERN}"
+                f"Model name '{model_name}' does not match required format " f"{MODEL_NAME_PATTERN}"
             )
 
-    @patch('transformers.AutoConfig.from_pretrained', return_value=mock_config)
+    @patch("transformers.AutoConfig.from_pretrained", return_value=mock_config)
     def test_medical_specialties_validation(self, mock_from_pretrained, temp_model_dir) -> None:
         """Test that medical specialties are properly validated."""
         # Create a config with valid medical specialties
@@ -175,7 +174,7 @@ class TestConfigConformance:
             medical_specialties=["cardiology"],
             anatomical_regions=["head"],
             imaging_modalities=["xray"],
-            medical_entity_types=["disease"]
+            medical_entity_types=["disease"],
         )
         assert config.medical_specialties == ["cardiology"]
 
@@ -191,7 +190,7 @@ class TestConfigConformance:
                 medical_specialties=["Cardiology"],  # Should be lowercase
                 anatomical_regions=["head"],
                 imaging_modalities=["xray"],
-                medical_entity_types=["disease"]
+                medical_entity_types=["disease"],
             )
 
         # Test with non-list input
@@ -202,10 +201,10 @@ class TestConfigConformance:
                 medical_specialties="cardiology",  # Should be a list
                 anatomical_regions=["head"],
                 imaging_modalities=["xray"],
-                medical_entity_types=["disease"]
+                medical_entity_types=["disease"],
             )
 
-    @patch('transformers.AutoConfig.from_pretrained', return_value=mock_config)
+    @patch("transformers.AutoConfig.from_pretrained", return_value=mock_config)
     def test_anatomical_regions_validation(self, mock_from_pretrained, temp_model_dir) -> None:
         """Test that anatomical regions are from the allowed set."""
         # Create a config with valid anatomical regions
@@ -215,15 +214,15 @@ class TestConfigConformance:
             medical_specialties=["cardiology"],
             anatomical_regions=["head", "chest"],
             imaging_modalities=["xray"],
-            medical_entity_types=["disease"]
+            medical_entity_types=["disease"],
         )
-        
+
         # Verify all regions are in the allowed set
         for region in config.anatomical_regions:
             assert (
                 region in ALLOWED_REGIONS
             ), f"Anatomical region '{region}' is not in the allowed set"
-        
+
         # Test with an invalid region
         with pytest.raises(ValueError, match="is not a valid anatomical region"):
             MedicalModelConfig(
@@ -232,20 +231,20 @@ class TestConfigConformance:
                 medical_specialties=["cardiology"],
                 anatomical_regions=["invalid_region"],
                 imaging_modalities=["xray"],
-                medical_entity_types=["disease"]
+                medical_entity_types=["disease"],
             )
 
-    @patch('transformers.AutoConfig.from_pretrained')
+    @patch("transformers.AutoConfig.from_pretrained")
     def test_config_equality(self, mock_from_pretrained, temp_model_dir) -> None:
         """Test config equality comparison."""
         print("\n[TEST] Starting test_config_equality...")
-        
+
         # Mock the AutoConfig.from_pretrained to avoid loading actual model config
         mock_config = MagicMock()
         mock_config.model_type = "bert"  # Use a valid model type from SUPPORTED_MODEL_TYPES
         mock_from_pretrained.return_value = mock_config
-        
-        with patch('transformers.AutoConfig.from_pretrained', return_value=mock_config):
+
+        with patch("transformers.AutoConfig.from_pretrained", return_value=mock_config):
             print("\n[DEBUG] Creating first config...")
             # Create two identical configs
             config1 = MedicalModelConfig(
@@ -257,7 +256,7 @@ class TestConfigConformance:
                 medical_entity_types=["disease"],
             )
             print("[DEBUG] First config created successfully")
-            
+
             print("\n[DEBUG] Creating second config...")
             config2 = MedicalModelConfig(
                 model=temp_model_dir,
@@ -268,80 +267,88 @@ class TestConfigConformance:
                 medical_entity_types=["disease"],
             )
             print("[DEBUG] Second config created successfully")
-            
+
             # Debug: Print all attributes of both configs
             print("\n[DEBUG] Config1 attributes:")
             for attr in dir(config1):
-                if not attr.startswith('__'):
+                if not attr.startswith("__"):
                     try:
                         val = getattr(config1, attr, None)
                         print(f"  {attr}: {val} (type: {type(val)})")
                     except Exception as e:
                         print(f"  {attr}: [Error accessing: {e}]")
-            
+
             # Debug: Compare attributes one by one
             print("\n[DEBUG] Comparing config1 and config2 attributes:")
             all_attrs = set(dir(config1) + dir(config2))
             for attr in sorted(all_attrs):
-                if not attr.startswith('__') and not callable(getattr(config1, attr, None)):
+                if not attr.startswith("__") and not callable(getattr(config1, attr, None)):
                     try:
                         val1 = getattr(config1, attr, None)
                         val2 = getattr(config2, attr, None)
-                        
+
                         # Special handling for hf_config
-                        if attr == 'hf_config':
-                            print(f"\n[DEBUG] Comparing hf_config:")
-                            print(f"  Config1 hf_config.model_type: {getattr(val1, 'model_type', None)}")
-                            print(f"  Config2 hf_config.model_type: {getattr(val2, 'model_type', None)}")
+                        if attr == "hf_config":
+                            print("\n[DEBUG] Comparing hf_config:")
+                            print(
+                                f"  Config1 hf_config.model_type: {getattr(val1, 'model_type', None)}"
+                            )
+                            print(
+                                f"  Config2 hf_config.model_type: {getattr(val2, 'model_type', None)}"
+                            )
                             continue
-                        
+
                         if val1 != val2:
                             print(f"\n[DEBUG] Attribute '{attr}' differs:")
                             print(f"  Config1: {val1} (type: {type(val1)})")
                             print(f"  Config2: {val2} (type: {type(val2)})")
-                            
+
                             # Special handling for Path objects
-                            if hasattr(val1, '__fspath__') or hasattr(val2, '__fspath__'):
+                            if hasattr(val1, "__fspath__") or hasattr(val2, "__fspath__"):
                                 print("  Path comparison:")
-                                print(f"  Config1 path: {str(val1) if val1 is not None else 'None'}")
-                                print(f"  Config2 path: {str(val2) if val2 is not None else 'None'}")
+                                print(
+                                    f"  Config1 path: {str(val1) if val1 is not None else 'None'}"
+                                )
+                                print(
+                                    f"  Config2 path: {str(val2) if val2 is not None else 'None'}"
+                                )
                     except Exception as e:
                         print(f"\n[DEBUG] Error comparing attribute '{attr}': {e}")
-            
+
             print("\n[TEST] Testing config1 == config2...")
             # Test equality
             assert config1 == config2, "Identical configs should be equal"
             print("[TEST] Equality test passed")
-            
+
             print("\n[TEST] Testing hash(config1) == hash(config2)...")
             assert hash(config1) == hash(config2), "Hashes of identical configs should match"
             print("[TEST] Hash equality test passed")
-    
+
             print("\n[TEST] Testing inequality with different values...")
             # Test inequality with different values by creating a new config with updated batch_size
             config_dict = config1.to_dict()
-            
+
             # Remove fields that are not valid __init__ parameters
-            for field in ['domain_config', 'version']:
+            for field in ["domain_config", "version"]:
                 config_dict.pop(field, None)
-                
+
             config_dict["batch_size"] = 64
-            
+
             # Create a new instance with the updated values
             print(f"[DEBUG] Creating new config with dict: {config_dict}")
             try:
                 config3 = config1.__class__(**config_dict)
-                
+
                 # Debug: Print config3 attributes
                 print("\n[DEBUG] Config3 attributes:")
                 for attr in dir(config3):
-                    if not attr.startswith('__') and not callable(getattr(config3, attr)):
+                    if not attr.startswith("__") and not callable(getattr(config3, attr)):
                         try:
                             val = getattr(config3, attr, None)
                             print(f"  {attr}: {val} (type: {type(val)})")
                         except Exception as e:
                             print(f"  {attr}: [Error accessing: {e}]")
-                
+
                 assert config1 != config3, "Configs with different values should not be equal"
                 assert hash(config1) != hash(config3), "Hashes of different configs should differ"
                 print("[TEST] Inequality test with different values passed")
@@ -349,10 +356,13 @@ class TestConfigConformance:
                 print(f"[ERROR] Failed to create config3: {e}")
                 print(f"[DEBUG] config_dict keys: {list(config_dict.keys())}")
                 raise
-            
+
             # Test with different model types
             print("\n[TEST] Testing with different model types...")
-            with patch('transformers.AutoConfig.from_pretrained', return_value=MagicMock(model_type="roberta")):
+            with patch(
+                "transformers.AutoConfig.from_pretrained",
+                return_value=MagicMock(model_type="roberta"),
+            ):
                 config4 = MedicalModelConfig(
                     model=temp_model_dir,
                     model_type="roberta",  # Different model type
@@ -362,7 +372,9 @@ class TestConfigConformance:
                     medical_entity_types=["disease"],
                 )
                 assert config1 != config4, "Configs with different model types should not be equal"
-                assert hash(config1) != hash(config4), "Hashes of configs with different model types should differ"
+                assert hash(config1) != hash(
+                    config4
+                ), "Hashes of configs with different model types should differ"
                 print("[TEST] Different model types test passed")
 
     def test_config_serialization_roundtrip(self, temp_model_dir) -> None:
@@ -389,15 +401,15 @@ class TestConfigConformance:
         assert original.imaging_modalities == deserialized.imaging_modalities
         assert original.medical_entity_types == deserialized.medical_entity_types
 
-    @patch('transformers.AutoConfig.from_pretrained')
+    @patch("transformers.AutoConfig.from_pretrained")
     def test_backward_compatibility(self, mock_from_pretrained, temp_model_dir) -> None:
         """Test backward compatibility with older config versions."""
         # Mock the AutoConfig.from_pretrained to avoid loading actual model config
         mock_config = MagicMock()
         mock_config.model_type = "bert"  # Use a valid model type from SUPPORTED_MODEL_TYPES
         mock_from_pretrained.return_value = mock_config
-        
-        with patch('transformers.AutoConfig.from_pretrained', return_value=mock_config):
+
+        with patch("transformers.AutoConfig.from_pretrained", return_value=mock_config):
             # Test loading config from older versions
             for version, spec in COMPATIBILITY_MATRIX.items():
                 # Create a minimal config with version-specific fields
@@ -406,7 +418,7 @@ class TestConfigConformance:
                     "model_name_or_path": temp_model_dir,
                     "version": version,
                 }
-                
+
                 # Add required fields for this version
                 for field in spec["required_fields"]:
                     if field == "hidden_size":
@@ -415,31 +427,31 @@ class TestConfigConformance:
                         config_data[field] = 12
                     elif field == "medical_specialties":
                         config_data[field] = ["cardiology"]
-                
+
                 # Test loading the config
                 config = MedicalModelConfig.from_dict(config_data)
                 assert config.version == version
                 assert config.model_type == "bert"  # Ensure model type is set correctly
-                
+
                 # Test that deprecated fields raise a warning
                 for field in spec["deprecated_fields"]:
                     with pytest.warns(DeprecationWarning):
                         getattr(config, field)
-                
+
                 # Test that removed fields raise an AttributeError
                 for field in spec["removed_fields"]:
                     with pytest.raises(AttributeError):
                         getattr(config, field)
 
-    @patch('transformers.AutoConfig.from_pretrained')
+    @patch("transformers.AutoConfig.from_pretrained")
     def test_config_validation(self, mock_from_pretrained, temp_model_dir) -> None:
         """Test that config validation catches invalid values."""
         # Mock the AutoConfig.from_pretrained to avoid loading actual model config
         mock_config = MagicMock()
         mock_config.model_type = "bert"  # Use a valid model type from SUPPORTED_MODEL_TYPES
         mock_from_pretrained.return_value = mock_config
-        
-        with patch('transformers.AutoConfig.from_pretrained', return_value=mock_config):
+
+        with patch("transformers.AutoConfig.from_pretrained", return_value=mock_config):
             # Test with valid config
             valid_config = MedicalModelConfig(
                 model=temp_model_dir,
@@ -447,33 +459,33 @@ class TestConfigConformance:
                 medical_specialties=["cardiology"],
                 anatomical_regions=["head"],
                 imaging_modalities=["xray"],
-                medical_entity_types=["disease"]
+                medical_entity_types=["disease"],
             )
             valid_config.validate()  # Should not raise
-            
+
             # Test that model type is set correctly
             assert valid_config.model_type == "bert"
-            
+
             # Test with invalid model type
             with pytest.raises(ValueError, match="Unsupported model type"):
                 MedicalModelConfig(
-                    model=temp_model_dir, 
+                    model=temp_model_dir,
                     model_type="invalid_model_type",
                     medical_specialties=["cardiology"],
                     anatomical_regions=["head"],
                     imaging_modalities=["xray"],
-                    medical_entity_types=["disease"]
+                    medical_entity_types=["disease"],
                 )
 
-    @patch('transformers.AutoConfig.from_pretrained')
+    @patch("transformers.AutoConfig.from_pretrained")
     def test_config_default_values(self, mock_from_pretrained, temp_model_dir) -> None:
         """Test that default values are set correctly."""
         # Mock the AutoConfig.from_pretrained to avoid loading actual model config
         mock_config = MagicMock()
         mock_config.model_type = "bert"  # Use a valid model type from SUPPORTED_MODEL_TYPES
         mock_from_pretrained.return_value = mock_config
-        
-        with patch('transformers.AutoConfig.from_pretrained', return_value=mock_config):
+
+        with patch("transformers.AutoConfig.from_pretrained", return_value=mock_config):
             # Create a config with only required fields
             config = MedicalModelConfig(
                 model=temp_model_dir,
@@ -481,9 +493,9 @@ class TestConfigConformance:
                 medical_specialties=["cardiology"],
                 anatomical_regions=["head"],
                 imaging_modalities=["xray"],
-                medical_entity_types=["disease"]
+                medical_entity_types=["disease"],
             )
-    
+
             # Test default values
             assert config.model_type == "bert"  # Should use the provided model type
             assert config.batch_size == 32  # Default batch size
@@ -498,15 +510,15 @@ class TestConfigConformance:
             assert isinstance(config.medical_entity_types, list)
             assert config.medical_entity_types == ["disease"]  # Should use provided value
 
-    @patch('transformers.AutoConfig.from_pretrained')
+    @patch("transformers.AutoConfig.from_pretrained")
     def test_config_copy(self, mock_from_pretrained, temp_model_dir):
         """Test that config can be copied correctly."""
         # Mock the AutoConfig.from_pretrained to avoid loading actual model config
         mock_config = MagicMock()
         mock_config.model_type = "bert"  # Use a valid model type from SUPPORTED_MODEL_TYPES
         mock_from_pretrained.return_value = mock_config
-        
-        with patch('transformers.AutoConfig.from_pretrained', return_value=mock_config):
+
+        with patch("transformers.AutoConfig.from_pretrained", return_value=mock_config):
             # Create a config with explicit values
             config1 = MedicalModelConfig(
                 model=temp_model_dir,
@@ -518,10 +530,10 @@ class TestConfigConformance:
                 batch_size=16,
                 ner_confidence_threshold=0.9,
             )
-        
+
             # Create a copy
             config2 = config1.copy()
-        
+
             # Check that all attributes are equal
             assert config1.model == config2.model
             assert config1.model_type == config2.model_type
@@ -531,10 +543,10 @@ class TestConfigConformance:
             assert config1.medical_entity_types == config2.medical_entity_types
             assert config1.batch_size == config2.batch_size
             assert config1.ner_confidence_threshold == config2.ner_confidence_threshold
-            
+
             # Verify the copy is a separate object
             assert config1 is not config2
-            
+
             # Modify the copy and verify it doesn't affect the original
             config2.batch_size = 32
             assert config1.batch_size == 16  # Original should remain unchanged
@@ -542,12 +554,13 @@ class TestConfigConformance:
             # Test deep copy of lists
             original_specialties = list(config1.medical_specialties)
             config1.medical_specialties.append("neurology")
-            assert (
-                config2.medical_specialties == ["cardiology"]
-            ), "Modifying the original list should not affect the copy"
-            assert (
-                config1.medical_specialties == ["cardiology", "neurology"]
-            ), "Original list should be modified"
+            assert config2.medical_specialties == [
+                "cardiology"
+            ], "Modifying the original list should not affect the copy"
+            assert config1.medical_specialties == [
+                "cardiology",
+                "neurology",
+            ], "Original list should be modified"
 
             # Test with update method
             updates = {"batch_size": 64, "ner_confidence_threshold": 0.95}
@@ -555,7 +568,10 @@ class TestConfigConformance:
             assert config_updated.batch_size == 64
             assert config_updated.ner_confidence_threshold == 0.95
             assert config_updated.model == config1.model  # Other fields should remain the same
-            assert config_updated.medical_specialties == ["cardiology", "neurology"]  # Should include the modified specialties
+            assert config_updated.medical_specialties == [
+                "cardiology",
+                "neurology",
+            ]  # Should include the modified specialties
 
             # Test dict roundtrip copy
             config_dict = config1.to_dict()
@@ -581,15 +597,21 @@ class TestConfigConformance:
 
         # Verify domain_config was properly set
         assert hasattr(config_from_dict, "domain_config")
-        assert config_from_dict.domain_config.domain_adaptation == config.domain_config.domain_adaptation
-        assert config_from_dict.domain_config.domain_adaptation_lambda == config.domain_config.domain_adaptation_lambda
-        
+        assert (
+            config_from_dict.domain_config.domain_adaptation
+            == config.domain_config.domain_adaptation
+        )
+        assert (
+            config_from_dict.domain_config.domain_adaptation_lambda
+            == config.domain_config.domain_adaptation_lambda
+        )
+
         # Mock the AutoConfig.from_pretrained to avoid loading actual model config
         mock_config = MagicMock()
         mock_config.model_type = "bert"  # Use a valid model type from SUPPORTED_MODEL_TYPES
         mock_from_pretrained.return_value = mock_config
-        
-        with patch('transformers.AutoConfig.from_pretrained', return_value=mock_config):
+
+        with patch("transformers.AutoConfig.from_pretrained", return_value=mock_config):
             # Create configs with different values
             config1 = MedicalModelConfig(
                 model=temp_model_dir,
@@ -599,9 +621,12 @@ class TestConfigConformance:
                 imaging_modalities=["xray"],
                 medical_entity_types=["disease"],
             )
-            
+
             # Create a second config with a different specialty
-            with patch('transformers.AutoConfig.from_pretrained', return_value=MagicMock(model_type="bert")):
+            with patch(
+                "transformers.AutoConfig.from_pretrained",
+                return_value=MagicMock(model_type="bert"),
+            ):
                 config2 = MedicalModelConfig(
                     model=temp_model_dir,
                     model_type="bert",  # Same model type, different specialty
@@ -610,21 +635,28 @@ class TestConfigConformance:
                     imaging_modalities=["xray"],
                     medical_entity_types=["disease"],
                 )
-    
+
             # Test dictionary usage
             config_dict = {config1: "config1", config2: "config2"}
             assert config_dict[config1] == "config1", "Should retrieve config1 by key"
             assert config_dict[config2] == "config2", "Should retrieve config2 by key"
-    
+
             # Test that copies with same values work as keys
             config1_copy = config1.copy()
-            assert config_dict[config1_copy] == "config1", "Copy with same values should work as key"
-            
+            assert (
+                config_dict[config1_copy] == "config1"
+            ), "Copy with same values should work as key"
+
             # Verify that different configs have different hashes
-            assert hash(config1) != hash(config2), "Configs with different values should have different hashes"
-            
+            assert hash(config1) != hash(
+                config2
+            ), "Configs with different values should have different hashes"
+
             # Test with a config that has the same values as config1
-            with patch('transformers.AutoConfig.from_pretrained', return_value=MagicMock(model_type="bert")):
+            with patch(
+                "transformers.AutoConfig.from_pretrained",
+                return_value=MagicMock(model_type="bert"),
+            ):
                 config1_same = MedicalModelConfig(
                     model=temp_model_dir,
                     model_type="bert",
@@ -633,8 +665,12 @@ class TestConfigConformance:
                     imaging_modalities=["xray"],
                     medical_entity_types=["disease"],
                 )
-                assert hash(config1) == hash(config1_same), "Configs with same values should have same hash"
-                assert config_dict[config1_same] == "config1", "Config with same values should retrieve same value from dict"
+                assert hash(config1) == hash(
+                    config1_same
+                ), "Configs with same values should have same hash"
+                assert (
+                    config_dict[config1_same] == "config1"
+                ), "Config with same values should retrieve same value from dict"
 
 
 class TestDocumentationConformance:
@@ -656,9 +692,7 @@ class TestDocumentationConformance:
 
     def test_config_class_documentation(self) -> None:
         """Test that the config class has proper documentation."""
-        assert (
-            MedicalModelConfig.__doc__
-        ), "MedicalModelConfig is missing a class docstring"
+        assert MedicalModelConfig.__doc__, "MedicalModelConfig is missing a class docstring"
         assert (
             "model_type" in MedicalModelConfig.__doc__
         ), "MedicalModelConfig docstring should document model_type"

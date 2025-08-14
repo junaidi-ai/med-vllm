@@ -23,9 +23,7 @@ class MedicalModelConfig:
         self.num_hidden_layers = kwargs.get("num_hidden_layers", 12)
         self.num_attention_heads = kwargs.get("num_attention_heads", 12)
         self.hidden_dropout_prob = kwargs.get("hidden_dropout_prob", 0.1)
-        self.attention_probs_dropout_prob = kwargs.get(
-            "attention_probs_dropout_prob", 0.1
-        )
+        self.attention_probs_dropout_prob = kwargs.get("attention_probs_dropout_prob", 0.1)
         self.max_position_embeddings = kwargs.get("max_position_embeddings", 512)
         self.type_vocab_size = kwargs.get("type_vocab_size", 2)
         self.initializer_range = kwargs.get("initializer_range", 0.02)
@@ -62,7 +60,7 @@ class MedicalModelConfig:
         # Call validate to ensure the configuration is valid
         try:
             self.validate()
-        except ValueError as e:
+        except ValueError:
             # Only raise the error if we're not in the middle of from_pretrained
             if not hasattr(self, "_skip_validation"):
                 raise
@@ -150,8 +148,7 @@ class MedicalModelConfig:
         """Validate the configuration."""
         if not (self.medical_specialties or self.anatomical_regions):
             raise ValueError(
-                "At least one of medical_specialties or anatomical_regions "
-                "must be provided"
+                "At least one of medical_specialties or anatomical_regions " "must be provided"
             )
 
     def update_from_dict(self, config_dict: Dict[str, Any]) -> "MedicalModelConfig":
@@ -217,9 +214,7 @@ class TestMedicalModelConfig:
             ([], []),
         ],
     )
-    def test_medical_specialties_handling(
-        self, medical_specialties, expected, sample_config_data
-    ):
+    def test_medical_specialties_handling(self, medical_specialties, expected, sample_config_data):
         """Test medical_specialties handles different input formats."""
         # Given
         sample_config_data = sample_config_data.copy()
@@ -242,9 +237,7 @@ class TestMedicalModelConfig:
             ([], []),
         ],
     )
-    def test_anatomical_regions_handling(
-        self, anatomical_regions, expected, sample_config_data
-    ):
+    def test_anatomical_regions_handling(self, anatomical_regions, expected, sample_config_data):
         """Test anatomical_regions handles different input formats."""
         # Given
         sample_config_data = sample_config_data.copy()
@@ -259,9 +252,7 @@ class TestMedicalModelConfig:
     def test_default_values(self, sample_config_data):
         """Test that default values are set correctly when not provided."""
         # When - Create with required fields only
-        config = MedicalModelConfig(
-            medical_specialties=["general"], anatomical_regions=["general"]
-        )
+        config = MedicalModelConfig(medical_specialties=["general"], anatomical_regions=["general"])
 
         # Then - Check default values
         assert config.model_type == "medical_llm"
@@ -353,10 +344,7 @@ class TestMedicalModelConfig:
         # Test with empty config (should raise ValueError)
         with pytest.raises(
             ValueError,
-            match=(
-                "At least one of medical_specialties or anatomical_regions "
-                "must be provided"
-            ),
+            match=("At least one of medical_specialties or anatomical_regions " "must be provided"),
         ):
             MedicalModelConfig()
 
@@ -367,19 +355,12 @@ class TestMedicalModelConfig:
         # Test invalid config with no specialties or regions
         with pytest.raises(
             ValueError,
-            match=(
-                "At least one of medical_specialties or anatomical_regions "
-                "must be provided"
-            ),
+            match=("At least one of medical_specialties or anatomical_regions " "must be provided"),
         ):
-            invalid_config = MedicalModelConfig(
-                medical_specialties=[], anatomical_regions=[]
-            )
+            invalid_config = MedicalModelConfig(medical_specialties=[], anatomical_regions=[])
             invalid_config.validate()
 
-    def test_medical_specialties_validation(
-        self, sample_config_data: Dict[str, Any]
-    ) -> None:
+    def test_medical_specialties_validation(self, sample_config_data: Dict[str, Any]) -> None:
         """Test validation of medical specialties."""
         # This test is now a no-op since we don't validate against a fixed
         # list of specialties in the mock implementation. In a real
@@ -387,18 +368,14 @@ class TestMedicalModelConfig:
         # allowed specialties.
         pass
 
-    def test_anatomical_regions_validation(
-        self, sample_config_data: Dict[str, Any]
-    ) -> None:
+    def test_anatomical_regions_validation(self, sample_config_data: Dict[str, Any]) -> None:
         """Test validation of anatomical regions."""
         # This test is now a no-op since we don't validate against a fixed
         # list of regions in the mock implementation. In a real implementation,
         # you would validate against a fixed list of allowed regions.
         pass
 
-    def test_from_pretrained(
-        self, tmp_path: Path, sample_config_data: Dict[str, Any]
-    ) -> None:
+    def test_from_pretrained(self, tmp_path: Path, sample_config_data: Dict[str, Any]) -> None:
         """Test loading pretrained model configuration."""
         # Save sample config
         config = MedicalModelConfig(**sample_config_data)
@@ -427,9 +404,7 @@ class TestMedicalModelConfig:
             content = f.read()
             assert "medical_llm" in content
 
-    def test_create_and_update_from_model_config(
-        self, sample_config_data: Dict[str, Any]
-    ) -> None:
+    def test_create_and_update_from_model_config(self, sample_config_data: Dict[str, Any]) -> None:
         """Test creating and updating from a model config."""
         # Create initial config
         config = MedicalModelConfig(**sample_config_data)

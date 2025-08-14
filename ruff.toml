@@ -1,0 +1,20 @@
+line-length = 100
+# Target Python version to help rule decisions
+# target-version = "py312"
+
+# Exclude non-critical scripts from linting
+exclude = ["scripts/**"]
+
+[lint]
+select = ["E", "F"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Tests: relaxed rules
+"tests/**" = ["E402", "F401", "F811", "F841", "E721", "F821", "E501"]
+# WIP module exceptions
+"medvllm/optim/quantization.py" = ["F823", "F841"]
+
+[format]
+line-ending = "lf"
+quote-style = "preserve"

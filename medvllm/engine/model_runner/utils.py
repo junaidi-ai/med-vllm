@@ -6,12 +6,7 @@ import sys
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
     Generator,
-    List,
-    Optional,
-    Tuple,
-    Type,
     TypeVar,
     Union,
     cast,
@@ -20,10 +15,10 @@ from typing import (
 import torch
 import torch.distributed as dist
 from torch import Tensor
-from typing_extensions import Literal, TypeAlias, TypedDict
+from typing_extensions import Literal
 
 if TYPE_CHECKING:
-    from .types import _ModelRunnerT as ModelRunnerT
+    pass
 
 T = TypeVar("T")
 
@@ -84,9 +79,9 @@ def get_available_memory(device: Union[str, torch.device]) -> int:
     device = validate_device(device)
 
     if device.type == "cuda":
-        return torch.cuda.get_device_properties(
+        return torch.cuda.get_device_properties(device).total_memory - torch.cuda.memory_allocated(
             device
-        ).total_memory - torch.cuda.memory_allocated(device)
+        )
 
     # For CPU, return system available memory
     if hasattr(os, "sysconf"):
@@ -100,10 +95,7 @@ def get_available_memory(device: Union[str, torch.device]) -> int:
             try:
                 with open("/proc/meminfo", "r") as f:
                     meminfo = f.read()
-                    return (
-                        int(meminfo.split("MemAvailable:")[1].split("kB")[0].strip())
-                        * 1024
-                    )
+                    return int(meminfo.split("MemAvailable:")[1].split("kB")[0].strip()) * 1024
             except (FileNotFoundError, IndexError, ValueError):
                 pass
 

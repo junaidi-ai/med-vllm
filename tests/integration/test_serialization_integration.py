@@ -5,8 +5,6 @@ This module contains integration tests that verify the interaction between
 various components of the serialization system.
 """
 
-import json
-import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Dict
@@ -20,7 +18,6 @@ from medvllm.medical.config.serialization import (
     load_config,
     save_config,
 )
-from medvllm.medical.config.validation import validate_config_schema
 
 # Test data
 SAMPLE_CONFIG = {

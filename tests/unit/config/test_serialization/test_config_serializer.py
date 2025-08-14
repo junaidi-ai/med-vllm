@@ -5,10 +5,9 @@ This module contains unit tests for the base ConfigSerializer implementation,
 covering common functionality used by all serializers.
 """
 
-import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Dict, Type
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -93,9 +92,7 @@ class TestConfigSerializer:
             serializer.deserialize(123)  # type: ignore
 
     @patch("builtins.open")
-    def test_serialize_file_error(
-        self, mock_open: MagicMock, serializer: ConfigSerializer
-    ) -> None:
+    def test_serialize_file_error(self, mock_open: MagicMock, serializer: ConfigSerializer) -> None:
         """Test error handling when writing to file fails."""
         # Given
         mock_file = MagicMock()

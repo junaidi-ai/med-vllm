@@ -11,7 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, TypeVar, Union
+from typing import Any, Dict, Optional, Type, TypeVar, Union, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +50,7 @@ class ConfigSerializer:
             result = config.to_dict()
             if not isinstance(result, dict):
                 raise TypeError(
-                    "to_dict() did not return a dictionary, "
-                    f"got {type(result).__name__}"
+                    "to_dict() did not return a dictionary, " f"got {type(result).__name__}"
                 )
             return result
 
@@ -59,9 +58,7 @@ class ConfigSerializer:
         if (
             hasattr(config, "__class__")
             and hasattr(config.__class__, "__mro__")
-            and any(
-                cls.__name__ == "BaseMedicalConfig" for cls in config.__class__.__mro__
-            )
+            and any(cls.__name__ == "BaseMedicalConfig" for cls in config.__class__.__mro__)
         ):
             # Handle BaseMedicalConfig specifically
             output: Dict[str, Any] = {}
@@ -120,15 +117,15 @@ class ConfigSerializer:
             return [cls._convert_to_serializable(item) for item in obj]
 
         # Handle BertConfig and similar objects from transformers
-        if obj.__class__.__name__ == 'BertConfig' or hasattr(obj, 'to_dict'):
+        if obj.__class__.__name__ == "BertConfig" or hasattr(obj, "to_dict"):
             try:
                 # Try to get a dict representation of the config
-                if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+                if hasattr(obj, "to_dict") and callable(obj.to_dict):
                     config_dict = obj.to_dict()
                     return cls._convert_to_serializable(config_dict)
                 # Fall back to converting attributes to dict
-                elif hasattr(obj, '__dict__'):
-                    config_dict = {k: v for k, v in vars(obj).items() if not k.startswith('_')}
+                elif hasattr(obj, "__dict__"):
+                    config_dict = {k: v for k, v in vars(obj).items() if not k.startswith("_")}
                     return cls._convert_to_serializable(config_dict)
             except Exception as e:
                 logger.debug(
@@ -140,9 +137,9 @@ class ConfigSerializer:
         if hasattr(obj, "__dict__"):
             obj_dict = vars(obj)
             return {
-                str(k): cls._convert_to_serializable(v) 
-                for k, v in obj_dict.items() 
-                if not k.startswith('_')
+                str(k): cls._convert_to_serializable(v)
+                for k, v in obj_dict.items()
+                if not k.startswith("_")
             }
 
         # Handle numpy types (common in ML models)
@@ -189,8 +186,11 @@ class ConfigSerializer:
             return None  # Skip this field if we can't convert it
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any], config_class: Type[T]) -> T:
+    def from_dict(cls, config_dict: Dict[str, Any], config_class: Type[Any]) -> Any:
         """Create a configuration object from a dictionary.
+
+        Prefers BaseMedicalConfig semantics but supports generic classes
+        that expose a from_dict() or accept **kwargs in the constructor.
 
         Args:
             config_dict: Dictionary containing configuration parameters
@@ -200,29 +200,28 @@ class ConfigSerializer:
             An instance of the specified configuration class
 
         Raises:
-            TypeError: If config_class is not a subclass of BaseMedicalConfig
             ValueError: If the configuration data is invalid
         """
-        if not (
+        is_bmc = (
             isinstance(config_class, type)
-            and (
-                issubclass(config_class, BaseMedicalConfig)
-                if hasattr(config_class, "__mro__")
-                else False
-            )
-        ):
-            raise TypeError(
-                "config_class must be a subclass of BaseMedicalConfig, "
-                f"got {config_class}"
-            )
+            and hasattr(config_class, "__mro__")
+            and any(base is BaseMedicalConfig for base in config_class.__mro__)
+        )
 
         try:
-            # Create a new instance of the config class
+            if is_bmc:
+                # Construct BaseMedicalConfig subclass directly
+                return config_class(**config_dict)
+            # If class supplies a schema-like loader, prefer it
+            if hasattr(config_class, "load") and callable(getattr(config_class, "load")):
+                return config_class.load(config_dict)  # type: ignore[attr-defined]
+            # If class supplies from_dict, use it
+            if hasattr(config_class, "from_dict") and callable(getattr(config_class, "from_dict")):
+                return config_class.from_dict(config_dict)  # type: ignore[attr-defined]
+            # Fallback: try to construct via **kwargs
             return config_class(**config_dict)
         except Exception as e:
-            raise ValueError(
-                f"Failed to create configuration from dictionary: {e}"
-            ) from e
+            raise ValueError(f"Failed to create configuration from dictionary: {e}") from e
 
     @classmethod
     def to_json(cls, config: Union[T, Dict[str, Any]], **kwargs: Any) -> str:
@@ -394,9 +393,7 @@ class ConfigSerializer:
         # Handle strings - raise TypeError if it's not a file path
         elif isinstance(data, str):
             if not os.path.exists(data):
-                raise TypeError(
-                    f"Cannot serialize string that is not a file path: {data}"
-                )
+                raise TypeError(f"Cannot serialize string that is not a file path: {data}")
             # If it's a file path, read the file
             with open(data, "r", encoding=encoding) as f:
                 serialized = f.read()
@@ -406,12 +403,9 @@ class ConfigSerializer:
 
         # Handle file output if file_path is provided
         if file_path is not None:
-            try:
-                with open(file_path, "w", encoding=encoding) as f:
-                    f.write(serialized)
-                return None
-            except OSError as e:
-                raise OSError(f"Failed to write to file {file_path}: {str(e)}")
+            with open(file_path, "w", encoding=encoding) as f:
+                f.write(serialized)
+            return None
 
         return serialized
 
@@ -441,7 +435,7 @@ class ConfigSerializer:
         from typing import cast
 
         # Helper function to process content from string/bytes
-        def process_content(content: str) -> Union[Dict[str, Any], T]:
+        def process_content(content: str) -> Union[Dict[str, Any], T, Any]:
             """Helper to process content and return appropriate type."""
             # Try to parse the content
             try:
@@ -461,25 +455,53 @@ class ConfigSerializer:
 
             # Return the appropriate type based on config_class
             if config_class is not None:
-                return cls.from_dict(config_dict, config_class)
+                # If config_class is a type, construct via from_dict
+                if isinstance(config_class, type):
+                    return cls.from_dict(config_dict, config_class)
+                # If it's a callable validator/constructor, call it with dict
+                if callable(cast(Callable[[Dict[str, Any]], Any], config_class)):
+                    return cast(Callable[[Dict[str, Any]], Any], config_class)(config_dict)
+                raise TypeError("config_class must be a type or a callable that accepts a dict")
             return config_dict
 
         # Handle concrete implementation's _deserialize_from_str
         if hasattr(cls, "_deserialize_from_str"):
-            if isinstance(data, (str, Path)):
-                try:
-                    with open(str(data), "r", encoding="utf-8") as f:
-                        file_content = f.read()
-                    result = cls._deserialize_from_str(file_content, **kwargs)
-                    if config_class is not None:
+
+            def _is_path_like(s: str) -> bool:
+                return (
+                    os.path.sep in s
+                    or s.lower().endswith((".json", ".yaml", ".yml"))
+                    or os.path.exists(s)
+                )
+
+            if isinstance(data, Path) or (isinstance(data, str) and _is_path_like(data)):
+                with open(str(data), "r", encoding="utf-8") as f:
+                    file_content = f.read()
+                result = cls._deserialize_from_str(file_content, **kwargs)
+                if config_class is not None:
+                    if isinstance(config_class, type):
                         if not isinstance(result, config_class):
                             result = cls.from_dict(result, config_class)
                         return cast(T, result)
-                    return cast(Dict[str, Any], result)
-                except OSError as e:
-                    # Raise with a simple error message to match test
-                    # expectations
-                    raise OSError("Error reading file") from e
+                    if callable(cast(Callable[[Dict[str, Any]], Any], config_class)):
+                        return cast(Callable[[Dict[str, Any]], Any], config_class)(
+                            cast(Dict[str, Any], result)
+                        )
+                    raise TypeError("config_class must be a type or a callable that accepts a dict")
+                return cast(Dict[str, Any], result)
+            elif isinstance(data, str):
+                result = cls._deserialize_from_str(data, **kwargs)
+                if config_class is not None:
+                    if isinstance(config_class, type):
+                        if not isinstance(result, config_class):
+                            result = cls.from_dict(result, config_class)
+                        return cast(T, result)
+                    if callable(cast(Callable[[Dict[str, Any]], Any], config_class)):
+                        return cast(Callable[[Dict[str, Any]], Any], config_class)(
+                            cast(Dict[str, Any], result)
+                        )
+                    raise TypeError("config_class must be a type or a callable that accepts a dict")
+                return cast(Dict[str, Any], result)
             elif isinstance(data, bytes):
                 file_content = data.decode("utf-8")
                 result = cls._deserialize_from_str(file_content, **kwargs)
@@ -489,20 +511,24 @@ class ConfigSerializer:
                     return cast(T, result)
                 return cast(Dict[str, Any], result)
             else:
-                raise TypeError(
-                    f"Unsupported data type for deserialization: {type(data)}"
-                )
+                raise TypeError(f"Unsupported data type for deserialization: {type(data)}")
 
         # Handle standard deserialization
-        if isinstance(data, (str, Path)):
-            try:
-                with open(str(data), "r", encoding="utf-8") as f:
-                    content = f.read()
-                result = process_content(content)
-                return cast(Union[Dict[str, Any], T], result)
-            except OSError as e:
-                # Raise with a simple error message to match test expectations
-                raise OSError("Error reading file") from e
+        def _is_path_like_standard(s: str) -> bool:
+            return (
+                os.path.sep in s
+                or s.lower().endswith((".json", ".yaml", ".yml"))
+                or os.path.exists(s)
+            )
+
+        if isinstance(data, Path) or (isinstance(data, str) and _is_path_like_standard(data)):
+            with open(str(data), "r", encoding="utf-8") as f:
+                content = f.read()
+            result = process_content(content)
+            return cast(Union[Dict[str, Any], T], result)
+        elif isinstance(data, str):
+            result = process_content(data)
+            return cast(Union[Dict[str, Any], T], result)
         elif isinstance(data, bytes):
             content = data.decode("utf-8")
             result = process_content(content)

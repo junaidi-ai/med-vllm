@@ -5,15 +5,12 @@ import os
 # Import the registry module directly to avoid dependency issues
 import sys
 import threading
-from unittest.mock import MagicMock
 
 import pytest
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))
 
-from medvllm.engine.model_runner.registry import ModelMetadata, ModelRegistry, ModelType
+from medvllm.engine.model_runner.registry import ModelRegistry, ModelType
 
 
 class TestModel:
@@ -109,7 +106,7 @@ def test_get_metadata():
 def test_get_nonexistent_metadata():
     """Test that getting metadata for a non-existent model raises an error."""
     from medvllm.engine.model_runner.exceptions import ModelNotFoundError
-    
+
     registry = ModelRegistry()
     registry._models = {}  # Reset models for test isolation
 

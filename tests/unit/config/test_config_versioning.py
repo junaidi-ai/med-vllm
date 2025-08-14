@@ -7,8 +7,7 @@ including version checking, migration, and compatibility verification.
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Callable, Dict, Generic, List, Optional, Type, TypeVar, Union
-from unittest.mock import MagicMock, patch
+from typing import Any, Callable, Dict, Optional
 
 import pytest
 
@@ -85,9 +84,7 @@ class ConfigVersioner:
 
             migration = self.migrations.get((current, next_version))
             if migration is None:
-                raise ValueError(
-                    f"No migration available from {current} to {next_version}"
-                )
+                raise ValueError(f"No migration available from {current} to {next_version}")
 
             migrated_config = migration(migrated_config)
             migrated_config["config_version"] = next_version
@@ -115,12 +112,8 @@ class ConfigVersioner:
 # Test data
 TEST_VERSIONS = {
     "1.0.0": ConfigVersionInfo("1.0.0", ConfigVersionStatus.CURRENT, "Current version"),
-    "0.9.0": ConfigVersionInfo(
-        "0.9.0", ConfigVersionStatus.DEPRECATED, "Deprecated version"
-    ),
-    "0.8.0": ConfigVersionInfo(
-        "0.8.0", ConfigVersionStatus.UNSUPPORTED, "Unsupported version"
-    ),
+    "0.9.0": ConfigVersionInfo("0.9.0", ConfigVersionStatus.DEPRECATED, "Deprecated version"),
+    "0.8.0": ConfigVersionInfo("0.8.0", ConfigVersionStatus.UNSUPPORTED, "Unsupported version"),
 }
 
 TEST_MIGRATIONS = {
@@ -181,9 +174,7 @@ class TestConfigVersioner:
         # Create a versioner with no migrations
         versioner = ConfigVersioner(versions=TEST_VERSIONS, migrations={})
 
-        with pytest.raises(
-            ValueError, match="No migration available from 0.9.0 to 1.0.0"
-        ):
+        with pytest.raises(ValueError, match="No migration available from 0.9.0 to 1.0.0"):
             versioner.migrate_config({"config_version": "0.9.0"})
 
     def test_get_version_info(self, versioner):

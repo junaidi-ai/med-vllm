@@ -4,7 +4,7 @@ This module provides the BioBERT adapter that handles biomedical vocabulary,
 tokenization, weight conversion, and optimization for biomedical text processing.
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union, Type, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -12,12 +12,15 @@ import torch.nn as nn
 # Lazy imports for transformers
 try:
     from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
+
     # Define a dummy class for type checking
     class PreTrainedTokenizerBase:
         pass
+
     AutoTokenizer = None
 
 from .base import MedicalModelAdapterBase
@@ -34,28 +37,30 @@ class BioBERTAdapter(MedicalModelAdapterBase):
     """
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> 'BioBERTAdapter':
+    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> "BioBERTAdapter":
         """Load a pre-trained BioBERT model and return an adapter instance.
-        
+
         Args:
             model_name_or_path: Name or path of the pre-trained model
             **kwargs: Additional arguments to pass to the model and adapter
-            
+
         Returns:
             An instance of BioBERTAdapter with the loaded model
-            
+
         Example:
             >>> adapter = BioBERTAdapter.from_pretrained("monologg/biobert_v1.1_pubmed")
         """
         if not TRANSFORMERS_AVAILABLE:
-            raise ImportError("The transformers library is required to load pre-trained models. "
-                           "Please install it with: pip install transformers")
-        
+            raise ImportError(
+                "The transformers library is required to load pre-trained models. "
+                "Please install it with: pip install transformers"
+            )
+
         from transformers import AutoModel
-        
+
         # Load the model and tokenizer
         model = AutoModel.from_pretrained(model_name_or_path, **kwargs)
-        
+
         # Create config dictionary for the adapter
         config = {
             "model_name_or_path": model_name_or_path,
@@ -64,10 +69,10 @@ class BioBERTAdapter(MedicalModelAdapterBase):
             "memory_efficient": kwargs.get("memory_efficient", True),
             "enable_mixed_precision": kwargs.get("enable_mixed_precision", False),
         }
-        
+
         # Create and return the adapter instance
         return cls(model=model, config=config)
-    
+
     def __init__(self, model: nn.Module, config: Dict[str, Any]):
         """Initialize the BioBERT adapter.
 
@@ -94,16 +99,16 @@ class BioBERTAdapter(MedicalModelAdapterBase):
     def _setup_biobert_tokenizer(self) -> None:
         """Set up BioBERT-specific tokenizer with biomedical vocabulary."""
         try:
-            print(f"DEBUG: Starting _setup_biobert_tokenizer")
+            print("DEBUG: Starting _setup_biobert_tokenizer")
             print(f"DEBUG: self.model.config = {self.model.config}")
-            print(f"DEBUG: hasattr(self.model.config, '_name_or_path'): {hasattr(self.model.config, '_name_or_path')}")
-            
-            # Try to get tokenizer from model config or create default
-            model_name = getattr(
-                self.model.config, "_name_or_path", "dmis-lab/biobert-v1.1"
+            print(
+                f"DEBUG: hasattr(self.model.config, '_name_or_path'): {hasattr(self.model.config, '_name_or_path')}"
             )
+
+            # Try to get tokenizer from model config or create default
+            model_name = getattr(self.model.config, "_name_or_path", "dmis-lab/biobert-v1.1")
             print(f"DEBUG: model_name = {model_name}")
-            
+
             print("DEBUG: About to call AutoTokenizer.from_pretrained")
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name,
@@ -178,15 +183,11 @@ class BioBERTAdapter(MedicalModelAdapterBase):
     def _setup_biomedical_embeddings(self) -> None:
         """Set up biomedical-specific embedding handling."""
         # Store original embedding layer for potential weight conversion
-        if hasattr(self.model, "embeddings") and hasattr(
-            self.model.embeddings, "word_embeddings"
-        ):
+        if hasattr(self.model, "embeddings") and hasattr(self.model.embeddings, "word_embeddings"):
             self.original_embeddings = self.model.embeddings.word_embeddings
             self.vocab_size = self.original_embeddings.num_embeddings
             self.embedding_dim = self.original_embeddings.embedding_dim
-        elif hasattr(self.model, "bert") and hasattr(
-            self.model.bert.embeddings, "word_embeddings"
-        ):
+        elif hasattr(self.model, "bert") and hasattr(self.model.bert.embeddings, "word_embeddings"):
             self.original_embeddings = self.model.bert.embeddings.word_embeddings
             self.vocab_size = self.original_embeddings.num_embeddings
             self.embedding_dim = self.original_embeddings.embedding_dim
@@ -229,8 +230,7 @@ class BioBERTAdapter(MedicalModelAdapterBase):
                 for i in range(self.vocab_size, new_vocab_size):
                     # Initialize with slight variation around mean
                     new_embeddings.weight[i] = (
-                        mean_embedding
-                        + torch.randn_like(mean_embedding) * std_embedding * 0.1
+                        mean_embedding + torch.randn_like(mean_embedding) * std_embedding * 0.1
                     )
 
         # Replace the embedding layer in the model
@@ -332,9 +332,7 @@ class BioBERTAdapter(MedicalModelAdapterBase):
 
         return cache
 
-    def _update_kv_cache(
-        self, new_key_values: Tuple[Tuple[torch.Tensor, ...], ...]
-    ) -> None:
+    def _update_kv_cache(self, new_key_values: Tuple[Tuple[torch.Tensor, ...], ...]) -> None:
         """Update the KV cache with new key and value tensors."""
         if self.kv_cache is None:
             raise RuntimeError("KV cache not initialized")
@@ -396,9 +394,7 @@ class BioBERTAdapter(MedicalModelAdapterBase):
                             )
 
                 # Shard feed-forward layers
-                if hasattr(layer, "intermediate") and hasattr(
-                    layer.intermediate, "dense"
-                ):
+                if hasattr(layer, "intermediate") and hasattr(layer.intermediate, "dense"):
                     layer.intermediate.dense.weight.data = self._shard_tensor(
                         layer.intermediate.dense.weight.data, dim=0
                     )
@@ -564,27 +560,19 @@ class BioBERTAdapter(MedicalModelAdapterBase):
             try:
                 # Convert attention weights
                 if hasattr(hf_layer, "attention") and hasattr(model_layer, "attention"):
-                    self._convert_attention_weights(
-                        hf_layer.attention, model_layer.attention
-                    )
+                    self._convert_attention_weights(hf_layer.attention, model_layer.attention)
 
                 # Convert feed-forward weights
-                if hasattr(hf_layer, "intermediate") and hasattr(
-                    model_layer, "intermediate"
-                ):
+                if hasattr(hf_layer, "intermediate") and hasattr(model_layer, "intermediate"):
                     with torch.no_grad():
                         model_layer.intermediate.dense.weight.copy_(
                             hf_layer.intermediate.dense.weight
                         )
-                        model_layer.intermediate.dense.bias.copy_(
-                            hf_layer.intermediate.dense.bias
-                        )
+                        model_layer.intermediate.dense.bias.copy_(hf_layer.intermediate.dense.bias)
 
                 if hasattr(hf_layer, "output") and hasattr(model_layer, "output"):
                     with torch.no_grad():
-                        model_layer.output.dense.weight.copy_(
-                            hf_layer.output.dense.weight
-                        )
+                        model_layer.output.dense.weight.copy_(hf_layer.output.dense.weight)
                         model_layer.output.dense.bias.copy_(hf_layer.output.dense.bias)
 
             except Exception as e:
@@ -595,38 +583,22 @@ class BioBERTAdapter(MedicalModelAdapterBase):
         try:
             with torch.no_grad():
                 # Convert self-attention weights
-                if hasattr(hf_attention.self, "query") and hasattr(
-                    model_attention.self, "query"
-                ):
-                    model_attention.self.query.weight.copy_(
-                        hf_attention.self.query.weight
-                    )
+                if hasattr(hf_attention.self, "query") and hasattr(model_attention.self, "query"):
+                    model_attention.self.query.weight.copy_(hf_attention.self.query.weight)
                     model_attention.self.query.bias.copy_(hf_attention.self.query.bias)
 
-                if hasattr(hf_attention.self, "key") and hasattr(
-                    model_attention.self, "key"
-                ):
+                if hasattr(hf_attention.self, "key") and hasattr(model_attention.self, "key"):
                     model_attention.self.key.weight.copy_(hf_attention.self.key.weight)
                     model_attention.self.key.bias.copy_(hf_attention.self.key.bias)
 
-                if hasattr(hf_attention.self, "value") and hasattr(
-                    model_attention.self, "value"
-                ):
-                    model_attention.self.value.weight.copy_(
-                        hf_attention.self.value.weight
-                    )
+                if hasattr(hf_attention.self, "value") and hasattr(model_attention.self, "value"):
+                    model_attention.self.value.weight.copy_(hf_attention.self.value.weight)
                     model_attention.self.value.bias.copy_(hf_attention.self.value.bias)
 
                 # Convert output projection weights
-                if hasattr(hf_attention, "output") and hasattr(
-                    model_attention, "output"
-                ):
-                    model_attention.output.dense.weight.copy_(
-                        hf_attention.output.dense.weight
-                    )
-                    model_attention.output.dense.bias.copy_(
-                        hf_attention.output.dense.bias
-                    )
+                if hasattr(hf_attention, "output") and hasattr(model_attention, "output"):
+                    model_attention.output.dense.weight.copy_(hf_attention.output.dense.weight)
+                    model_attention.output.dense.bias.copy_(hf_attention.output.dense.bias)
 
         except Exception as e:
             print(f"Warning: Could not convert BioBERT attention weights: {e}")

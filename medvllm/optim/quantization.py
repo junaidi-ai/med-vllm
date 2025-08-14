@@ -155,7 +155,7 @@ def load_quantized_model(
             model_class = AutoModel
 
     # Import required types
-    from typing import Any, Type, TypeVar
+    from typing import TypeVar
 
     from transformers import AutoModel, PreTrainedModel
 

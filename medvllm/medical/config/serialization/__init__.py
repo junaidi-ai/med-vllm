@@ -6,7 +6,8 @@ medical model configurations to/from various formats like JSON and YAML.
 """
 
 import warnings
-from typing import Any, Optional, Type, TypeVar
+from pathlib import Path
+from typing import Any, Dict, Optional, Type, TypeVar, Union
 
 from ..base import BaseMedicalConfig
 from .config_serializer import ConfigSerializer
@@ -37,8 +38,8 @@ if not YAML_AVAILABLE:
 
 
 def save_config(
-    config: BaseMedicalConfig,
-    file_path: str,
+    config: Union[BaseMedicalConfig, Dict[str, Any]],
+    file_path: Union[str, Path],
     format: Optional[str] = None,
     **kwargs: Any,
 ) -> None:
@@ -57,10 +58,12 @@ def save_config(
         ValueError: If the format is not supported or cannot be inferred
         ImportError: If the required dependencies are not installed
     """
+    file_path_str = str(file_path)
     if format is None:
-        if file_path.lower().endswith(".json"):
+        suffix = Path(file_path_str).suffix.lower()
+        if suffix == ".json":
             format = "json"
-        elif file_path.lower().endswith((".yaml", ".yml")):
+        elif suffix in (".yaml", ".yml"):
             format = "yaml"
         else:
             raise ValueError(
@@ -70,24 +73,23 @@ def save_config(
 
     format = format.lower()
     if format == "json":
-        JSONSerializer.save_to_file(config, file_path, **kwargs)
+        JSONSerializer.save_to_file(config, file_path_str, **kwargs)
     elif format == "yaml":
         if YAMLSerializer is None:
             raise ImportError(
-                "PyYAML is required for YAML serialization. "
-                "Install with: pip install pyyaml"
+                "PyYAML is required for YAML serialization. " "Install with: pip install pyyaml"
             )
-        YAMLSerializer.to_yaml(config, file_path, **kwargs)
+        YAMLSerializer.to_yaml(config, file_path_str, **kwargs)
     else:
         raise ValueError(f"Unsupported format: {format}")
 
 
 def load_config(
-    file_path: str,
-    config_class: Type[T],
+    file_path: Union[str, Path],
+    config_class: Optional[Type[T]] = None,
     format: Optional[str] = None,
     **kwargs: Any,
-) -> T:
+) -> Union[Dict[str, Any], T]:
     """Load configuration from a file.
 
     The format is determined by the file extension if not specified.
@@ -108,10 +110,12 @@ def load_config(
         ImportError: If the required dependencies are not installed
     """
     # Determine format from file extension if not specified
+    file_path_str = str(file_path)
     if format is None:
-        if file_path.lower().endswith(".json"):
+        suffix = Path(file_path_str).suffix.lower()
+        if suffix == ".json":
             file_format = "json"
-        elif file_path.lower().endswith((".yaml", ".yml")):
+        elif suffix in (".yaml", ".yml"):
             file_format = "yaml"
         else:
             raise ValueError(
@@ -127,12 +131,14 @@ def load_config(
 
     # Load and process the configuration based on format
     if file_format == "json":
-        return _load_json_config(file_path, config_class, **kwargs)
+        return _load_json_config(file_path_str, config_class, **kwargs)
     else:
-        return _load_yaml_config(file_path, config_class, **kwargs)
+        return _load_yaml_config(file_path_str, config_class, **kwargs)
 
 
-def _load_json_config(file_path: str, config_class: Type[T], **kwargs: Any) -> T:
+def _load_json_config(
+    file_path: str, config_class: Optional[Type[T]], **kwargs: Any
+) -> Union[Dict[str, Any], T]:
     """Load configuration from a JSON file.
 
     Args:
@@ -146,18 +152,16 @@ def _load_json_config(file_path: str, config_class: Type[T], **kwargs: Any) -> T
     Raises:
         ValueError: If the deserialized data is invalid
     """
-    result = JSONSerializer.load_from_file(file_path, config_class, **kwargs)
-    if isinstance(result, dict):
-        return config_class(**result)
-    if isinstance(result, config_class):
-        return result
-    raise ValueError(
-        "Unexpected result type from JSON deserialization: "
-        f"{type(result).__name__}. Expected dict or {config_class.__name__}."
-    )
+    if config_class is None:
+        # Return raw dictionary
+        return JSONSerializer.deserialize(file_path, **kwargs)  # type: ignore[return-value]
+    result = JSONSerializer.deserialize(file_path, config_class, **kwargs)
+    return result
 
 
-def _load_yaml_config(file_path: str, config_class: Type[T], **kwargs: Any) -> T:
+def _load_yaml_config(
+    file_path: str, config_class: Optional[Type[T]], **kwargs: Any
+) -> Union[Dict[str, Any], T]:
     """Load configuration from a YAML file.
 
     Args:
@@ -174,19 +178,12 @@ def _load_yaml_config(file_path: str, config_class: Type[T], **kwargs: Any) -> T
     """
     if YAMLSerializer is None:
         raise ImportError(
-            "PyYAML is required for YAML deserialization. "
-            "Install with: pip install pyyaml"
+            "PyYAML is required for YAML deserialization. " "Install with: pip install pyyaml"
         )
 
-    result = YAMLSerializer.from_yaml(file_path, config_class, **kwargs)
-    if isinstance(result, dict):
-        return config_class(**result)
-    if isinstance(result, config_class):
-        return result
-    raise ValueError(
-        "Unexpected result type from YAML deserialization: "
-        f"{type(result).__name__}. Expected dict or {config_class.__name__}."
-    )
+    if config_class is None:
+        return YAMLSerializer.from_yaml(file_path, None, **kwargs)  # type: ignore[return-value]
+    return YAMLSerializer.from_yaml(file_path, config_class, **kwargs)
 
 
 __all__ = [

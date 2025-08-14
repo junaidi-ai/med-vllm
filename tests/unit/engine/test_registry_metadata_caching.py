@@ -1,8 +1,7 @@
 """Unit tests for ModelRegistry metadata and caching functionality."""
 
-import time
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from datetime import datetime
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -88,9 +87,7 @@ class ModelRegistry:
         # Simulate load time
         load_time = 0.1
         metadata.load_durations.append(load_time)
-        metadata.avg_load_time = sum(metadata.load_durations) / len(
-            metadata.load_durations
-        )
+        metadata.avg_load_time = sum(metadata.load_durations) / len(metadata.load_durations)
 
         # Check cache
         if name in self._model_cache:
@@ -288,7 +285,7 @@ def test_thread_safety(registry):
         try:
             model = registry.load_model("test-model")
             results.append(model is not None)
-        except Exception as e:
+        except Exception:
             results.append(False)
 
     # Create and start threads

@@ -5,7 +5,7 @@ Logging utilities for the medvllm package.
 import logging
 import logging.config
 import os
-from typing import Any, AnyStr, Dict, List, Mapping, Optional, Union, cast
+from typing import Any, Dict, List, Optional, cast
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
@@ -25,9 +25,7 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def configure_logging(
-    level: int = logging.INFO, log_file: Optional[str] = None
-) -> None:
+def configure_logging(level: int = logging.INFO, log_file: Optional[str] = None) -> None:
     """
     Configure logging for the application.
 
@@ -86,9 +84,7 @@ def configure_logging(
 
         # Safely get and update handlers for root logger
         root_logger = log_config["loggers"][""]
-        if "handlers" not in root_logger or not isinstance(
-            root_logger["handlers"], list
-        ):
+        if "handlers" not in root_logger or not isinstance(root_logger["handlers"], list):
             root_logger["handlers"] = ["console"]
         root_handlers = cast(List[str], root_logger["handlers"])
         if "file" not in root_handlers:
@@ -96,9 +92,7 @@ def configure_logging(
 
         # Safely get and update handlers for medvllm logger
         medvllm_logger = log_config["loggers"]["medvllm"]
-        if "handlers" not in medvllm_logger or not isinstance(
-            medvllm_logger["handlers"], list
-        ):
+        if "handlers" not in medvllm_logger or not isinstance(medvllm_logger["handlers"], list):
             medvllm_logger["handlers"] = ["console"]
         medvllm_handlers = cast(List[str], medvllm_logger["handlers"])
         if "file" not in medvllm_handlers:

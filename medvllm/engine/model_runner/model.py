@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import torch
-from torch import Tensor
 from torch.nn import Module
 from transformers import PreTrainedModel
 
-from ..sequence import Sequence
 from .types import *
 
 if TYPE_CHECKING:
@@ -30,7 +27,6 @@ class ModelManager:
         self.model: Optional[Module] = None
         self._model_config: Optional[PretrainedConfigT] = None
         # Import here to avoid circular imports
-        from medvllm.models.adapters.medical_adapter_base import MedicalModelAdapterBase
 
         self.adapter: Optional[MedicalModelAdapterBase] = None
 
@@ -51,10 +47,7 @@ class ModelManager:
             RuntimeError: If the model cannot be loaded.
             ValueError: If the model configuration is invalid.
         """
-        from torch.nn import Module
         from transformers import AutoModelForCausalLM
-
-        from medvllm.utils.loader import load_model
 
         from .registry import registry
 
