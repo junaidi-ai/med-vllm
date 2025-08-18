@@ -518,10 +518,26 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Create model directory if it doesn't exist
         if self.model is not None:
             try:
-                # Convert PathLike to string if needed
-                model_path = str(self.model)
-                os.makedirs(model_path, exist_ok=True)
-                self.model = model_path  # Update with string path
+                # Only create a directory when the value looks like a filesystem path
+                import os
+
+                model_path = os.fspath(self.model)
+                is_path_like = (
+                    isinstance(self.model, os.PathLike)
+                    or os.path.isabs(model_path)
+                    or model_path.startswith("./")
+                    or model_path.startswith("../")
+                    or model_path.startswith("~")
+                    or (os.sep in model_path)
+                )
+
+                if is_path_like:
+                    expanded = os.path.expanduser(model_path)
+                    os.makedirs(expanded, exist_ok=True)
+                    self.model = expanded  # Normalize to string path
+                else:
+                    # Keep as provided name; do not create directories for registry names
+                    self.model = model_path
             except (TypeError, OSError) as e:
                 raise ValueError(f"Invalid model path '{self.model}': {str(e)}")
 

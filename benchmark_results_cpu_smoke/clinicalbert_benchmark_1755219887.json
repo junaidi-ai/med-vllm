@@ -1,0 +1,20 @@
+{
+  "model_type": "clinicalbert",
+  "batch_size": 1,
+  "seq_length": 64,
+  "use_kv_cache": true,
+  "precision": "fp16",
+  "device": "cpu",
+  "avg_latency_ms": 82.24451549995138,
+  "tokens_per_second": 778.1673903840777,
+  "memory_usage_mb": {
+    "cpu_rss_start_mb": 1386.6640625,
+    "cpu_rss_end_mb": 1386.6640625,
+    "cpu_rss_delta_mb": 0.0,
+    "cpu_vms_start_mb": 6431.0546875,
+    "cpu_vms_end_mb": 6431.0546875,
+    "cpu_vms_delta_mb": 0.0
+  },
+  "timestamp": 1755219887.8245175,
+  "gpu_info": null
+}

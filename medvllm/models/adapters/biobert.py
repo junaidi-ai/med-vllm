@@ -5,6 +5,7 @@ tokenization, weight conversion, and optimization for biomedical text processing
 """
 
 from typing import Any, Dict, List, Optional, Tuple, Union
+import os
 
 import torch
 import torch.nn as nn
@@ -92,30 +93,36 @@ class BioBERTAdapter(MedicalModelAdapterBase):
         if not config.get("skip_tokenizer_setup", False):
             self._setup_biobert_tokenizer()
 
-        # Initialize weights and handle biomedical embeddings
-        self._initialize_weights()
+        # Setup biomedical embeddings before initializing weights
+        # so that self.original_embeddings, self.vocab_size, and
+        # self.embedding_dim are available for any potential extension.
         self._setup_biomedical_embeddings()
+        self._initialize_weights()
 
     def _setup_biobert_tokenizer(self) -> None:
         """Set up BioBERT-specific tokenizer with biomedical vocabulary."""
         try:
-            print("DEBUG: Starting _setup_biobert_tokenizer")
-            print(f"DEBUG: self.model.config = {self.model.config}")
-            print(
-                f"DEBUG: hasattr(self.model.config, '_name_or_path'): {hasattr(self.model.config, '_name_or_path')}"
-            )
+            debug = os.getenv("MEDVLLM_BIOBERT_DEBUG", "0") == "1"
+            if debug:
+                print("DEBUG: Starting _setup_biobert_tokenizer")
+                print(f"DEBUG: self.model.config = {self.model.config}")
+                print(
+                    f"DEBUG: hasattr(self.model.config, '_name_or_path'): {hasattr(self.model.config, '_name_or_path')}"
+                )
 
             # Try to get tokenizer from model config or create default
             model_name = getattr(self.model.config, "_name_or_path", "dmis-lab/biobert-v1.1")
-            print(f"DEBUG: model_name = {model_name}")
+            if debug:
+                print(f"DEBUG: model_name = {model_name}")
 
-            print("DEBUG: About to call AutoTokenizer.from_pretrained")
+                print("DEBUG: About to call AutoTokenizer.from_pretrained")
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name,
                 do_lower_case=False,  # BioBERT uses cased tokenization
                 trust_remote_code=True,
             )
-            print("DEBUG: Successfully initialized tokenizer")
+            if debug:
+                print("DEBUG: Successfully initialized tokenizer")
 
             # Add biomedical tokens
             self._add_biomedical_tokens()
