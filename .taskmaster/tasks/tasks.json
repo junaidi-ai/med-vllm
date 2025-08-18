@@ -401,7 +401,7 @@
         "dependencies": [
           4
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -409,7 +409,7 @@
             "description": "Create the core NERProcessor class that handles entity recognition in medical texts",
             "dependencies": [],
             "details": "Develop the NERProcessor class with methods for text preprocessing, entity extraction, and post-processing. Include configuration options for different NER models (rule-based, ML-based, transformer-based). Implement the basic interface for entity extraction that returns entity spans with their types. Ensure the class is extensible for future enhancements.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
