@@ -110,7 +110,10 @@ class GazetteerPipeline:
 @dataclass
 class SimpleConfig:
     # You can also use medvllm.medical.config.models.medical_config.MedicalModelConfig
-    medical_entity_types: list[str] = None  # e.g. ["disease", "medication", ...]
+    medical_entity_types: list[str] | None = None  # e.g. ["disease", "medication", ...]
+    ner_enabled_entity_types: list[str] | None = None
+    ner_type_hierarchy: Dict[str, str] | None = None
+    ner_allow_unlisted_types: bool = False
 
 
 # ---------------
@@ -165,7 +168,80 @@ def demo_custom_gazetteer() -> None:
     print(f"Custom HTML written to: {out}")
 
 
+def demo_enable_disable_and_parent() -> None:
+    print("\n[4] Enable/disable types and show parent_type")
+    text = "Hemoglobin 13.5 g/dL measured on 2023-05-01. Aspirin given."
+    # Enable only disease, lab_value, temporal
+    cfg = SimpleConfig(
+        medical_entity_types=["disease", "lab_value", "temporal", "medication", "test"],
+        ner_enabled_entity_types=["disease", "lab_value", "temporal"],
+    )
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    res = proc.extract_entities(text)
+    # Print compact view: type, parent_type, text
+    compact = [
+        {"type": e.get("type"), "parent_type": e.get("parent_type"), "text": e.get("text")}
+        for e in res.entities
+    ]
+    print("FILTERED EXTRACT:", json.dumps(compact, indent=2))
+
+
+def demo_allow_unlisted_types() -> None:
+    print("\n[5] Allow unlisted types from a custom pipeline")
+
+    class EmitsFooAndDisease:
+        def run_inference(self, text: str, task_type: str = "ner") -> Dict[str, Any]:
+            if task_type != "ner":
+                return {"entities": []}
+            ents: List[Dict[str, Any]] = []
+            # disease span
+            d = "myocardial infarction"
+            ds = text.lower().find(d)
+            if ds >= 0:
+                ents.append(
+                    {
+                        "text": text[ds : ds + len(d)],
+                        "type": "disease",
+                        "start": ds,
+                        "end": ds + len(d),
+                        "confidence": 0.9,
+                    }
+                )
+            # unlisted type span
+            kw = "Aspirin"
+            ks = text.find(kw)
+            if ks >= 0:
+                ents.append(
+                    {
+                        "text": text[ks : ks + len(kw)],
+                        "type": "foo",
+                        "start": ks,
+                        "end": ks + len(kw),
+                        "confidence": 0.8,
+                    }
+                )
+            return {"entities": sorted(ents, key=lambda e: e["start"])}
+
+    text = "Patient has myocardial infarction. Aspirin given."
+    # Only disease known, but allow unlisted
+    cfg = SimpleConfig(medical_entity_types=["disease"], ner_allow_unlisted_types=True)
+    proc = NERProcessor(inference_pipeline=EmitsFooAndDisease(), config=cfg)
+    res = proc.extract_entities(text)
+    compact = [
+        {
+            "type": e.get("type"),
+            "parent_type": e.get("parent_type"),
+            "type_id": e.get("type_id"),
+            "text": e.get("text"),
+        }
+        for e in res.entities
+    ]
+    print("ALLOW UNLISTED EXTRACT:", json.dumps(compact, indent=2))
+
+
 if __name__ == "__main__":
     demo_rule_based()
     demo_model_backed()
     demo_custom_gazetteer()
+    demo_enable_disable_and_parent()
+    demo_allow_unlisted_types()

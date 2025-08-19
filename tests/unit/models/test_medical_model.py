@@ -92,8 +92,20 @@ class MedicalModelConfig:
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> "MedicalModelConfig":
-        """Create a config from a dictionary."""
-        return cls(**config_dict)
+        """Create a config from a dictionary.
+
+        Filters out legacy version keys that are not accepted by the mock
+        __init__ to ensure backward compatibility in tests.
+        """
+        # Make a shallow copy to avoid mutating caller data
+        data = dict(config_dict) if isinstance(config_dict, dict) else {}
+
+        # Remove legacy version keys that can cause unexpected kwargs errors
+        # Tests may inject a legacy 'version' field; the mock __init__ does not accept it
+        data.pop("version", None)
+        data.pop("config_version", None)
+
+        return cls(**data)
 
     def save_pretrained(self, save_directory: Union[str, Path], **kwargs) -> None:
         """Mock save_pretrained method."""

@@ -47,6 +47,106 @@ class NERResult:
 
 
 # -------------------------
+# Entity type system (hierarchy + toggles)
+# -------------------------
+class EntityTypeSystem:
+    """Minimal entity type registry with hierarchy and enable/disable toggles.
+
+    Config (all optional):
+      - ner_type_hierarchy: Dict[str, Optional[str]] mapping type -> parent
+      - ner_enabled_entity_types: Iterable[str] to explicitly enable a subset
+      - medical_entity_types / entity_types: Iterable[str] (back-compat)
+
+    If no config is provided, sensible defaults are used.
+    """
+
+    def __init__(self, config: Optional[Any]) -> None:
+        # Defaults
+        default_types = [
+            "disease",
+            "medication",
+            "procedure",
+            "symptom",
+            "test",
+            "anatomical_structure",
+            "lab_value",
+            "temporal",
+        ]
+        # Simple default hierarchy (single-parent)
+        default_hierarchy: Dict[str, Optional[str]] = {
+            "disease": "clinical_finding",
+            "symptom": "clinical_finding",
+            "medication": "treatment",
+            "procedure": "treatment",
+            "test": "observation",
+            "lab_value": "observation",
+            "anatomical_structure": "entity",
+            "temporal": "metadata",
+            # abstract parents
+            "clinical_finding": "entity",
+            "treatment": "entity",
+            "observation": "entity",
+            "metadata": None,
+            "entity": None,
+        }
+
+        enabled: List[str] = []
+        hierarchy: Dict[str, Optional[str]] = dict(default_hierarchy)
+
+        # Back-compat: entity type list hints
+        hinted_types: Optional[Iterable[str]] = None
+        if config is not None:
+            for attr in ("medical_entity_types", "entity_types"):
+                if hasattr(config, attr):
+                    hinted_types = getattr(config, attr)
+                    break
+        if hinted_types:
+            enabled = [str(t).lower() for t in list(hinted_types)]
+        else:
+            enabled = list(default_types)
+
+        # Optional explicit hierarchy override from config
+        if config is not None and hasattr(config, "ner_type_hierarchy"):
+            try:
+                cfg_h = getattr(config, "ner_type_hierarchy")
+                if isinstance(cfg_h, dict):
+                    # Normalize to lower-case keys/values
+                    normalized: Dict[str, Optional[str]] = {}
+                    for k, v in cfg_h.items():
+                        normalized[str(k).lower()] = None if v is None else str(v).lower()
+                    hierarchy.update(normalized)
+            except Exception:
+                pass
+
+        # Optional explicit enabled types override from config
+        if config is not None and hasattr(config, "ner_enabled_entity_types"):
+            try:
+                ets = getattr(config, "ner_enabled_entity_types")
+                enabled = [str(t).lower() for t in list(ets)]
+            except Exception:
+                pass
+
+        # Build type->id map from enabled leaf- and mid-level types (order stable)
+        self.enabled_types: List[str] = list(dict.fromkeys(enabled))
+        self.hierarchy: Dict[str, Optional[str]] = hierarchy
+        self.type_to_id: Dict[str, int] = {t: i for i, t in enumerate(self.enabled_types)}
+
+    def parent_of(self, t: str) -> Optional[str]:
+        return self.hierarchy.get(t)
+
+    def is_a(self, t: str, ancestor: str) -> bool:
+        t = t.lower()
+        ancestor = ancestor.lower()
+        seen = set()
+        while t is not None and t not in seen:
+            if t == ancestor:
+                return True
+            seen.add(t)
+            t = self.hierarchy.get(t)
+        return False
+
+
+# -------------------------
 # Simple ontology lookup stub
 # -------------------------
 _DEFAULT_ONTOLOGY_DB: Dict[str, Dict[str, Dict[str, Any]]] = {
@@ -110,11 +210,31 @@ class RegexNERExtractor:
             "procedure": ["angioplasty", "biopsy"],
             "symptom": ["chest pain", "fever", "cough"],
             "test": ["hemoglobin", "cbc"],
+            "anatomical_structure": [
+                "heart",
+                "liver",
+                "kidney",
+                "left ventricle",
+                "right atrium",
+                "lung",
+            ],
         }
+        # Special regexes for certain types (not pure gazetteer)
+        special_patterns: Dict[str, str] = {
+            # e.g., "Hemoglobin 13.5 g/dL", "Na 137 mmol/L", "Hb 11%"
+            "lab_value": r"\b([A-Za-z]{1,4}[A-Za-z\s/]*)\s*(\d+(?:\.\d+)?)\s*(g/dL|mg/dL|mmol/L|%)\b",
+            # Dates like 2023-05-01 or 05/01/2023, and relative times like '2 days ago'
+            "temporal": r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d+\s+(?:day|days|week|weeks|month|months|year|years)\s+ago)\b",
+        }
+
         self.patterns: List[Tuple[str, re.Pattern[str]]] = []
         for et in self.entity_types:
+            if et in special_patterns:
+                self.patterns.append((et, re.compile(special_patterns[et], flags=re.IGNORECASE)))
+                continue
             items = lex.get(et, [])
             if not items:
+                # No lexicon and no special regex; skip
                 continue
             # word-boundary, longest-first alternation
             items_sorted = sorted(items, key=len, reverse=True)
@@ -154,15 +274,31 @@ class NERProcessor:
         config: Optional configuration carrying entity type information and linking settings.
                 Recognized attributes:
                   - medical_entity_types or entity_types: Iterable[str]
+                  - ner_enabled_entity_types: Iterable[str] (explicit enable list)
+                  - ner_type_hierarchy: Dict[str, Optional[str]] (type -> parent)
                   - entity_linking.enabled: bool
+                  - ner_allow_unlisted_types: bool (default False) — if True, do not filter
+                    model outputs to the enabled types list.
     """
 
     def __init__(self, inference_pipeline: Optional[Any], config: Optional[Any]) -> None:
         self.config = config
-        self.entity_types: List[str] = self._resolve_entity_types(config)
+        # Build type system (handles defaults, hierarchy, enable toggles)
+        self.type_system = EntityTypeSystem(config)
+        self.entity_types: List[str] = self.type_system.enabled_types
         self.pipeline = inference_pipeline or RegexNERExtractor(self.entity_types)
         # Type->id map for simple compatibility
-        self._type_to_id = {t: i for i, t in enumerate(self.entity_types)}
+        self._type_to_id = dict(self.type_system.type_to_id)
+        try:
+            self._allow_unlisted = bool(getattr(self.config, "ner_allow_unlisted_types", False))
+        except Exception:
+            self._allow_unlisted = False
+        # Optional confidence threshold
+        try:
+            thr = getattr(self.config, "ner_confidence_threshold", None)
+            self._conf_threshold: Optional[float] = float(thr) if thr is not None else None
+        except Exception:
+            self._conf_threshold = None
 
     # ---- public API ----
     def extract_entities(self, text: str) -> NERResult:
@@ -171,16 +307,34 @@ class NERProcessor:
         entities = raw.get("entities", [])
         # ensure required fields and attach type_id
         norm: List[Dict[str, Any]] = []
+        enabled_types = set(self.type_system.enabled_types)
+
+        def _is_enabled_or_descendant(t: str) -> bool:
+            if t in enabled_types:
+                return True
+            # If a parent type is enabled, allow its descendants
+            for anc in enabled_types:
+                if self.type_system.is_a(t, anc):
+                    return True
+            return False
+
         for ent in entities:
             et = str(ent.get("type", "other")).lower()
+            conf = float(ent.get("confidence", 0.0))
+            if self._conf_threshold is not None and conf < self._conf_threshold:
+                continue
+            if not self._allow_unlisted and not _is_enabled_or_descendant(et):
+                continue
+            parent = self.type_system.parent_of(et)
             norm.append(
                 {
                     "text": ent.get("text", ""),
                     "type": et,
                     "start": int(ent.get("start", -1)),
                     "end": int(ent.get("end", -1)),
-                    "confidence": float(ent.get("confidence", 0.0)),
+                    "confidence": conf,
                     "type_id": int(self._type_to_id.get(et, -1)),
+                    "parent_type": parent,
                 }
             )
         # context-aware pass: merge overlaps, resolve abbreviations
@@ -308,11 +462,21 @@ class NERProcessor:
         out: List[str] = []
         cursor = 0
         palette = {
+            # leaf/common types
             "disease": "#fde2e1",
             "medication": "#e1f5fe",
             "procedure": "#e8f5e9",
             "symptom": "#fff3e0",
             "test": "#ede7f6",
+            "anatomical_structure": "#f0f4c3",
+            "lab_value": "#d7ccc8",
+            "temporal": "#c8e6c9",
+            # abstract parents (in case upstream emits them)
+            "clinical_finding": "#ffcdd2",
+            "treatment": "#bbdefb",
+            "observation": "#d1c4e9",
+            "entity": "#f5f5f5",
+            "metadata": "#cfd8dc",
         }
         for start, end, e in spans:
             if cursor < start:

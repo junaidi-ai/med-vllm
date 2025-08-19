@@ -51,3 +51,160 @@ def test_highlight_entities_html_contains_spans():
     assert "<span" in html and "</span>" in html
     # The entity surface text should appear within the HTML
     assert "Aspirin" in html or "myocardial infarction" in html
+
+
+@pytest.mark.unit
+def test_lab_value_detection_rule_based():
+    text = "Hemoglobin 13.5 g/dL was recorded."
+    proc = NERProcessor(inference_pipeline=None, config=None)
+    res = proc.extract_entities(text)
+    ents = res.entities
+    # Ensure a lab_value entity is detected and includes the measurement span
+    lab_vals = [e for e in ents if e["type"] == "lab_value"]
+    assert lab_vals, f"No lab_value detected in: {ents}"
+    assert any("hemoglobin" in e["text"].lower() for e in lab_vals)
+
+
+@pytest.mark.unit
+def test_temporal_detection_dates_and_relative():
+    text = "Follow-up on 2023-05-01, discharged 2 days ago."
+    proc = NERProcessor(inference_pipeline=None, config=None)
+    res = proc.extract_entities(text)
+    ents = res.entities
+    temporals = [e for e in ents if e["type"] == "temporal"]
+    assert temporals, f"No temporal entities detected in: {ents}"
+    # Should capture either the date or the relative phrase (ideally both)
+    combined = " ".join(e["text"].lower() for e in temporals)
+    assert "2023-05-01" in combined or "2 days ago" in combined
+
+
+@pytest.mark.unit
+def test_filtering_behavior_allow_unlisted_types():
+    # A pipeline that emits one known and one unknown type
+    class EmitsFooAndDisease:
+        def run_inference(self, text: str, task_type: str = "ner"):
+            if task_type != "ner":
+                return {"entities": []}
+            d_start = text.lower().find("myocardial infarction")
+            foo_start = text.lower().find("aspirin")
+            ents = []
+            if d_start >= 0:
+                ents.append(
+                    {
+                        "text": text[d_start : d_start + len("myocardial infarction")],
+                        "type": "disease",
+                        "start": d_start,
+                        "end": d_start + len("myocardial infarction"),
+                        "confidence": 0.9,
+                    }
+                )
+            if foo_start >= 0:
+                ents.append(
+                    {
+                        "text": text[foo_start : foo_start + len("Aspirin")],
+                        "type": "foo",  # unlisted type
+                        "start": foo_start,
+                        "end": foo_start + len("Aspirin"),
+                        "confidence": 0.8,
+                    }
+                )
+            return {"entities": sorted(ents, key=lambda e: e["start"])}
+
+    text = "Patient has myocardial infarction. Aspirin given."
+
+    # Disallow unlisted: only 'disease' should survive
+    from types import SimpleNamespace
+
+    cfg_disallow = SimpleNamespace(medical_entity_types=["disease"], ner_allow_unlisted_types=False)
+    proc = NERProcessor(inference_pipeline=EmitsFooAndDisease(), config=cfg_disallow)
+    res = proc.extract_entities(text)
+    types = {e["type"] for e in res.entities}
+    assert "disease" in types and "foo" not in types
+
+    # Allow unlisted: both should appear; unknown get type_id -1
+    cfg_allow = SimpleNamespace(medical_entity_types=["disease"], ner_allow_unlisted_types=True)
+    proc2 = NERProcessor(inference_pipeline=EmitsFooAndDisease(), config=cfg_allow)
+    res2 = proc2.extract_entities(text)
+    types2 = {e["type"] for e in res2.entities}
+    assert "disease" in types2 and "foo" in types2
+    foo_ent = next(e for e in res2.entities if e["type"] == "foo")
+    assert foo_ent.get("type_id", -1) == -1
+
+
+@pytest.mark.unit
+def test_anatomical_structure_detection_rule_based():
+    text = "There is tenderness over the heart and liver."
+    proc = NERProcessor(inference_pipeline=None, config=None)
+    res = proc.extract_entities(text)
+    ents = res.entities
+    anat = [e for e in ents if e["type"] == "anatomical_structure"]
+    assert anat, f"No anatomical_structure detected in: {ents}"
+    surface = " ".join(e["text"].lower() for e in anat)
+    assert "heart" in surface or "liver" in surface
+
+
+@pytest.mark.unit
+def test_parent_type_enabling_allows_children():
+    # Pipeline that emits a child type 'medication' while only parent 'treatment' is enabled
+    class EmitsMedication:
+        def run_inference(self, text: str, task_type: str = "ner"):
+            pos = text.lower().find("aspirin")
+            ents = []
+            if pos >= 0:
+                ents.append(
+                    {
+                        "text": text[pos : pos + len("Aspirin")],
+                        "type": "medication",
+                        "start": pos,
+                        "end": pos + len("Aspirin"),
+                        "confidence": 0.9,
+                    }
+                )
+            return {"entities": ents}
+
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(ner_enabled_entity_types=["treatment"], ner_allow_unlisted_types=False)
+    proc = NERProcessor(inference_pipeline=EmitsMedication(), config=cfg)
+    res = proc.extract_entities("Aspirin given.")
+    types = {e["type"] for e in res.entities}
+    assert "medication" in types
+
+
+@pytest.mark.unit
+def test_confidence_threshold_filters_low_confidence():
+    class EmitsTwoDiseases:
+        def run_inference(self, text: str, task_type: str = "ner"):
+            d1 = text.lower().find("hypertension")
+            d2 = text.lower().find("diabetes")
+            ents = []
+            if d1 >= 0:
+                ents.append(
+                    {
+                        "text": text[d1 : d1 + len("hypertension")],
+                        "type": "disease",
+                        "start": d1,
+                        "end": d1 + len("hypertension"),
+                        "confidence": 0.4,  # below threshold
+                    }
+                )
+            if d2 >= 0:
+                ents.append(
+                    {
+                        "text": text[d2 : d2 + len("diabetes")],
+                        "type": "disease",
+                        "start": d2,
+                        "end": d2 + len("diabetes"),
+                        "confidence": 0.9,  # above threshold
+                    }
+                )
+            return {"entities": sorted(ents, key=lambda e: e["start"])}
+
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(ner_confidence_threshold=0.5, ner_allow_unlisted_types=False)
+    proc = NERProcessor(inference_pipeline=EmitsTwoDiseases(), config=cfg)
+    text = "Hypertension and diabetes."
+    res = proc.extract_entities(text)
+    surface = " ".join(e["text"].lower() for e in res.entities)
+    assert "diabetes" in surface and "hypertension" not in surface

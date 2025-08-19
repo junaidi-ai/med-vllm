@@ -420,7 +420,7 @@
               1
             ],
             "details": "Implement support for recognizing different medical entity types including diseases, medications, procedures, anatomical structures, lab values, and temporal expressions. Create a flexible entity type system that allows for hierarchical relationships between entity types. Add configuration options to enable/disable specific entity types based on use case requirements.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {

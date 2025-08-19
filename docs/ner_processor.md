@@ -44,15 +44,43 @@ proc = NERProcessor(inference_pipeline=pipeline, config=None)
 res = proc.extract_entities("...")
 ```
 
+## Supported Entity Types
+
+Out of the box, the rule-based fallback recognizes these types:
+
+- disease
+- medication
+- procedure
+- symptom
+- test
+- anatomical_structure
+- lab_value (e.g., "Hemoglobin 13.5 g/dL")
+- temporal (e.g., "2023-05-01", "2 days ago")
+
+You can add your own via a custom pipeline.
+
 ## Configuring Entity Types
 
 `NERProcessor` determines entity types from `config` if available:
 
 - `config.medical_entity_types` or `config.entity_types` should be an iterable of strings, e.g.,
-  `['disease', 'medication', 'procedure', 'symptom', 'test']`.
+  `['disease', 'medication', 'procedure', 'symptom', 'test', 'anatomical_structure', 'lab_value', 'temporal']`.
+- `config.ner_enabled_entity_types` can explicitly enable a subset regardless of the hints above. Filtering respects hierarchy (see below): enabling a parent (e.g., `treatment`) allows its children (e.g., `medication`, `procedure`) to pass filtering.
+- `config.ner_allow_unlisted_types` (default False): if True, do not filter model-emitted types to the enabled list/hierarchy.
+- `config.ner_confidence_threshold` (float in [0,1]): entities with `confidence` below this are dropped during extraction.
 - If `config` is `None` or missing fields, defaults are used.
 
 This controls the regex fallback lexicons and the type->id mapping.
+
+## Hierarchy (optional)
+
+You can optionally declare a simple single-parent hierarchy for types by setting
+`config.ner_type_hierarchy: Dict[str, Optional[str]]` where keys are types and values
+are parent types (or `None`). Defaults include abstract parents:
+
+- clinical_finding, treatment, observation, metadata, entity
+
+Use `EntityTypeSystem.is_a(child, ancestor)` internally to reason about relationships. The extractor's filtering allows entities whose type is a descendant of any enabled parent type. Note: the built-in regex fallback only emits patterns for the explicitly enabled leaf types; custom/model pipelines can emit any type and will be filtered using the hierarchy.
 
 ## Preprocessing Hook
 

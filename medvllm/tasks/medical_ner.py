@@ -118,59 +118,63 @@ class MedicalNER(MedicalTask, nn.Module):
         preds = torch.argmax(logits, dim=-1).cpu().numpy()
 
         for i, (text, pred) in enumerate(zip(texts, preds)):
-            # Convert token predictions to entities
-            entities = []
-            scores = []
-            offsets = []
-
-            # Get word tokens and their positions
+            # Get subword tokens for the text
             if not hasattr(self.tokenizer, "tokenize") or not callable(self.tokenizer.tokenize):
                 raise ValueError("Tokenizer must have a callable 'tokenize' method")
             tokens = self.tokenizer.tokenize(text)
             word_ids = inputs.word_ids(batch_index=i)
 
-            current_entity = None
-            current_start = None
-            current_score = 0.0
+            # Convert token predictions to entity spans with scores
+            ent_dicts: List[Dict[str, Any]] = []
+            current_entity: Optional[int] = None
+            current_start: Optional[int] = None
+            current_score: float = 0.0
 
             for j, (token, word_id) in enumerate(zip(tokens, word_ids)):
                 if word_id is None:  # Skip special tokens
                     continue
 
-                label = pred[j]
-                score = torch.softmax(logits[i, j], dim=-1)[label].item()
+                label = int(pred[j])
+                score = float(torch.softmax(logits[i, j], dim=-1)[label].item())
 
-                # Simple IOB decoding
-                if label % 2 == 1:  # B- or I- prefix
+                # Simple IOB-style decoding on even/odd label ids
+                if label % 2 == 1:  # B-/I- like prefix
                     entity_type = label // 2
-
                     if current_entity is not None and current_entity == entity_type:
                         # Continue current entity
-                        current_score = (current_score + score) / 2
+                        current_score = (current_score + score) / 2.0
                     else:
                         # Save previous entity if exists
-                        if current_entity is not None:
-                            entities.append(f"ENT_{current_entity}")
-                            scores.append(current_score)
-                            offsets.append((current_start, j - 1))
-
+                        if current_entity is not None and current_start is not None:
+                            ent_dicts.append(
+                                {
+                                    "entity": f"ENT_{current_entity}",
+                                    "score": float(current_score),
+                                    "start": int(current_start),
+                                    "end": int(j - 1),
+                                }
+                            )
                         # Start new entity
                         current_entity = entity_type
                         current_start = j
                         current_score = score
 
-            # Add last entity if exists
-            if current_entity is not None:
-                entities.append(f"ENT_{current_entity}")
-                scores.append(current_score)
-                offsets.append((current_start, len(tokens) - 1))
+            # Add last open entity if exists
+            if current_entity is not None and current_start is not None:
+                ent_dicts.append(
+                    {
+                        "entity": f"ENT_{current_entity}",
+                        "score": float(current_score),
+                        "start": int(current_start),
+                        "end": int(len(tokens) - 1),
+                    }
+                )
 
             predictions.append(
                 NERPredictionType(
+                    entities=ent_dicts,
+                    tokens=tokens,
                     text=text,
-                    entities=entities,
-                    scores=[float(score) for score in scores],
-                    offsets=[(s, e) for s, e in offsets if s is not None],
                 )
             )
 
