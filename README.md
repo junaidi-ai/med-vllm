@@ -123,6 +123,22 @@ Extract medical entities from text:
 python run_inference.py --model bioBERT --task ner --input "Patient prescribed metformin for diabetes."
 ```
 
+### NERProcessor (Lightweight utility)
+
+Use a simple, pluggable NER processor with a regex fallback or your own model-backed pipeline:
+
+```python
+from medvllm.tasks import NERProcessor
+
+proc = NERProcessor(inference_pipeline=None, config=None)  # regex fallback
+res = proc.extract_entities("Patient has myocardial infarction (MI). Aspirin given.")
+linked = proc.link_entities(res, ontology="UMLS")
+html = proc.highlight_entities(linked)
+```
+
+- Example script: `examples/ner_processor_example.py`
+- Documentation: `docs/ner_processor.md`
+
 ### Text Generation
 
 Generate a summary of a patient's medical history:
