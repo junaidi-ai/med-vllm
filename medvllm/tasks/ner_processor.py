@@ -156,15 +156,37 @@ _DEFAULT_ONTOLOGY_DB: Dict[str, Dict[str, Dict[str, Any]]] = {
         "hypertension": {"code": "C0020538", "name": "Hypertensive disease"},
         "diabetes": {"code": "C0011849", "name": "Diabetes Mellitus"},
         "aspirin": {"code": "C0004057", "name": "Aspirin"},
+        "pneumonia": {"code": "C0032310", "name": "Pneumonia"},
+        "asthma": {"code": "C0004096", "name": "Asthma"},
+        "stroke": {"code": "C0038454", "name": "Cerebrovascular accident"},
+        "covid-19": {"code": "C5203670", "name": "COVID-19"},
+        "metformin": {"code": "C0025598", "name": "Metformin"},
+        "ibuprofen": {"code": "C0020740", "name": "Ibuprofen"},
+        "atorvastatin": {"code": "C0717701", "name": "Atorvastatin"},
+        "lisinopril": {"code": "C0070374", "name": "Lisinopril"},
+        "insulin": {"code": "C0021641", "name": "Insulins"},
     },
     "SNOMED": {
         "myocardial infarction": {"code": "22298006", "name": "Myocardial infarction"},
         "hypertension": {"code": "38341003", "name": "Hypertensive disorder"},
         "diabetes": {"code": "44054006", "name": "Diabetes mellitus"},
         "aspirin": {"code": "1191", "name": "Aspirin"},
+        "pneumonia": {"code": "233604007", "name": "Pneumonia"},
+        "asthma": {"code": "195967001", "name": "Asthma"},
+        "stroke": {"code": "230690007", "name": "Cerebrovascular accident"},
+        "covid-19": {"code": "840539006", "name": "Disease caused by SARS-CoV-2"},
     },
     "LOINC": {
         "hemoglobin": {"code": "718-7", "name": "Hemoglobin [Mass/volume] in Blood"},
+        "cbc": {"code": "57021-8", "name": "CBC panel - Blood"},
+    },
+    "RXNORM": {
+        "aspirin": {"code": "1191", "name": "Aspirin"},
+        "metformin": {"code": "6809", "name": "Metformin"},
+        "ibuprofen": {"code": "5640", "name": "Ibuprofen"},
+        "atorvastatin": {"code": "83367", "name": "Atorvastatin"},
+        "lisinopril": {"code": "29046", "name": "Lisinopril"},
+        "insulin": {"code": "6042", "name": "Insulin"},
     },
 }
 
@@ -201,15 +223,52 @@ class RegexNERExtractor:
     This is a minimal, fast fallback when no model pipeline is provided.
     """
 
-    def __init__(self, entity_types: Iterable[str]) -> None:
+    def __init__(self, entity_types: Iterable[str], config: Optional[Any] = None) -> None:
         self.entity_types = [str(t).lower() for t in entity_types]
+        self.config = config
         # Minimal gazetteer per type; extend as needed
         lex: Dict[str, List[str]] = {
-            "disease": ["myocardial infarction", "hypertension", "diabetes"],
-            "medication": ["aspirin", "metformin", "ibuprofen"],
-            "procedure": ["angioplasty", "biopsy"],
-            "symptom": ["chest pain", "fever", "cough"],
-            "test": ["hemoglobin", "cbc"],
+            "disease": [
+                "myocardial infarction",
+                "hypertension",
+                "diabetes",
+                "pneumonia",
+                "asthma",
+                "stroke",
+                "covid-19",
+            ],
+            "medication": [
+                "aspirin",
+                "metformin",
+                "ibuprofen",
+                "atorvastatin",
+                "lisinopril",
+                "insulin",
+            ],
+            "procedure": [
+                "angioplasty",
+                "biopsy",
+                "ct scan",
+                "mri",
+                "x-ray",
+            ],
+            "symptom": [
+                "chest pain",
+                "fever",
+                "cough",
+                "shortness of breath",
+                "headache",
+                "nausea",
+            ],
+            "test": [
+                "hemoglobin",
+                "cbc",
+                "wbc",
+                "platelet",
+                "blood pressure",
+                "hdl",
+                "ldl",
+            ],
             "anatomical_structure": [
                 "heart",
                 "liver",
@@ -217,12 +276,41 @@ class RegexNERExtractor:
                 "left ventricle",
                 "right atrium",
                 "lung",
+                "brain",
+                "pancreas",
+                "stomach",
             ],
         }
+        # Optional extended gazetteer via config flags
+        enable_ext = False
+        try:
+            enable_ext = bool(getattr(self.config, "ner_enable_extended_gazetteer", False))
+        except Exception:
+            enable_ext = False
+        if enable_ext:
+            # Add a few extra representative items
+            lex.setdefault("disease", []).extend(["sepsis", "copd", "ckd", "anemia"])
+            lex.setdefault("medication", []).extend(["amoxicillin", "warfarin", "heparin"])
+            lex.setdefault("procedure", []).extend(["echocardiogram", "colonoscopy"])
+            lex.setdefault("symptom", []).extend(["fatigue", "dizziness"])
+            lex.setdefault("test", []).extend(["troponin", "creatinine"])
+            lex.setdefault("anatomical_structure", []).extend(["aorta", "spleen"])
+
+        # Custom gazetteer from config: Dict[str, List[str]]
+        try:
+            custom_lex = getattr(self.config, "ner_custom_lexicon", None)
+            if isinstance(custom_lex, dict):
+                for k, vs in custom_lex.items():
+                    if not isinstance(vs, (list, tuple)):
+                        continue
+                    lex.setdefault(str(k).lower(), []).extend([str(v).lower() for v in vs])
+        except Exception:
+            pass
+
         # Special regexes for certain types (not pure gazetteer)
         special_patterns: Dict[str, str] = {
-            # e.g., "Hemoglobin 13.5 g/dL", "Na 137 mmol/L", "Hb 11%"
-            "lab_value": r"\b([A-Za-z]{1,4}[A-Za-z\s/]*)\s*(\d+(?:\.\d+)?)\s*(g/dL|mg/dL|mmol/L|%)\b",
+            # e.g., "Hemoglobin 13.5 g/dL", "Na 137 mmol/L", "Hb 11%", "TSH 3.2 mIU/L"
+            "lab_value": r"\b([A-Za-z]{1,4}[A-Za-z\s/]*)\s*(\d+(?:\.\d+)?)\s*(g/dL|mg/dL|mmol/L|mEq/L|IU/L|mIU/L|U/L|IU/mL|mIU/mL|mg/L|mcg/mL|ng/mL|g/L|%)\b",
             # Dates like 2023-05-01 or 05/01/2023, and relative times like '2 days ago'
             "temporal": r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d+\s+(?:day|days|week|weeks|month|months|year|years)\s+ago)\b",
         }
@@ -286,7 +374,7 @@ class NERProcessor:
         # Build type system (handles defaults, hierarchy, enable toggles)
         self.type_system = EntityTypeSystem(config)
         self.entity_types: List[str] = self.type_system.enabled_types
-        self.pipeline = inference_pipeline or RegexNERExtractor(self.entity_types)
+        self.pipeline = inference_pipeline or RegexNERExtractor(self.entity_types, config)
         # Type->id map for simple compatibility
         self._type_to_id = dict(self.type_system.type_to_id)
         try:
@@ -386,19 +474,6 @@ class NERProcessor:
         return self._to_html(ner_result)
 
     # ---- helpers ----
-    def _resolve_entity_types(self, config: Optional[Any]) -> List[str]:
-        # Prefer medical_entity_types from our config; fall back to entity_types or defaults
-        if config is None:
-            return ["disease", "medication", "procedure", "symptom", "test"]
-        types = None
-        for attr in ("medical_entity_types", "entity_types"):
-            if hasattr(config, attr):
-                types = getattr(config, attr)
-                break
-        if not types:
-            return ["disease", "medication", "procedure", "symptom", "test"]
-        # Normalize to lowercase strings
-        return [str(t).lower() for t in (list(types) if not isinstance(types, list) else types)]
 
     def _resolve_context(self, text: str, entities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not entities:

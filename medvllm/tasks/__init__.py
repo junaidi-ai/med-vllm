@@ -23,6 +23,13 @@ try:  # medical NER task wrapper (may require model deps)
 except Exception:  # pragma: no cover
     MedicalNER = None  # type: ignore
 
+try:  # medical NER adapter (may require model deps)
+    from .ner_adapters import MedicalNERAdapter  # type: ignore
+
+    __all__.append("MedicalNERAdapter")
+except Exception:  # pragma: no cover
+    MedicalNERAdapter = None  # type: ignore
+
 try:  # medical QA task (may require transformers)
     from .medical_qa import MedicalQA  # type: ignore
 

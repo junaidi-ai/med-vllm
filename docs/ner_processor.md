@@ -8,7 +8,7 @@ A lightweight, pluggable utility for medical named entity recognition (NER).
 - Post-processing:
   - Merge overlapping/adjacent same-type entities
   - Simple abbreviation resolution: "Long Form (ABBR)"
-- Entity linking (stub): link to simple mock ontologies (UMLS/SNOMED/LOINC)
+- Entity linking (stub): link to simple mock ontologies (UMLS/SNOMED/LOINC/RXNORM)
 - Visualization: HTML highlighting with minimal inline styling
 
 ## Import
@@ -44,6 +44,17 @@ proc = NERProcessor(inference_pipeline=pipeline, config=None)
 res = proc.extract_entities("...")
 ```
 
+If you are using the built-in `MedicalNER` model wrapper, you can use the provided adapter:
+
+```python
+from medvllm.tasks import MedicalNER, MedicalNERAdapter, NERProcessor
+
+model = MedicalNER.load_pretrained("biobert-base-cased-v1.2")  # example
+adapter = MedicalNERAdapter(model, config=my_config)
+proc = NERProcessor(inference_pipeline=adapter, config=my_config)
+res = proc.extract_entities("Patient given aspirin. TSH 3.2 mIU/L.")
+```
+
 ## Supported Entity Types
 
 Out of the box, the rule-based fallback recognizes these types:
@@ -59,6 +70,8 @@ Out of the box, the rule-based fallback recognizes these types:
 
 You can add your own via a custom pipeline.
 
+The built-in gazetteer includes representative examples (e.g., diseases like pneumonia/asthma/stroke, medications like metformin/atorvastatin/lisinopril/insulin, procedures like CT scan/MRI, symptoms like shortness of breath/headache) but is intentionally minimal for speed and can be extended.
+
 ## Configuring Entity Types
 
 `NERProcessor` determines entity types from `config` if available:
@@ -71,6 +84,15 @@ You can add your own via a custom pipeline.
 - If `config` is `None` or missing fields, defaults are used.
 
 This controls the regex fallback lexicons and the type->id mapping.
+
+### Extended/Custom Gazetteer
+
+The regex/gazetteer fallback can be extended via config flags:
+
+- `config.ner_enable_extended_gazetteer: bool` — adds extra representative items across diseases, medications, procedures, symptoms, tests, and anatomical structures.
+- `config.ner_custom_lexicon: Dict[str, List[str]]` — provide your own items per type key, e.g., `{ "medication": ["apixaban", "clopidogrel"], "test": ["CRP"] }`.
+
+Lab value patterns include common units: `g/dL`, `mg/dL`, `mmol/L`, `mEq/L`, `IU/L`, `mIU/L`, `U/L`, `IU/mL`, `mIU/mL`, `mg/L`, `mcg/mL`, `ng/mL`, `g/L`, `%`.
 
 ## Hierarchy (optional)
 
@@ -103,5 +125,5 @@ See `examples/ner_processor_example.py` for:
 
 ## Notes
 
-- Ontology linking here is a stub for demonstration.
+- Ontology linking here is a stub for demonstration; it includes small demonstration dictionaries for UMLS, SNOMED, LOINC, and RXNORM.
 - HTML highlighting aims to be simple and dependency-free.

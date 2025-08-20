@@ -172,6 +172,21 @@ def test_parent_type_enabling_allows_children():
 
 
 @pytest.mark.unit
+def test_parent_type_enabled_regex_fallback_emits_no_children():
+    from types import SimpleNamespace
+
+    # Using regex fallback (no model pipeline) with only parent 'treatment' enabled
+    cfg = SimpleNamespace(ner_enabled_entity_types=["treatment"], ner_allow_unlisted_types=False)
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    text = "Aspirin given."
+    res = proc.extract_entities(text)
+
+    # Regex fallback builds patterns only for explicitly enabled leaf types. Since only
+    # the parent 'treatment' is enabled, no 'medication' (child) should be emitted.
+    assert not res.entities or all(e["type"] != "medication" for e in res.entities)
+
+
+@pytest.mark.unit
 def test_confidence_threshold_filters_low_confidence():
     class EmitsTwoDiseases:
         def run_inference(self, text: str, task_type: str = "ner"):
@@ -208,3 +223,48 @@ def test_confidence_threshold_filters_low_confidence():
     res = proc.extract_entities(text)
     surface = " ".join(e["text"].lower() for e in res.entities)
     assert "diabetes" in surface and "hypertension" not in surface
+
+
+@pytest.mark.unit
+def test_lab_value_detection_new_units():
+    text = "TSH 3.2 mIU/L, CRP 5 mg/L were noted."
+    proc = NERProcessor(inference_pipeline=None, config=None)
+    res = proc.extract_entities(text)
+    lab_vals = [e for e in res.entities if e["type"] == "lab_value"]
+    assert lab_vals, f"No lab_value detected in: {res.entities}"
+    joined = " ".join(e["text"].lower() for e in lab_vals)
+    assert "tsh" in joined and "miu/l" in joined
+    assert "crp" in joined and "mg/l" in joined
+
+
+@pytest.mark.unit
+def test_custom_gazetteer_via_config():
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(ner_custom_lexicon={"medication": ["apixaban"]})
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    text = "Apixaban 5 mg bid started."
+    res = proc.extract_entities(text)
+    meds = [e for e in res.entities if e["type"] == "medication"]
+    assert meds, f"No medication detected in: {res.entities}"
+    assert any(e["text"].lower() == "apixaban" for e in meds)
+
+
+@pytest.mark.unit
+def test_extended_gazetteer_detection_enabled():
+    from types import SimpleNamespace
+
+    # Enable extended gazetteer items like "amoxicillin" (medication) and "troponin" (test)
+    cfg = SimpleNamespace(ner_enable_extended_gazetteer=True)
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    text = "Amoxicillin 500 mg started. Troponin elevated."
+    res = proc.extract_entities(text)
+
+    meds = [e for e in res.entities if e["type"] == "medication"]
+    tests = [e for e in res.entities if e["type"] == "test"]
+    assert any(
+        e["text"].lower() == "amoxicillin" for e in meds
+    ), f"Extended medication not detected: {res.entities}"
+    assert any(
+        "troponin" == e["text"].lower() for e in tests
+    ), f"Extended test not detected: {res.entities}"
