@@ -432,7 +432,7 @@
               2
             ],
             "details": "Develop ontology linking capabilities to map extracted entities to standard medical ontologies like UMLS, SNOMED CT, RxNorm, etc. Implement fuzzy matching algorithms to handle variations in entity mentions. Create caching mechanisms for efficient lookups. Add methods to retrieve additional information about entities from the linked ontologies.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {

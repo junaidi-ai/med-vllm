@@ -14,7 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import html
 import re
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+import json
+from urllib import request as urllib_request, error as urllib_error, parse as urllib_parse
+from functools import lru_cache
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Set
 
 try:
     # Optional: only for type hints if available
@@ -44,6 +47,27 @@ class NERResult:
 
     def to_dict(self) -> Dict[str, Any]:
         return {"text": self.text, "entities": self.entities}
+
+
+# Fuzzy similarity acceptance threshold (global, cached). Updated via setter.
+_FUZZY_THRESHOLD: float = 0.5
+
+
+def set_fuzzy_threshold(value: float) -> None:
+    """Set global fuzzy similarity threshold and clear lookup cache.
+
+    Threshold is clamped to [0.0, 1.0]. Changing this clears the LRU cache so
+    that subsequent lookups reflect the new acceptance threshold.
+    """
+    global _FUZZY_THRESHOLD
+    try:
+        v = float(value)
+    except Exception:
+        return
+    v = max(0.0, min(1.0, v))
+    if v != _FUZZY_THRESHOLD:
+        _FUZZY_THRESHOLD = v
+        lookup_in_ontology.cache_clear()
 
 
 # -------------------------
@@ -147,71 +171,249 @@ class EntityTypeSystem:
 
 
 # -------------------------
-# Simple ontology lookup stub
+# Simple ontology lookup (enhanced stub)
 # -------------------------
+# ontology -> surface_form(lower) -> link info
 _DEFAULT_ONTOLOGY_DB: Dict[str, Dict[str, Dict[str, Any]]] = {
-    # ontology -> surface_form(lower) -> link info
     "UMLS": {
-        "myocardial infarction": {"code": "C0027051", "name": "Myocardial Infarction"},
-        "hypertension": {"code": "C0020538", "name": "Hypertensive disease"},
-        "diabetes": {"code": "C0011849", "name": "Diabetes Mellitus"},
-        "aspirin": {"code": "C0004057", "name": "Aspirin"},
-        "pneumonia": {"code": "C0032310", "name": "Pneumonia"},
-        "asthma": {"code": "C0004096", "name": "Asthma"},
-        "stroke": {"code": "C0038454", "name": "Cerebrovascular accident"},
-        "covid-19": {"code": "C5203670", "name": "COVID-19"},
-        "metformin": {"code": "C0025598", "name": "Metformin"},
-        "ibuprofen": {"code": "C0020740", "name": "Ibuprofen"},
-        "atorvastatin": {"code": "C0717701", "name": "Atorvastatin"},
-        "lisinopril": {"code": "C0070374", "name": "Lisinopril"},
-        "insulin": {"code": "C0021641", "name": "Insulins"},
+        "myocardial infarction": {
+            "code": "C0027051",
+            "name": "Myocardial Infarction",
+            "synonyms": ["mi", "heart attack"],
+        },
+        "hypertension": {"code": "C0020538", "name": "Hypertensive disease", "synonyms": []},
+        "diabetes": {"code": "C0011849", "name": "Diabetes Mellitus", "synonyms": ["dm"]},
+        "aspirin": {"code": "C0004057", "name": "Aspirin", "synonyms": ["acetylsalicylic acid"]},
+        "pneumonia": {"code": "C0032310", "name": "Pneumonia", "synonyms": []},
+        "asthma": {"code": "C0004096", "name": "Asthma", "synonyms": []},
+        "stroke": {"code": "C0038454", "name": "Cerebrovascular accident", "synonyms": ["cva"]},
+        "covid-19": {"code": "C5203670", "name": "COVID-19", "synonyms": ["sars-cov-2 infection"]},
+        "metformin": {"code": "C0025598", "name": "Metformin", "synonyms": ["metformin hcl"]},
+        "ibuprofen": {"code": "C0020740", "name": "Ibuprofen", "synonyms": []},
+        "atorvastatin": {"code": "C0717701", "name": "Atorvastatin", "synonyms": []},
+        "lisinopril": {"code": "C0070374", "name": "Lisinopril", "synonyms": []},
+        "insulin": {"code": "C0021641", "name": "Insulins", "synonyms": []},
     },
     "SNOMED": {
-        "myocardial infarction": {"code": "22298006", "name": "Myocardial infarction"},
-        "hypertension": {"code": "38341003", "name": "Hypertensive disorder"},
-        "diabetes": {"code": "44054006", "name": "Diabetes mellitus"},
-        "aspirin": {"code": "1191", "name": "Aspirin"},
-        "pneumonia": {"code": "233604007", "name": "Pneumonia"},
-        "asthma": {"code": "195967001", "name": "Asthma"},
-        "stroke": {"code": "230690007", "name": "Cerebrovascular accident"},
-        "covid-19": {"code": "840539006", "name": "Disease caused by SARS-CoV-2"},
+        "myocardial infarction": {
+            "code": "22298006",
+            "name": "Myocardial infarction",
+            "synonyms": ["mi"],
+        },
+        "hypertension": {"code": "38341003", "name": "Hypertensive disorder", "synonyms": []},
+        "diabetes": {"code": "44054006", "name": "Diabetes mellitus", "synonyms": []},
+        "aspirin": {"code": "1191", "name": "Aspirin", "synonyms": []},
+        "pneumonia": {"code": "233604007", "name": "Pneumonia", "synonyms": []},
+        "asthma": {"code": "195967001", "name": "Asthma", "synonyms": []},
+        "stroke": {"code": "230690007", "name": "Cerebrovascular accident", "synonyms": []},
+        "covid-19": {"code": "840539006", "name": "Disease caused by SARS-CoV-2", "synonyms": []},
     },
     "LOINC": {
-        "hemoglobin": {"code": "718-7", "name": "Hemoglobin [Mass/volume] in Blood"},
-        "cbc": {"code": "57021-8", "name": "CBC panel - Blood"},
+        "hemoglobin": {
+            "code": "718-7",
+            "name": "Hemoglobin [Mass/volume] in Blood",
+            "synonyms": ["hb"],
+        },
+        "cbc": {
+            "code": "57021-8",
+            "name": "CBC panel - Blood",
+            "synonyms": ["complete blood count"],
+        },
     },
     "RXNORM": {
-        "aspirin": {"code": "1191", "name": "Aspirin"},
-        "metformin": {"code": "6809", "name": "Metformin"},
-        "ibuprofen": {"code": "5640", "name": "Ibuprofen"},
-        "atorvastatin": {"code": "83367", "name": "Atorvastatin"},
-        "lisinopril": {"code": "29046", "name": "Lisinopril"},
-        "insulin": {"code": "6042", "name": "Insulin"},
+        "aspirin": {"code": "1191", "name": "Aspirin", "synonyms": ["asa"]},
+        "metformin": {
+            "code": "6809",
+            "name": "Metformin",
+            "synonyms": ["metformin hcl", "glucophage"],
+        },
+        "ibuprofen": {"code": "5640", "name": "Ibuprofen", "synonyms": []},
+        "atorvastatin": {"code": "83367", "name": "Atorvastatin", "synonyms": []},
+        "lisinopril": {"code": "29046", "name": "Lisinopril", "synonyms": []},
+        "insulin": {"code": "6042", "name": "Insulin", "synonyms": []},
     },
 }
 
 
-def lookup_in_ontology(text: str, entity_type: str, ontology: str = "UMLS") -> List[Dict[str, Any]]:
-    """Very small, heuristic linking to a mock ontology DB.
+def _normalize_surface(text: str) -> str:
+    t = text.strip().lower()
+    # Replace separators with spaces and collapse
+    t = re.sub(r"[\-/_,]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
-    Returns a list of candidate links with simple scores.
+
+def _tokenize(text: str) -> Set[str]:
+    return set(_normalize_surface(text).split())
+
+
+def _jaccard(a: Set[str], b: Set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union if union else 0.0
+
+
+def _ontology_uri(ontology: str, code: str) -> str:
+    o = ontology.upper()
+    if o == "UMLS":
+        return f"https://uts.nlm.nih.gov/umls/concept/{code}"
+    if o == "SNOMED":
+        return f"http://snomed.info/id/{code}"
+    if o == "LOINC":
+        return f"https://loinc.org/{code}/"
+    if o == "RXNORM":
+        return f"https://rxnav.nlm.nih.gov/REST/rxcui/{code}"
+    return f"{o}:{code}"
+
+
+@lru_cache(maxsize=1024)
+def lookup_in_ontology(
+    text: str, entity_type: str, ontology: str = "UMLS"
+) -> Tuple[Dict[str, Any], ...]:
+    """Heuristic linking to a small in-memory ontology DB with simple fuzzy matching.
+
+    Notes:
+    - Cached via LRU to speed up repeated lookups.
+    - Returns a tuple of link dicts; callers should convert to list if needed.
     """
-    out: List[Dict[str, Any]] = []
-    key = text.strip().lower()
-    ont = _DEFAULT_ONTOLOGY_DB.get(ontology.upper(), {})
-    if key in ont:
-        entry = ont[key]
-        out.append(
-            {
-                "ontology": ontology.upper(),
-                "code": entry["code"],
-                "name": entry["name"],
-                "score": 0.95,
-                "type": entity_type,
+    ont_name = ontology.upper()
+    ont = _DEFAULT_ONTOLOGY_DB.get(ont_name, {})
+    norm = _normalize_surface(text)
+
+    # 1) Exact match on canonical keys
+    if norm in ont:
+        entry = ont[norm]
+        link = {
+            "ontology": ont_name,
+            "code": entry["code"],
+            "name": entry["name"],
+            "score": 0.95,
+            "type": entity_type,
+            "uri": _ontology_uri(ont_name, entry["code"]),
+        }
+        return (link,)
+
+    # 2) Synonym and simple fuzzy matching (token Jaccard)
+    cand_tokens = _tokenize(norm)
+    best: Optional[Tuple[float, str, Dict[str, Any]]] = None  # (score, key, entry)
+    for key, entry in ont.items():
+        # compare against canonical key
+        key_tokens = _tokenize(key)
+        score = _jaccard(cand_tokens, key_tokens)
+        # also compare against synonyms
+        for syn in entry.get("synonyms", []) or []:
+            syn_tokens = _tokenize(syn)
+            score = max(score, _jaccard(cand_tokens, syn_tokens))
+        if best is None or score > best[0]:
+            best = (score, key, entry)
+
+    # Accept if similarity above a (configurable) threshold
+    if best and best[0] >= _FUZZY_THRESHOLD:
+        _, _key, entry = best
+        link = {
+            "ontology": ont_name,
+            "code": entry["code"],
+            "name": entry["name"],
+            "score": float(min(0.9, 0.6 + best[0] * 0.4)),
+            "type": entity_type,
+            "uri": _ontology_uri(ont_name, entry["code"]),
+        }
+        return (link,)
+
+    # 3) No match
+    return ()
+
+
+def _http_get_json(url: str, timeout: float = 3.0) -> Dict[str, Any]:
+    """Tiny helper to GET JSON with stdlib. Returns {} on failure."""
+    try:
+        req = urllib_request.Request(url, headers={"User-Agent": "medvllm-ner/0.1"})
+        with urllib_request.urlopen(req, timeout=timeout) as resp:  # nosec B310
+            data = resp.read()
+        return json.loads(data.decode("utf-8"))
+    except Exception:
+        return {}
+
+
+def _http_post_form(
+    url: str, form: Dict[str, str], timeout: float = 3.0
+) -> Tuple[Dict[str, Any], bytes, Dict[str, Any]]:
+    """POST application/x-www-form-urlencoded. Returns (headers, body_bytes, info_dict).
+
+    info_dict is a minimal mapping with keys like 'status' and 'location' if present.
+    """
+    data = urllib_parse.urlencode(form).encode("utf-8")
+    req = urllib_request.Request(
+        url,
+        data=data,
+        headers={
+            "User-Agent": "medvllm-ner/0.1",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=timeout) as resp:  # nosec B310
+            body = resp.read()
+            hdrs = dict(resp.headers.items())
+            info = {
+                "status": getattr(resp, "status", None) or resp.getcode(),
+                "location": hdrs.get("Location"),
             }
-        )
-    # Fallback: no match
-    return out
+            return hdrs, body, info
+    except Exception as e:
+        return {}, b"", {"error": str(e)}
+
+
+def _umls_request_tgt(api_key: str, timeout: float = 3.0) -> Optional[str]:
+    """Obtain a UMLS TGT URL using API key.
+
+    Docs: https://documentation.uts.nlm.nih.gov/rest/authentication.html
+    POST to https://utslogin.nlm.nih.gov/cas/v1/api-key with apikey=KEY.
+    On success, Location header contains the TGT URL; alternatively, the response
+    HTML form's action attribute carries the TGT URL.
+    """
+    tgt_endpoint = "https://utslogin.nlm.nih.gov/cas/v1/api-key"
+    hdrs, body, info = _http_post_form(tgt_endpoint, {"apikey": api_key}, timeout=timeout)
+    # Prefer Location header
+    loc = info.get("location") if isinstance(info, dict) else None
+    if loc:
+        return str(loc)
+    # Fallback: parse HTML 'action' attribute
+    try:
+        s = body.decode("utf-8", errors="ignore")
+        m = re.search(r'action="([^"]*?/TGT-[^"]+)"', s)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def _umls_request_service_ticket(tgt_url: str, service: str, timeout: float = 3.0) -> Optional[str]:
+    """Obtain a one-time service ticket from a TGT URL for the given service."""
+    _, body, info = _http_post_form(tgt_url, {"service": service}, timeout=timeout)
+    if isinstance(info, dict) and info.get("error"):
+        return None
+    try:
+        ticket = body.decode("utf-8").strip()
+        return ticket or None
+    except Exception:
+        return None
+
+
+def _umls_fetch_cui(cui: str, ticket: str, timeout: float = 3.0) -> Dict[str, Any]:
+    """Fetch UMLS concept by CUI using a valid service ticket."""
+    url = f"https://uts-ws.nlm.nih.gov/rest/content/current/CUI/{urllib_parse.quote(cui)}?ticket={urllib_parse.quote(ticket)}"
+    try:
+        req = urllib_request.Request(url, headers={"User-Agent": "medvllm-ner/0.1"})
+        with urllib_request.urlopen(req, timeout=timeout) as resp:  # nosec B310
+            data = resp.read()
+        js = json.loads(data.decode("utf-8"))
+        return js if isinstance(js, dict) else {}
+    except Exception:
+        return {}
 
 
 # -------------------------
@@ -387,6 +589,13 @@ class NERProcessor:
             self._conf_threshold: Optional[float] = float(thr) if thr is not None else None
         except Exception:
             self._conf_threshold = None
+        # Optional fuzzy threshold for ontology linking
+        try:
+            el = getattr(self.config, "entity_linking", None)
+            if el is not None and hasattr(el, "fuzzy_threshold"):
+                set_fuzzy_threshold(float(getattr(el, "fuzzy_threshold")))
+        except Exception:
+            pass
 
     # ---- public API ----
     def extract_entities(self, text: str) -> NERResult:
@@ -458,13 +667,111 @@ class NERProcessor:
         return t
 
     def link_entities(self, ner_result: NERResult, ontology: str = "UMLS") -> NERResult:
+        # Respect optional config gating and default ontology selection
+        ont = ontology
+        enabled = True
+        try:
+            el = getattr(self.config, "entity_linking", None)
+            if el is not None and hasattr(el, "enabled"):
+                enabled = bool(getattr(el, "enabled"))
+            # default ontology from config if provided
+            if el is not None and hasattr(el, "default_ontology"):
+                ont = str(getattr(el, "default_ontology")) or ont
+        except Exception:
+            pass
+        if not enabled:
+            return NERResult(text=ner_result.text, entities=list(ner_result.entities))
+
         linked: List[Dict[str, Any]] = []
         for ent in ner_result.entities:
-            links = lookup_in_ontology(ent["text"], ent["type"], ontology)
+            links_tuple = lookup_in_ontology(ent["text"], ent["type"], ont)
             new_ent = dict(ent)
-            new_ent["ontology_links"] = links
+            # expose as list to callers
+            new_ent["ontology_links"] = list(links_tuple)
             linked.append(new_ent)
         return NERResult(text=ner_result.text, entities=linked)
+
+    def fetch_link_details(self, link: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Fetch additional details for a given ontology link.
+
+        Gated by config: requires `config.entity_linking.external.enabled`.
+        - RXNORM: queries RxNav public REST (no API key required).
+        - UMLS: requires API key. If `entity_linking.external.umls_cas_enabled` is True,
+          performs the CAS/TGT authentication flow and fetches the CUI metadata from UTS.
+          Otherwise (default), returns a placeholder note to avoid network calls during tests.
+
+        Returns a dictionary with fetched details or None if disabled/unsupported.
+        """
+        try:
+            el = getattr(self.config, "entity_linking", None)
+            ext = getattr(el, "external", None) if el is not None else None
+            enabled = bool(getattr(ext, "enabled", False)) if ext is not None else False
+            if not enabled:
+                return None
+            timeout = float(getattr(ext, "timeout", 3.0)) if ext is not None else 3.0
+            umls_api_key = getattr(ext, "umls_api_key", None) if ext is not None else None
+        except Exception:
+            return None
+
+        ontology = str(link.get("ontology", "")).upper()
+        code = str(link.get("code", "")).strip()
+        if not ontology or not code:
+            return None
+
+        if ontology == "RXNORM":
+            url = f"https://rxnav.nlm.nih.gov/REST/rxcui/{code}/properties.json"
+            data = _http_get_json(url, timeout=timeout)
+            props = data.get("properties") if isinstance(data, dict) else None
+            if props:
+                return {"source": "RXNORM", "properties": props}
+            return {}
+
+        if ontology == "UMLS":
+            # Requires UMLS UTS API key and CAS ticket flow.
+            if not umls_api_key:
+                return None
+            # Optional CAS flow gating to preserve backward-compatible behavior in tests
+            cas_enabled = False
+            try:
+                cas_enabled = bool(getattr(ext, "umls_cas_enabled", False))
+            except Exception:
+                cas_enabled = False
+            if not cas_enabled:
+                return {
+                    "source": "UMLS",
+                    "note": (
+                        "UMLS CAS flow not implemented in this lightweight client. "
+                        "Set entity_linking.external.umls_cas_enabled=True to enable CAS/TGT, "
+                        "or use UTS authentication externally to fetch concept metadata for code: "
+                        + code
+                    ),
+                }
+            # Proceed with CAS/TGT flow
+            tgt_url = _umls_request_tgt(str(umls_api_key), timeout=timeout)
+            if not tgt_url:
+                return {"source": "UMLS", "error": "umls_auth_failed", "note": "TGT request failed"}
+            service = "http://umlsks.nlm.nih.gov"
+            try:
+                svc = getattr(ext, "umls_service", None)
+                if svc:
+                    service = str(svc)
+            except Exception:
+                pass
+            st = _umls_request_service_ticket(tgt_url, service, timeout=timeout)
+            if not st:
+                return {
+                    "source": "UMLS",
+                    "error": "umls_ticket_failed",
+                    "note": "Service ticket request failed",
+                }
+            data = _umls_fetch_cui(code, st, timeout=timeout)
+            if data:
+                # UTS wraps the result in {"result": {...}}
+                result = data.get("result", data)
+                return {"source": "UMLS", "result": result}
+            return {}
+
+        return None
 
     def highlight_entities(self, ner_result: NERResult, format: str = "html") -> str:
         if format.lower() != "html":

@@ -1,6 +1,7 @@
 import pytest
 
 from medvllm.tasks import NERProcessor, NERResult
+from medvllm.tasks.ner_processor import lookup_in_ontology, set_fuzzy_threshold
 
 
 @pytest.mark.unit
@@ -268,3 +269,139 @@ def test_extended_gazetteer_detection_enabled():
     assert any(
         "troponin" == e["text"].lower() for e in tests
     ), f"Extended test not detected: {res.entities}"
+
+
+@pytest.mark.unit
+def test_entity_linking_respects_config_enabled_flag():
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(entity_linking=SimpleNamespace(enabled=False))
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    text = "Aspirin given after myocardial infarction."
+    res = proc.extract_entities(text)
+    linked = proc.link_entities(res, ontology="UMLS")
+    # When disabled, entities should not gain 'ontology_links'
+    assert all("ontology_links" not in e for e in linked.entities)
+
+
+@pytest.mark.unit
+def test_entity_linking_default_ontology_and_uri_field():
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(entity_linking=SimpleNamespace(enabled=True, default_ontology="RXNORM"))
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    text = "Metformin 500 mg started."
+    res = proc.extract_entities(text)
+    linked = proc.link_entities(res)  # should use RXNORM by default
+    # Find metformin entity and check RXNORM link with uri
+    met = next(e for e in linked.entities if e["text"].lower() == "metformin")
+    assert met.get("ontology_links"), f"No links attached: {met}"
+    assert any(
+        lk.get("ontology") == "RXNORM" and "rxnav" in lk.get("uri", "")
+        for lk in met["ontology_links"]
+    ), f"RXNORM link with uri missing: {met['ontology_links']}"
+
+
+@pytest.mark.unit
+def test_fuzzy_synonym_linking_with_custom_gazetteer():
+    from types import SimpleNamespace
+
+    # Add 'metformin hcl' to gazetteer so extractor emits that surface
+    cfg = SimpleNamespace(ner_custom_lexicon={"medication": ["metformin hcl"]})
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    text = "Metformin HCl 500 mg started."
+    res = proc.extract_entities(text)
+    meds = [e for e in res.entities if e["type"] == "medication"]
+    assert any(
+        e["text"].lower() == "metformin hcl" for e in meds
+    ), f"Custom surface not extracted: {meds}"
+
+    linked = proc.link_entities(res, ontology="RXNORM")
+    ent = next(e for e in linked.entities if e["text"].lower() == "metformin hcl")
+    # Expect fuzzy match to RXNORM Metformin via synonyms
+    assert ent.get("ontology_links"), f"No links for metformin hcl: {ent}"
+    assert any(
+        lk.get("ontology") == "RXNORM" and lk.get("code") == "6809" for lk in ent["ontology_links"]
+    ), f"Fuzzy linking failed: {ent['ontology_links']}"
+
+
+@pytest.mark.unit
+def test_lookup_in_ontology_caching_behavior():
+    # Clear cache by re-wrapping or calling cache_clear
+    lookup_in_ontology.cache_clear()
+    before = lookup_in_ontology.cache_info()
+    # Two identical calls should result in one cache miss and one hit
+    r1 = lookup_in_ontology("aspirin", "medication", "RXNORM")
+    r2 = lookup_in_ontology("aspirin", "medication", "RXNORM")
+    after = lookup_in_ontology.cache_info()
+    assert after.misses == before.misses + 1
+    assert after.hits == before.hits + 1
+    assert r1 and r2 and r1 == r2
+
+
+@pytest.mark.unit
+def test_fuzzy_threshold_boundary_accept_and_reject(monkeypatch):
+    from types import SimpleNamespace
+
+    # High threshold should reject partial match (candidate vs canonical/synonym)
+    cfg = SimpleNamespace(
+        ner_custom_lexicon={"medication": ["metformin hydrochloride"]},
+        entity_linking=SimpleNamespace(enabled=True, fuzzy_threshold=0.6),
+    )
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    text = "Started metformin hydrochloride 500 mg."
+    res = proc.extract_entities(text)
+    linked = proc.link_entities(res, ontology="RXNORM")
+    ent = next(e for e in linked.entities if e["text"].lower() == "metformin hydrochloride")
+    assert not ent.get(
+        "ontology_links"
+    ), f"Should have rejected fuzzy link at high threshold: {ent}"
+
+    # Lower threshold should accept same match
+    set_fuzzy_threshold(0.3)
+    linked2 = proc.link_entities(res, ontology="RXNORM")
+    ent2 = next(e for e in linked2.entities if e["text"].lower() == "metformin hydrochloride")
+    assert ent2.get("ontology_links"), f"Should have accepted fuzzy link at low threshold: {ent2}"
+    # Restore default threshold for isolation
+    set_fuzzy_threshold(0.5)
+
+
+@pytest.mark.unit
+def test_fetch_link_details_rxnorm_gated_and_mocked(monkeypatch):
+    from types import SimpleNamespace
+    import medvllm.tasks.ner_processor as np
+
+    # Disabled gate: returns None
+    cfg_disabled = SimpleNamespace(
+        entity_linking=SimpleNamespace(external=SimpleNamespace(enabled=False))
+    )
+    proc_disabled = NERProcessor(inference_pipeline=None, config=cfg_disabled)
+    out_disabled = proc_disabled.fetch_link_details({"ontology": "RXNORM", "code": "1191"})
+    assert out_disabled is None
+
+    # Enabled gate: mock network and expect properties
+    cfg_enabled = SimpleNamespace(
+        entity_linking=SimpleNamespace(external=SimpleNamespace(enabled=True, timeout=0.1))
+    )
+    proc_enabled = NERProcessor(inference_pipeline=None, config=cfg_enabled)
+
+    def fake_http(url: str, timeout: float = 3.0):
+        return {"properties": {"name": "Aspirin", "rxcui": "1191"}}
+
+    monkeypatch.setattr(np, "_http_get_json", fake_http)
+    out_enabled = proc_enabled.fetch_link_details({"ontology": "RXNORM", "code": "1191"})
+    assert out_enabled and out_enabled.get("source") == "RXNORM"
+    assert out_enabled.get("properties", {}).get("rxcui") == "1191"
+
+
+@pytest.mark.unit
+def test_fetch_link_details_umls_placeholder_when_key_present():
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(
+        entity_linking=SimpleNamespace(external=SimpleNamespace(enabled=True, umls_api_key="dummy"))
+    )
+    proc = NERProcessor(inference_pipeline=None, config=cfg)
+    out = proc.fetch_link_details({"ontology": "UMLS", "code": "C0004057"})
+    assert out and out.get("source") == "UMLS"
+    assert "UMLS CAS flow not implemented" in out.get("note", "")

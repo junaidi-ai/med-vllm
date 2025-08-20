@@ -8,7 +8,7 @@ A lightweight, pluggable utility for medical named entity recognition (NER).
 - Post-processing:
   - Merge overlapping/adjacent same-type entities
   - Simple abbreviation resolution: "Long Form (ABBR)"
-- Entity linking (stub): link to simple mock ontologies (UMLS/SNOMED/LOINC/RXNORM)
+- Entity linking: links to small in-memory mock ontologies (UMLS/SNOMED/LOINC/RXNORM), with simple fuzzy matching and caching
 - Visualization: HTML highlighting with minimal inline styling
 
 ## Import
@@ -85,7 +85,63 @@ The built-in gazetteer includes representative examples (e.g., diseases like pne
 
 This controls the regex fallback lexicons and the type->id mapping.
 
-### Extended/Custom Gazetteer
+## Entity Linking
+
+`NERProcessor.link_entities(ner_result, ontology="UMLS")` attaches `ontology_links` to each entity.
+
+- Config gating: set `config.entity_linking.enabled = False` to disable linking (default: True if unspecified).
+- Default ontology: set `config.entity_linking.default_ontology = "RXNORM"` (or other) to change the default used when `ontology` arg is omitted.
+- Fuzzy matching: a lightweight token-based Jaccard similarity is used with synonym support from the mock KBs (e.g., "metformin hcl" matches RXNORM Metformin).
+- Caching: lookups are memoized via an LRU cache for repeated queries.
+- Link fields: each link includes `ontology`, `code`, `name`, `score`, `type`, `uri`.
+
+Notes:
+- This is still an in-memory demonstration KB for offline use; integrate real APIs (e.g., UMLS, RxNav) in production.
+
+### External Ontology Enrichment (optional)
+
+You can fetch additional metadata for an attached link via `NERProcessor.fetch_link_details(link)`.
+
+- Gate via `config.entity_linking.external.enabled = True`.
+- Optional timeout: `config.entity_linking.external.timeout` (seconds).
+- RxNorm: Uses public RxNav REST (no API key required). Example:
+
+```python
+cfg = SimpleNamespace(entity_linking=SimpleNamespace(external=SimpleNamespace(enabled=True)))
+proc = NERProcessor(inference_pipeline=None, config=cfg)
+details = proc.fetch_link_details({"ontology": "RXNORM", "code": "1191"})  # Aspirin
+```
+
+- UMLS: Requires a UMLS API key. Two modes:
+  - Default (no CAS): returns a placeholder note to avoid network calls in tests.
+  - CAS/TGT enabled: set `config.entity_linking.external.umls_cas_enabled = True` and provide
+    `config.entity_linking.external.umls_api_key`. Optionally override `umls_service`
+    (default `http://umlsks.nlm.nih.gov`). The client uses stdlib `urllib` to perform the CAS flow.
+
+```python
+from types import SimpleNamespace
+cfg = SimpleNamespace(
+    entity_linking=SimpleNamespace(
+        external=SimpleNamespace(
+            enabled=True,
+            umls_api_key="<YOUR_UMLS_API_KEY>",
+            umls_cas_enabled=True,
+            timeout=3.0,
+            # umls_service="http://umlsks.nlm.nih.gov",  # optional override
+        )
+    )
+)
+proc = NERProcessor(inference_pipeline=None, config=cfg)
+link = {"ontology": "UMLS", "code": "C0004057"}
+details = proc.fetch_link_details(link)
+```
+
+Notes:
+- The UMLS integration uses the documented CAS/TGT ticket workflow via `utslogin.nlm.nih.gov` and
+  queries UTS for the CUI. If the CAS flag is disabled (default), a placeholder message is returned.
+- This remains a lightweight, dependency-free client; consider a dedicated SDK for production needs.
+
+## Extended/Custom Gazetteer
 
 The regex/gazetteer fallback can be extended via config flags:
 
@@ -122,6 +178,16 @@ See `examples/ner_processor_example.py` for:
 - Rule-based fallback
 - Model-backed pipeline stub
 - Configurable gazetteer-style pipeline
+
+## Benchmarking Linking Cache
+
+Use the included benchmark to measure linking timing and cache hits on long notes:
+
+```bash
+python3 -m benchmarks.benchmark_linking --paragraphs 50 --runs 3 --ontology RXNORM
+```
+
+It reports extract time, each link run timing, and `lookup_in_ontology()` cache hits/misses.
 
 ## Notes
 

@@ -139,6 +139,16 @@ html = proc.highlight_entities(linked)
 - Example script: `examples/ner_processor_example.py`
 - Documentation: `docs/ner_processor.md`
 
+#### Benchmarking Ontology Linking
+
+Measure linking performance and cache effectiveness on longer notes:
+
+```bash
+python3 -m benchmarks.benchmark_linking --paragraphs 50 --runs 3 --ontology RXNORM
+```
+
+See `docs/ner_processor.md` for external enrichment (RxNorm, UMLS CAS/TGT) configuration.
+
 ### Text Generation
 
 Generate a summary of a patient's medical history:
