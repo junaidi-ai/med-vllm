@@ -825,6 +825,116 @@ class NERProcessor:
                         "alias_of": base_ent["text"],
                     }
                 )
+        # ---- New context-aware annotations ----
+        # Helper: sentence spans (very simple segmentation)
+        sent_spans: List[Tuple[int, int]] = []
+        s_start = 0
+        for m in re.finditer(r"[.!?;\n]", text):
+            s_end = m.start()
+            if s_end > s_start:
+                sent_spans.append((s_start, s_end))
+            s_start = m.end()
+        if s_start < len(text):
+            sent_spans.append((s_start, len(text)))
+
+        def find_sentence_span(pos: int) -> Tuple[int, int]:
+            for a, b in sent_spans:
+                if a <= pos < b:
+                    return a, b
+            return 0, len(text)
+
+        # Collect temporal entities for later attachment
+        temporal_ents = [e for e in merged if e.get("type") == "temporal"]
+
+        # Negation and modifier cues (simple heuristics)
+        neg_cues = re.compile(
+            r"\b(?:no|denies|denied|without|negative for|free of|ruled out|rule out|absent|not|neither|nor)\b",
+            flags=re.IGNORECASE,
+        )
+        severity_cues = re.compile(
+            r"\b(mild|moderate|severe|slight|marked|significant)\b", re.IGNORECASE
+        )
+        certainty_cues = re.compile(
+            r"\b(possible|probable|likely|unlikely|suspicious for|concern for|suggestive of|consistent with)\b",
+            re.IGNORECASE,
+        )
+        temporal_rel_cues = [
+            (re.compile(r"\bsince\b", re.IGNORECASE), "since"),
+            (re.compile(r"\bfor\b", re.IGNORECASE), "for"),
+            (re.compile(r"\bon\b", re.IGNORECASE), "on"),
+            (re.compile(r"\bafter\b", re.IGNORECASE), "after"),
+            (re.compile(r"\bbefore\b", re.IGNORECASE), "before"),
+            (re.compile(r"\buntil\b", re.IGNORECASE), "until"),
+            (re.compile(r"\bby\b", re.IGNORECASE), "by"),
+        ]
+
+        def nearest_temporal(e: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            if not temporal_ents:
+                return None
+            # Prefer same sentence, else nearest by char distance within 80 chars
+            a, b = find_sentence_span(e["start"])
+            same_sent = [t for t in temporal_ents if a <= t["start"] < b]
+            cands = same_sent or temporal_ents
+            best = None
+            best_d = 10**9
+            for t in cands:
+                d = min(abs(e["start"] - t["end"]), abs(t["start"] - e["end"]))
+                if d < best_d:
+                    best, best_d = t, d
+            if best is not None and best_d <= 80:
+                return best
+            return None
+
+        # Annotate each entity (except temporals themselves) with negation, modifiers, temporal link
+        for e in merged:
+            etype = str(e.get("type", "")).lower()
+            s_a, s_b = find_sentence_span(e["start"]) if e.get("start", -1) >= 0 else (0, len(text))
+            # Context window before entity within sentence
+            pre_ctx_start = max(s_a, e["start"] - 60)
+            pre_ctx = text[pre_ctx_start : e["start"]]
+            # Negation for relevant clinical types
+            if etype in {"disease", "symptom", "test", "clinical_finding"}:
+                tail = pre_ctx[-30:].lower()
+                if neg_cues.search(tail):
+                    e["negated"] = True
+            # Modifiers
+            mods: Dict[str, Any] = {}
+            m_sev = severity_cues.search(pre_ctx)
+            if m_sev:
+                mods["severity"] = m_sev.group(1).lower()
+            m_cert = certainty_cues.search(pre_ctx)
+            if m_cert:
+                # Normalize multi-word matches
+                mods["certainty"] = m_cert.group(0).lower()
+            if mods:
+                e["modifiers"] = mods
+            # Temporal association
+            if etype != "temporal":
+                t_ent = nearest_temporal(e)
+                if t_ent is not None:
+                    e["temporal"] = t_ent.get("text")
+                    e["temporal_span"] = (t_ent.get("start"), t_ent.get("end"))
+                    # Temporal relation cue in pre-context
+                    for rx, label in temporal_rel_cues:
+                        if rx.search(pre_ctx):
+                            e["temporal_relation"] = label
+                            break
+
+        # Basic coreference grouping: identical normalized surface (or alias_of target)
+        def norm_key(e: Dict[str, Any]) -> Tuple[str, str]:
+            base = str(e.get("alias_of") or e.get("text") or "")
+            return (str(e.get("type", "")).lower(), _normalize_surface(base))
+
+        groups: Dict[Tuple[str, str], int] = {}
+        gid = 1
+        for e in merged:
+            key = norm_key(e)
+            if not key[1]:
+                continue
+            if key not in groups:
+                groups[key] = gid
+                gid += 1
+            e["coref_group"] = groups[key]
         merged.sort(key=lambda e: (e["start"], e["end"]))
         return merged
 

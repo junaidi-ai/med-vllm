@@ -445,7 +445,7 @@
               3
             ],
             "details": "Develop context-aware resolution mechanisms to disambiguate entities based on surrounding text. Implement negation detection to identify negated entities. Add functionality to detect entity modifiers (severity, certainty, etc.). Create methods to resolve temporal relationships between entities. Implement co-reference resolution to track entities across sentences.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
