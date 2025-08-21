@@ -774,11 +774,12 @@ class NERProcessor:
         return None
 
     def highlight_entities(self, ner_result: NERResult, format: str = "html") -> str:
-        if format.lower() != "html":
-            raise ValueError(
-                "Only 'html' highlight format is supported in this simple implementation"
-            )
-        return self._to_html(ner_result)
+        fmt = str(format).lower()
+        if fmt in {"html", "inline", "html_inline"}:
+            return self._to_html(ner_result)
+        if fmt in {"html_full", "page", "full"}:
+            return self._to_html_full(ner_result)
+        raise ValueError("Unsupported highlight format: " + str(format))
 
     # ---- helpers ----
 
@@ -983,3 +984,170 @@ class NERProcessor:
         if cursor < len(text):
             out.append(html.escape(text[cursor:]))
         return "".join(out)
+
+    def _to_html_full(self, ner_result: NERResult) -> str:
+        text = ner_result.text
+        # Build non-overlapping spans; assume entities sorted by start
+        spans: List[Tuple[int, int, Dict[str, Any], int]] = []  # (start,end,ent,idx)
+        for idx, e in enumerate(sorted(ner_result.entities, key=lambda x: (x["start"], x["end"]))):
+            if e["start"] < 0 or e["end"] <= e["start"]:
+                continue
+            if spans and e["start"] < spans[-1][1]:
+                # skip overlaps to avoid nested spans breaking offsets
+                continue
+            spans.append((e["start"], e["end"], e, idx))
+
+        palette = {
+            # leaf/common types
+            "disease": "#fde2e1",
+            "medication": "#e1f5fe",
+            "procedure": "#e8f5e9",
+            "symptom": "#fff3e0",
+            "test": "#ede7f6",
+            "anatomical_structure": "#f0f4c3",
+            "lab_value": "#d7ccc8",
+            "temporal": "#c8e6c9",
+            # abstract parents
+            "clinical_finding": "#ffcdd2",
+            "treatment": "#bbdefb",
+            "observation": "#d1c4e9",
+            "entity": "#f5f5f5",
+            "metadata": "#cfd8dc",
+        }
+        # Unique types present
+        present_types = sorted({str(e.get("type", "entity")) for _, _, e, _ in spans})
+
+        # Render inline text with spans and data attributes
+        body_parts: List[str] = []
+        cursor = 0
+        for start, end, e, idx in spans:
+            if cursor < start:
+                body_parts.append(html.escape(text[cursor:start]))
+            label = e.get("type", "entity")
+            bg = palette.get(label, "#f0f0f0")
+            title = f"{label} (conf={e.get('confidence', 0.0):.2f})"
+            body_parts.append(
+                f"<span class=\"ner-entity\" data-idx=\"{idx}\" data-type=\"{html.escape(label)}\" "
+                f"style=\"background:{bg};border-radius:4px;padding:1px 3px;cursor:pointer;\" "
+                f"title=\"{html.escape(title)}\">{html.escape(text[start:end])}</span>"
+            )
+            cursor = end
+        if cursor < len(text):
+            body_parts.append(html.escape(text[cursor:]))
+
+        # Controls: filters and legend
+        chkboxes = []
+        for t in present_types:
+            color = palette.get(t, "#f0f0f0")
+            chkboxes.append(
+                f"<label style=\"margin-right:10px;\"><input class=\"filter-type\" type=\"checkbox\" data-type=\"{html.escape(t)}\" checked> "
+                f"<span style=\"display:inline-block;width:10px;height:10px;background:{color};border:1px solid #999;margin-right:4px;vertical-align:middle;\"></span>"
+                f"{html.escape(t)}</label>"
+            )
+
+        # Legend list (same as checkboxes visual)
+        legend = " ".join(
+            f"<span style=\"display:inline-block;width:10px;height:10px;background:{palette.get(t, '#f0f0f0')};border:1px solid #999;margin:0 6px 0 14px;vertical-align:middle;\"></span>"
+            f"<span style=\"vertical-align:middle;\">{html.escape(t)}</span>"
+            for t in present_types
+        )
+
+        # Embed entities JSON for detail panel
+        ents_json = json.dumps(ner_result.entities)
+
+        html_doc = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=\"utf-8\">
+  <title>NER Visualization</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; margin: 0; padding: 0; }}
+    .ner-toolbar {{ position: sticky; top: 0; background: #fff; border-bottom: 1px solid #eee; padding: 10px 12px; z-index: 10; }}
+    .ner-container {{ display: flex; gap: 12px; padding: 12px; box-sizing: border-box; }}
+    .ner-text {{ flex: 3; line-height: 1.6; white-space: pre-wrap; }}
+    .ner-sidebar {{ flex: 1; border-left: 1px solid #eee; padding-left: 12px; max-width: 360px; }}
+    .ner-sidebar h3 {{ margin-top: 0; }}
+    .ner-controls {{ margin-bottom: 8px; }}
+    .ner-legend {{ color: #444; font-size: 13px; }}
+    .ner-buttons button {{ margin-right: 8px; }}
+  </style>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {{
+      const ents = JSON.parse(document.getElementById('ner-data').textContent || '[]');
+      const details = document.getElementById('ner-details');
+      const entities = Array.from(document.querySelectorAll('.ner-entity'));
+      const toKV = (obj) => Object.entries(obj || {{}}).map(([k,v]) => `<div><strong>${{k}}:</strong> ${{typeof v === 'object' ? JSON.stringify(v) : String(v)}}</div>`).join('');
+
+      function showDetails(idx) {{
+        const e = ents[idx];
+        if (!e) {{ details.innerHTML = '<em>No details</em>'; return; }}
+        const base = [
+          ['text', e.text], ['type', e.type], ['confidence', (e.confidence ?? 0).toFixed(2)],
+          ['start', e.start], ['end', e.end], ['parent_type', e.parent_type], ['type_id', e.type_id]
+        ].map(([k,v]) => `<div><strong>${{k}}:</strong> ${{String(v)}}</div>`).join('');
+        const optional = [
+          e.negated != null ? `<div><strong>negated:</strong> ${{String(e.negated)}}</div>` : '',
+          e.modifiers ? `<div><strong>modifiers:</strong> ${toKV(e.modifiers)}</div>` : '',
+          e.temporal ? `<div><strong>temporal:</strong> ${{e.temporal}} <small>(${{e.temporal_span}})</small></div>` : '',
+          e.temporal_relation ? `<div><strong>temporal_relation:</strong> ${{e.temporal_relation}}</div>` : '',
+          e.coref_group != null ? `<div><strong>coref_group:</strong> ${{e.coref_group}}</div>` : '',
+          e.alias_of ? `<div><strong>alias_of:</strong> ${{e.alias_of}}</div>` : '',
+          (Array.isArray(e.ontology_links) && e.ontology_links.length)
+            ? `<div><strong>ontology_links:</strong><pre style='white-space:pre-wrap;'>${{JSON.stringify(e.ontology_links, null, 2)}}</pre></div>`
+            : ''
+        ].join('');
+        details.innerHTML = base + optional;
+      }}
+
+      entities.forEach(el => {{
+        el.addEventListener('click', () => showDetails(parseInt(el.dataset.idx)));
+      }});
+
+      // Filtering by type
+      Array.from(document.querySelectorAll('.filter-type')).forEach(chk => {{
+        chk.addEventListener('change', () => {{
+          const active = new Set(Array.from(document.querySelectorAll('.filter-type:checked')).map(e => e.dataset.type));
+          entities.forEach(el => {{
+            el.style.display = active.has(el.dataset.type) ? '' : 'none';
+          }});
+        }});
+      }});
+
+      // Copy JSON button
+      const copyBtn = document.getElementById('copy-json');
+      if (copyBtn) {{
+        copyBtn.addEventListener('click', async () => {{
+          try {{
+            await navigator.clipboard.writeText(JSON.stringify(ents, null, 2));
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => (copyBtn.textContent = 'Copy JSON'), 1200);
+          }} catch (e) {{
+            alert('Copy failed: ' + e);
+          }}
+        }});
+      }}
+    }});
+  </script>
+</head>
+<body>
+  <div class=\"ner-toolbar\">
+    <div class=\"ner-controls\">
+      <strong>Filter types:</strong> {" ".join(chkboxes)}
+    </div>
+    <div class=\"ner-buttons\">
+      <button id=\"copy-json\">Copy JSON</button>
+    </div>
+    <div class=\"ner-legend\"><strong>Legend:</strong> {legend}</div>
+  </div>
+  <div class=\"ner-container\">
+    <div class=\"ner-text\">{''.join(body_parts)}</div>
+    <div class=\"ner-sidebar\">
+      <h3>Entity Details</h3>
+      <div id=\"ner-details\"><em>Click an entity to see details</em></div>
+    </div>
+  </div>
+  <script id=\"ner-data\" type=\"application/json\">{html.escape(ents_json)}</script>
+</body>
+</html>
+"""
+        return html_doc

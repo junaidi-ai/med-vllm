@@ -129,10 +129,17 @@ def demo_rule_based() -> None:
     print("EXTRACT:", json.dumps(res.to_dict(), indent=2))
     linked = proc.link_entities(res, ontology="UMLS")
     print("LINKED:", json.dumps(linked.to_dict(), indent=2))
-    html = proc.highlight_entities(linked)
-    out = Path(__file__).with_name("ner_highlight.html")
-    out.write_text(html, encoding="utf-8")
-    print(f"HTML written to: {out}")
+    # Inline snippet (simple spans)
+    html_inline = proc.highlight_entities(linked)
+    out_inline = Path(__file__).with_name("ner_highlight.html")
+    out_inline.write_text(html_inline, encoding="utf-8")
+    print(f"HTML written to: {out_inline}")
+
+    # Full-page interactive visualization with filters and details
+    html_full = proc.highlight_entities(linked, format="html_full")
+    out_full = Path(__file__).with_name("ner_visualization.html")
+    out_full.write_text(html_full, encoding="utf-8")
+    print(f"Interactive HTML written to: {out_full}")
 
 
 def demo_model_backed() -> None:
