@@ -47,6 +47,29 @@ class MedicalConstraints:
     # Ontology verification of medical terms (uses NERProcessor stubs)
     ontology_verify_enabled: bool = True
     ontology_default: str = "UMLS"
+    # Factual consistency analysis (opt-in outputs for citations/references)
+    factual_checks_enabled: bool = True
+    contradiction_detection_enabled: bool = True
+    speculative_flagging_enabled: bool = True
+    confidence_scoring_enabled: bool = True
+    add_inline_citations: bool = False
+    append_references_section: bool = False
+    # Hedging and absolute markers for simple heuristics
+    hedging_markers: List[str] = field(
+        default_factory=lambda: [
+            "may",
+            "might",
+            "could",
+            "possibly",
+            "possible",
+            "suggests",
+            "appears",
+            "likely",
+            "unlikely",
+            "potential",
+            "consider",
+        ]
+    )
     # Abbreviation handling (expand common medical abbreviations)
     expand_abbreviations: bool = False
     abbreviation_map: Dict[str, str] = field(
@@ -225,6 +248,7 @@ class MedicalConstraints:
                             "ontology": link0.get("ontology"),
                             "name": link0.get("name"),
                             "score": link0.get("score"),
+                            "uri": link0.get("uri"),
                         }
                     )
                 else:
@@ -368,8 +392,27 @@ class TextGenerator:
         except Exception as e:
             constraints_report["ontology_error"] = str(e)
 
+        # Optional factual analysis (citations, references, contradictions, confidence)
+        factual_report: Dict[str, Any] = {}
+        to_filter_text = formatted_text
+        if getattr(self.constraints, "factual_checks_enabled", False):
+            try:
+                factual_report = self._analyze_factual_consistency(formatted_text)
+                # Inline citations
+                if getattr(self.constraints, "add_inline_citations", False):
+                    cited = factual_report.get("text_with_citations")
+                    if isinstance(cited, str) and cited:
+                        to_filter_text = cited
+                # Append references section before disclaimer
+                if getattr(self.constraints, "append_references_section", False):
+                    refs = factual_report.get("references") or []
+                    if isinstance(refs, list) and refs:
+                        to_filter_text = self._append_references_section(to_filter_text, refs)
+            except Exception as e:
+                factual_report = {"error": str(e)}
+
         # Finally, apply generic content filters (banned phrases, disclaimer, etc.)
-        filtered = self.constraints.apply_output_filters(formatted_text)
+        filtered = self.constraints.apply_output_filters(to_filter_text)
 
         meta: Dict[str, Any] = {
             "strategy": strategy,
@@ -380,6 +423,7 @@ class TextGenerator:
             "style": style,
             "purpose": purpose,
             "constraints_report": constraints_report,
+            "factual_report": factual_report,
         }
 
         return GenerationResult(prompt=prompt, generated_text=filtered, metadata=meta)
@@ -491,3 +535,185 @@ class TextGenerator:
             sm.set_logits_processor(lambda l, _i: l)
         else:
             sm.set_logits_processor(processor)
+
+    # -----------------------------
+    # Factual analysis helpers
+    # -----------------------------
+    def _append_references_section(self, text: str, references: List[Dict[str, Any]]) -> str:
+        lines: List[str] = []
+        lines.append("\n\nReferences:")
+        for i, ref in enumerate(references, start=1):
+            name = ref.get("name") or ref.get("text") or "Reference"
+            uri = ref.get("uri") or ref.get("url") or ref.get("link") or ""
+            ont = ref.get("ontology") or ""
+            code = ref.get("code") or ""
+            suffix = f" ({ont}:{code})" if ont or code else ""
+            if uri:
+                lines.append(f"[{i}] {name}{suffix} - {uri}")
+            else:
+                lines.append(f"[{i}] {name}{suffix}")
+        return text + "\n" + "\n".join(lines)
+
+    def _analyze_factual_consistency(self, text: str) -> Dict[str, Any]:
+        """Lightweight factual analysis using NERProcessor and simple heuristics.
+        Returns a report dict with:
+          - references: List[{text, name, code, ontology, uri, score, citation_id}]
+          - contradictions: List[{entity_text, code, ontology}]
+          - speculative_sentences: List[{index, text}]
+          - sentence_confidence: List[{index, text, score}]
+          - text_with_citations: Optional[str] if inline citation insertion performed
+        """
+        try:
+            from .ner_processor import NERProcessor  # lazy import
+        except Exception:
+            return {"enabled": False, "error": "ner_processor_unavailable"}
+
+        # Extract and link entities
+        try:
+            proc = NERProcessor(inference_pipeline=None, config=None)
+            ner = proc.extract_entities(text)
+            linked = proc.link_entities(ner, ontology=self.constraints.ontology_default)
+        except Exception as e:
+            return {"enabled": True, "error": str(e)}
+
+        ents = linked.entities if hasattr(linked, "entities") else []
+        # Build references list and support inline citation IDs
+        references: List[Dict[str, Any]] = []
+        code_to_id: Dict[str, int] = {}
+        occurrences: List[Tuple[int, int, int]] = []  # (start, end, citation_id)
+
+        def _norm_key(s: str) -> str:
+            s_ = s.strip().lower()
+            import re as _re
+
+            s_ = _re.sub(r"\s+", " ", s_)
+            return s_
+
+        for ent in ents:
+            links = ent.get("ontology_links") or []
+            if not links:
+                continue
+            link0 = links[0]
+            code = str(link0.get("code") or "")
+            if code and code not in code_to_id:
+                references.append(
+                    {
+                        "text": ent.get("text"),
+                        "type": ent.get("type"),
+                        "code": code,
+                        "ontology": link0.get("ontology"),
+                        "name": link0.get("name"),
+                        "score": link0.get("score"),
+                        "uri": link0.get("uri"),
+                    }
+                )
+                code_to_id[code] = len(references)  # 1-based
+            # record first occurrence span per code for inline citation
+            if code:
+                cid = code_to_id[code]
+                start = int(ent.get("start", -1))
+                end = int(ent.get("end", -1))
+                if start >= 0 and end >= start:
+                    # only keep earliest occurrence per code
+                    if not any(c == cid for _a, _b, c in occurrences):
+                        occurrences.append((start, end, cid))
+
+        # Detect simple contradictions: same normalized entity appears negated and affirmed
+        contradictions: List[Dict[str, Any]] = []
+        if getattr(self.constraints, "contradiction_detection_enabled", False):
+            by_key: Dict[str, Dict[str, bool]] = {}
+            for ent in ents:
+                key = f"{_norm_key(ent.get('text',''))}|{str(ent.get('type','')).lower()}"
+                if key not in by_key:
+                    by_key[key] = {"pos": False, "neg": False}
+                neg = bool(ent.get("negated"))
+                if neg:
+                    by_key[key]["neg"] = True
+                else:
+                    by_key[key]["pos"] = True
+            for key, flags in by_key.items():
+                if flags["pos"] and flags["neg"]:
+                    txt, typ = key.split("|", 1)
+                    # Prefer first linked code for citation context if available
+                    code = None
+                    onto = None
+                    for ent in ents:
+                        if (
+                            _norm_key(ent.get("text", "")) == txt
+                            and str(ent.get("type", "")) == typ
+                        ):
+                            links = ent.get("ontology_links") or []
+                            if links:
+                                code = links[0].get("code")
+                                onto = links[0].get("ontology")
+                                break
+                    contradictions.append(
+                        {"entity_text": txt, "type": typ, "code": code, "ontology": onto}
+                    )
+
+        # Speculative/hedging detection and confidence scoring
+        import re as _re
+
+        sentences = [s.strip() for s in _re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+        hedges = {h.lower() for h in getattr(self.constraints, "hedging_markers", [])}
+        abs_markers = {"always", "never", "guarantee", "cure", "miracle"}
+        speculative_sentences: List[Dict[str, Any]] = []
+        sentence_conf: List[Dict[str, Any]] = []
+        if getattr(self.constraints, "speculative_flagging_enabled", False) or getattr(
+            self.constraints, "confidence_scoring_enabled", False
+        ):
+            for idx, s in enumerate(sentences):
+                low = s.lower()
+                is_spec = any(f" {w} " in f" {low} " for w in hedges)
+                abs_hit = any(w in low for w in abs_markers)
+                score = 0.6
+                # boost if contains a high-confidence link
+                has_high_link = False
+                for ent in ents:
+                    if int(ent.get("start", -1)) < 0:
+                        continue
+                    s_text = text[int(ent.get("start")) : int(ent.get("end", 0))]
+                    if s_text and s_text in s:
+                        links = ent.get("ontology_links") or []
+                        if links and float(links[0].get("score", 0.0)) >= 0.8:
+                            has_high_link = True
+                            break
+                if has_high_link:
+                    score += 0.2
+                if is_spec:
+                    score -= 0.2
+                if abs_hit:
+                    score -= 0.2
+                score = max(0.0, min(1.0, score))
+                if getattr(self.constraints, "speculative_flagging_enabled", False) and is_spec:
+                    speculative_sentences.append({"index": idx, "text": s})
+                if getattr(self.constraints, "confidence_scoring_enabled", False):
+                    sentence_conf.append({"index": idx, "text": s, "score": score})
+
+        # Inline citations insertion (optional in caller)
+        text_with_citations = None
+        if getattr(self.constraints, "add_inline_citations", False) and occurrences:
+            # Build once by inserting markers from left to right
+            occurrences.sort(key=lambda x: x[0])
+            out: List[str] = []
+            cur = 0
+            for start, end, cid in occurrences:
+                if start < cur:
+                    continue
+                out.append(text[cur:start])
+                out.append(text[start:end])
+                out.append(f"[{cid}]")
+                cur = end
+            out.append(text[cur:])
+            text_with_citations = "".join(out)
+
+        report: Dict[str, Any] = {
+            "enabled": True,
+            "references": references,
+            "contradictions": contradictions,
+            "speculative_sentences": speculative_sentences,
+            "sentence_confidence": sentence_conf,
+        }
+        if text_with_citations is not None:
+            report["text_with_citations"] = text_with_citations
+        return report

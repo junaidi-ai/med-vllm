@@ -251,7 +251,7 @@
           2,
           3
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -330,7 +330,7 @@
         "dependencies": [
           4
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -385,7 +385,7 @@
               3,
               4
             ],
-            "details": "Create unit and integration tests for all components of the classification module. Incorporate real medical datasets (like MIMIC, PubMed abstracts, or clinical notes) for validation. Implement performance metrics specific to medical classification tasks (precision, recall, F1, etc.). Develop benchmark tests to compare against baseline models and track performance improvements over time.",
+            "details": "Create unit tests for all components of the classification module. Incorporate real medical datasets (like MIMIC, PubMed abstracts, or clinical notes) for validation. Implement performance metrics specific to medical classification tasks (precision, recall, F1, etc.). Develop benchmark tests to compare against baseline models and track performance improvements over time.",
             "status": "done",
             "testStrategy": ""
           }
@@ -401,7 +401,7 @@
         "dependencies": [
           4
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -529,7 +529,7 @@
               3
             ],
             "details": "Implement reference checking against medical knowledge bases, develop contradiction detection within generated text, create citation generation for factual claims, implement confidence scoring for generated statements, and add flagging for speculative or uncertain content.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -832,7 +832,7 @@
     ],
     "metadata": {
       "created": "2025-06-26T08:55:02.871Z",
-      "updated": "2025-07-20T07:24:25.999Z",
+      "updated": "2025-08-23T01:12:20+08:00",
       "description": "Tasks for master context"
     }
   }

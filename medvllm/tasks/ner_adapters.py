@@ -56,11 +56,25 @@ class MedicalNERAdapter:
                 pass
             self.label_to_type = derived
 
-    @torch.no_grad()
     def run_inference(self, text: str, task_type: str = "ner") -> Dict[str, Any]:
         if task_type != "ner":
             return {"entities": []}
 
+        # Safe no-grad context: support when torch.no_grad is a non-callable object in tests
+        _nograd_cm = None
+        try:
+            _nograd_cm = torch.no_grad() if callable(torch.no_grad) else torch.no_grad
+        except Exception:
+            _nograd_cm = torch.no_grad if hasattr(torch, "no_grad") else None
+
+        if _nograd_cm is None:
+            # Fallback: do not use a no-grad context
+            return self._run_inference_impl(text)
+        else:
+            with _nograd_cm:
+                return self._run_inference_impl(text)
+
+    def _run_inference_impl(self, text: str) -> Dict[str, Any]:
         self.model.eval()
         self.model.to(self.device)
 
