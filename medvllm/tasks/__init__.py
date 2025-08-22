@@ -36,3 +36,13 @@ try:  # medical QA task (may require transformers)
     __all__.append("MedicalQA")
 except Exception:  # pragma: no cover
     MedicalQA = None  # type: ignore
+
+# Always export lightweight TextGenerator utilities
+try:
+    from .text_generator import TextGenerator, GenerationResult, MedicalConstraints  # type: ignore
+
+    __all__ += ["TextGenerator", "GenerationResult", "MedicalConstraints"]
+except Exception:  # pragma: no cover
+    TextGenerator = None  # type: ignore
+    GenerationResult = None  # type: ignore
+    MedicalConstraints = None  # type: ignore

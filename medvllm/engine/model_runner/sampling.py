@@ -134,7 +134,9 @@ class SamplingManager:
                 temp = seq.sampling_params.temperature
                 temperatures.append(float(temp) if temp is not None else 1.0)
             else:
-                temperatures.append(1.0)  # Default temperature
+                # Fallback: use Sequence.temperature if present, otherwise default to 1.0
+                temp = getattr(seq, "temperature", None)
+                temperatures.append(float(temp) if temp is not None else 1.0)
 
         # Sample tokens using the runner's sampler
         sampled = self.runner.sampler(processed_logits, temperatures)
