@@ -1,0 +1,20 @@
+{
+  "model_type": "biobert",
+  "batch_size": 1,
+  "seq_length": 128,
+  "use_kv_cache": true,
+  "precision": "fp32",
+  "device": "cpu",
+  "avg_latency_ms": 132.4718033283716,
+  "tokens_per_second": 966.2433573332818,
+  "memory_usage_mb": {
+    "cpu_rss_start_mb": 1202.87890625,
+    "cpu_rss_end_mb": 1202.87890625,
+    "cpu_rss_delta_mb": 0.0,
+    "cpu_vms_start_mb": 5484.58203125,
+    "cpu_vms_end_mb": 5484.58203125,
+    "cpu_vms_delta_mb": 0.0
+  },
+  "timestamp": 1755884168.0500195,
+  "gpu_info": null
+}
