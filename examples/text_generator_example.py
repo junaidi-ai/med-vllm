@@ -56,9 +56,41 @@ def main() -> None:
         style="patient_friendly",
     )
 
+    # New: Template-based strategy
+    res_template = tg.generate(
+        "Explain what HbA1c measures.",
+        strategy="template",
+        template="Instruction: {prompt}\nOutput: Provide a lay explanation.",
+        max_length=64,
+    )
+
+    # New: Few-shot strategy
+    few_shot_examples = [
+        {"input": "What is hypertension?", "output": "High blood pressure."},
+        ("What is BMI?", "Body mass index."),
+    ]
+    res_few_shot = tg.generate(
+        "Define tachycardia.",
+        strategy="few_shot",
+        few_shot_examples=few_shot_examples,
+        temperature=0.7,
+        max_length=96,
+    )
+
+    # New: Backend selection (T5-style prompt preparation)
+    res_t5_backend = tg.generate(
+        "Summarize the patient case.",
+        strategy="greedy",
+        backend="t5",
+        max_length=64,
+    )
+
     print("\n--- Greedy ---\n", res_greedy.generated_text)
     print("\n--- Sampling ---\n", res_sampling.generated_text)
     print("\n--- With Context ---\n", res_context.generated_text)
+    print("\n--- Template Strategy ---\n", res_template.generated_text)
+    print("\n--- Few-shot Strategy ---\n", res_few_shot.generated_text)
+    print("\n--- T5 Backend ---\n", res_t5_backend.generated_text)
 
 
 if __name__ == "__main__":

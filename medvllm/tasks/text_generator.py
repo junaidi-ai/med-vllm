@@ -20,6 +20,8 @@ import torch
 
 from medvllm.llm import LLM
 from medvllm.sampling_params import SamplingParams
+from .generation_strategies import create_strategy
+from .generation_backends import create_backend
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +101,11 @@ class TextGenerator:
         beam_width: int = 3,
         style: Optional[str] = None,
         ignore_eos: bool = False,
+        # runtime configuration for adapters/strategies
+        backend: str = "gpt",
+        template: Optional[str] = None,
+        template_vars: Optional[Dict[str, Any]] = None,
+        few_shot_examples: Optional[List[Any]] = None,
     ) -> GenerationResult:
         """Generate text according to the strategy and constraints.
 
@@ -108,37 +115,41 @@ class TextGenerator:
         - beam: simple multi-sample selection of N candidates (not true beam search)
         """
         styled_prompt = self._apply_style(prompt, style)
+        backend_adapter = create_backend(backend)
+        prepared_prompt = backend_adapter.prepare_prompt(styled_prompt)
 
         # Configure logits processor for top-p/top-k if requested
         logits_processor = self._build_logits_processor(top_p=top_p, top_k=top_k)
         self._set_logits_processor(logits_processor)
 
-        effective_temperature = temperature
-        if strategy == "greedy":
-            sp = SamplingParams(temperature=0.0, max_tokens=max_length, ignore_eos=ignore_eos)
-            effective_temperature = 0.0
-            text = self._run_once(styled_prompt, sp)
-        elif strategy == "sampling":
-            sp = SamplingParams(
-                temperature=temperature, max_tokens=max_length, ignore_eos=ignore_eos
-            )
-            text = self._run_once(styled_prompt, sp)
-        elif strategy == "beam":
-            # Simple multi-sample approach: take the first constraint-compliant candidate
-            candidates: List[str] = []
-            for i in range(max(1, beam_width)):
-                sp = SamplingParams(
-                    temperature=temperature if i > 0 else 0.0,
-                    max_tokens=max_length,
-                    ignore_eos=ignore_eos,
-                )
-                candidates.append(self._run_once(styled_prompt, sp))
-            text = self._select_best(candidates)
-        else:
-            raise ValueError(f"Unknown strategy: {strategy}")
+        # Strategy selection
+        strat = create_strategy(
+            strategy,
+            template=template,
+            template_vars=template_vars,
+            few_shot_examples=few_shot_examples,
+        )
+
+        def runner(p: str, sp: SamplingParams) -> str:
+            return self._run_once(p, sp)
+
+        text = strat.generate(
+            prepared_prompt,
+            runner,
+            max_length=max_length,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            beam_width=beam_width,
+            ignore_eos=ignore_eos,
+        )
+
+        # Meta retains 0 temp for greedy
+        effective_temperature = 0.0 if strategy.lower() == "greedy" else temperature
 
         # Apply output-side constraints and optional disclaimer
-        filtered = self.constraints.apply_output_filters(text)
+        post_text = backend_adapter.postprocess(text)
+        filtered = self.constraints.apply_output_filters(post_text)
 
         meta: Dict[str, Any] = {
             "strategy": strategy,

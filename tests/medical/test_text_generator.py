@@ -72,3 +72,40 @@ def test_generate_with_context_prefix() -> None:
     # The engine echoes a slice of the prompt part; ensure context prefix is included in the echoed text
     assert "Context:" in res.generated_text
     assert "Prompt:" in res.generated_text
+
+
+def test_template_strategy_outputs_formatted_text() -> None:
+    tg = TextGenerator(FakeEngine(), constraints=MedicalConstraints(enforce_disclaimer=False))
+    prompt = "Explain what HbA1c measures."
+    tpl = "Instruction: {prompt}\nOutput: Provide a lay explanation."
+    res = tg.generate(prompt, strategy="template", template=tpl, max_length=64)
+    assert "Instruction:" in res.generated_text
+    assert "Provide a lay explanation." in res.generated_text
+
+
+def test_few_shot_strategy_includes_examples() -> None:
+    tg = TextGenerator(FakeEngine(), constraints=MedicalConstraints(enforce_disclaimer=False))
+    examples = [
+        {"input": "What is hypertension?", "output": "High blood pressure."},
+        ("What is BMI?", "Body mass index."),
+    ]
+    res = tg.generate(
+        "Define tachycardia.",
+        strategy="few_shot",
+        few_shot_examples=examples,
+        temperature=0.7,
+        max_length=96,
+    )
+    assert "Here are examples:" in res.generated_text
+    assert "Input: What is hypertension?" in res.generated_text
+
+
+def test_backend_adapter_t5_prefixes_instruction() -> None:
+    tg = TextGenerator(FakeEngine(), constraints=MedicalConstraints(enforce_disclaimer=False))
+    res = tg.generate(
+        "Summarize the patient case.",
+        strategy="greedy",
+        backend="t5",
+        max_length=64,
+    )
+    assert "instruction:" in res.generated_text.lower()
