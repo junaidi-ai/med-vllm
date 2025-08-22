@@ -13,7 +13,7 @@ This module is intentionally lightweight and self-contained.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 import logging
 
 import torch
@@ -42,6 +42,29 @@ class MedicalConstraints:
     enforce_disclaimer: bool = True
     # Optional simple length/content constraints
     max_length_chars: Optional[int] = None
+    # HIPAA/PII filtering (very lightweight regex-based)
+    hipaa_filter_enabled: bool = True
+    # Ontology verification of medical terms (uses NERProcessor stubs)
+    ontology_verify_enabled: bool = True
+    ontology_default: str = "UMLS"
+    # Abbreviation handling (expand common medical abbreviations)
+    expand_abbreviations: bool = False
+    abbreviation_map: Dict[str, str] = field(
+        default_factory=lambda: {
+            "MI": "myocardial infarction",
+            "HTN": "hypertension",
+            "DM": "diabetes mellitus",
+            "CVA": "stroke",
+            "BP": "blood pressure",
+            "HR": "heart rate",
+            "ASA": "aspirin",
+            "Hb": "hemoglobin",
+        }
+    )
+    # Formatting rules
+    normalize_units_spacing: bool = True
+    # Profile controls (purpose-specific presets): 'patient', 'clinical', 'research'
+    profile: Optional[str] = None
 
     def apply_output_filters(self, text: str) -> str:
         # Redact banned phrases in a simple way
@@ -59,6 +82,156 @@ class MedicalConstraints:
                 sep = "\n\n" if not text.endswith("\n") else "\n"
                 text = f"{text}{sep}{self.required_disclaimer}"
         return text
+
+    # --- extended filters/utilities ---
+    def apply_profile_overrides(self, purpose: Optional[str]) -> None:
+        """Adjust constraint toggles based on purpose profile.
+
+        - patient: strong HIPAA, expand abbreviations, keep disclaimer
+        - clinical: strong HIPAA, no disclaimer append, do not expand abbreviations
+        - research: moderate HIPAA, keep disclaimer optional
+        """
+        if not purpose:
+            return
+        p = str(purpose).strip().lower()
+        self.profile = p
+        if p in {"patient", "patient_communication", "patient-friendly"}:
+            self.hipaa_filter_enabled = True
+            self.expand_abbreviations = True
+            self.enforce_disclaimer = True
+        elif p in {"clinical", "clinical_notes", "notes"}:
+            self.hipaa_filter_enabled = True
+            self.expand_abbreviations = False
+            # Clinical notes typically don't include disclaimers in the body
+            self.enforce_disclaimer = False
+        elif p in {"research", "paper", "publication"}:
+            self.hipaa_filter_enabled = True
+            self.expand_abbreviations = False
+            # Disclaimer optional
+            self.enforce_disclaimer = False
+
+    def _hipaa_redact(self, text: str) -> Tuple[str, Dict[str, int]]:
+        """Very simple PII redaction using regex; returns (text, counts).
+
+        Patterns covered:
+        - Dates (YYYY-MM-DD, MM/DD/YYYY)
+        - Phone numbers
+        - Email addresses
+        - SSN-like numbers
+        - MRN-like IDs (alphanumeric 6-10 chars)
+        - Addresses (very naive: numbers + street)
+        """
+        import re
+
+        counts: Dict[str, int] = {
+            "date": 0,
+            "phone": 0,
+            "email": 0,
+            "ssn": 0,
+            "mrn": 0,
+            "address": 0,
+        }
+        s = text
+
+        def sub_count(pattern: str, repl: str, key: str) -> None:
+            nonlocal s
+            found = re.findall(pattern, s)
+            if not found:
+                return
+            counts[key] += len(found)
+            s = re.sub(pattern, repl, s)
+
+        sub_count(r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4})\b", "[DATE]", "date")
+        sub_count(
+            r"\b(?:\+?\d{1,2}[ -]?)?(?:\(\d{3}\)|\d{3})[ -]?\d{3}[ -]?\d{4}\b", "[PHONE]", "phone"
+        )
+        sub_count(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", "[EMAIL]", "email")
+        sub_count(r"\b\d{3}-\d{2}-\d{4}\b", "[SSN]", "ssn")
+        # MRN-like IDs: 6-10 upper alnum chars with at least one digit
+        sub_count(r"\b(?=[A-Z0-9]*\d)[A-Z0-9]{6,10}\b", "[ID]", "mrn")
+        sub_count(
+            r"\b\d+\s+[A-Za-z]+\s+(Street|St|Ave|Avenue|Rd|Road|Blvd|Lane|Ln)\b",
+            "[ADDRESS]",
+            "address",
+        )
+        return s, counts
+
+    def _expand_abbr(self, text: str) -> Tuple[str, Dict[str, int]]:
+        import re
+
+        counts: Dict[str, int] = {"expanded": 0}
+        s = text
+        for abbr, long_form in self.abbreviation_map.items():
+            # If already present as Long (ABBR), skip; otherwise, expand first occurrence
+            if re.search(
+                rf"\b{re.escape(long_form)}\s*\(\s*{re.escape(abbr)}\s*\)", s, flags=re.IGNORECASE
+            ):
+                continue
+            # Expand standalone ABBR not part of a larger word
+            pattern = rf"\b{re.escape(abbr)}\b"
+            if re.search(pattern, s):
+                s = re.sub(pattern, f"{long_form} ({abbr})", s, count=1)
+                counts["expanded"] += 1
+        return s, counts
+
+    def _format_units(self, text: str) -> Tuple[str, Dict[str, int]]:
+        import re
+
+        units = ["mg", "g", "mcg", "kg", "mL", "mmHg", "bpm"]
+        s = text
+        changes = 0
+        for u in units:
+            # Ensure a space between number and unit (e.g., 10mg -> 10 mg)
+            # Do not break composite units like mg/dL
+            pattern = rf"(\d)(?:\s?){re.escape(u)}\b"
+            repl = rf"\\1 {u}"
+            new_s = re.sub(pattern, repl, s)
+            if new_s != s:
+                diff = len(re.findall(pattern, s))
+                changes += diff
+                s = new_s
+        return s, {"unit_spacing_normalized": changes}
+
+    def verify_via_ontology(self, text: str, ontology: Optional[str] = None) -> Dict[str, Any]:
+        """Use the lightweight NERProcessor to find and link medical entities.
+
+        Returns a report dict with linked entities and any entities that failed to link
+        above the fuzzy threshold.
+        """
+        if not self.ontology_verify_enabled:
+            return {"enabled": False}
+        try:
+            # Lazy import to avoid heavy deps during test collection
+            from .ner_processor import NERProcessor
+        except Exception:
+            return {"enabled": True, "error": "ner_processor_unavailable"}
+
+        try:
+            proc = NERProcessor(inference_pipeline=None, config=None)
+            ner = proc.extract_entities(text)
+            linked = proc.link_entities(ner, ontology=ontology or self.ontology_default)
+            linked_list = []
+            unverified: List[Dict[str, Any]] = []
+            for e in linked.entities:
+                links = e.get("ontology_links") or []
+                if links:
+                    # only surface a compact summary
+                    link0 = links[0]
+                    linked_list.append(
+                        {
+                            "text": e.get("text"),
+                            "type": e.get("type"),
+                            "code": link0.get("code"),
+                            "ontology": link0.get("ontology"),
+                            "name": link0.get("name"),
+                            "score": link0.get("score"),
+                        }
+                    )
+                else:
+                    unverified.append({"text": e.get("text"), "type": e.get("type")})
+            return {"enabled": True, "linked": linked_list, "unverified": unverified}
+        except Exception as e:
+            return {"enabled": True, "error": str(e)}
 
 
 class TextGenerator:
@@ -106,6 +279,8 @@ class TextGenerator:
         template: Optional[str] = None,
         template_vars: Optional[Dict[str, Any]] = None,
         few_shot_examples: Optional[List[Any]] = None,
+        # purpose/profile for constraints
+        purpose: Optional[str] = None,
     ) -> GenerationResult:
         """Generate text according to the strategy and constraints.
 
@@ -114,6 +289,12 @@ class TextGenerator:
         - sampling: temperature>0 with optional top_p/top_k
         - beam: simple multi-sample selection of N candidates (not true beam search)
         """
+        # Apply purpose/profile overrides on constraints if provided
+        try:
+            self.constraints.apply_profile_overrides(purpose)
+        except Exception:
+            pass
+
         styled_prompt = self._apply_style(prompt, style)
         backend_adapter = create_backend(backend)
         prepared_prompt = backend_adapter.prepare_prompt(styled_prompt)
@@ -147,9 +328,48 @@ class TextGenerator:
         # Meta retains 0 temp for greedy
         effective_temperature = 0.0 if strategy.lower() == "greedy" else temperature
 
-        # Apply output-side constraints and optional disclaimer
+        # Apply output-side constraints in stages
         post_text = backend_adapter.postprocess(text)
-        filtered = self.constraints.apply_output_filters(post_text)
+        constraints_report: Dict[str, Any] = {}
+
+        # HIPAA redaction
+        redacted_text = post_text
+        if getattr(self.constraints, "hipaa_filter_enabled", False):
+            try:
+                redacted_text, hipaa_counts = self.constraints._hipaa_redact(redacted_text)
+                constraints_report["hipaa"] = hipaa_counts
+            except Exception as e:
+                constraints_report["hipaa_error"] = str(e)
+
+        # Abbreviation expansion (e.g., patient-friendly)
+        expanded_text = redacted_text
+        if getattr(self.constraints, "expand_abbreviations", False):
+            try:
+                expanded_text, abbr_counts = self.constraints._expand_abbr(expanded_text)
+                constraints_report["abbreviations"] = abbr_counts
+            except Exception as e:
+                constraints_report["abbr_error"] = str(e)
+
+        # Formatting rules
+        formatted_text = expanded_text
+        if getattr(self.constraints, "normalize_units_spacing", False):
+            try:
+                formatted_text, fmt_counts = self.constraints._format_units(formatted_text)
+                constraints_report["formatting"] = fmt_counts
+            except Exception as e:
+                constraints_report["formatting_error"] = str(e)
+
+        # Ontology verification on the text after PHI redaction and formatting
+        try:
+            ont_report = self.constraints.verify_via_ontology(
+                formatted_text, ontology=self.constraints.ontology_default
+            )
+            constraints_report["ontology"] = ont_report
+        except Exception as e:
+            constraints_report["ontology_error"] = str(e)
+
+        # Finally, apply generic content filters (banned phrases, disclaimer, etc.)
+        filtered = self.constraints.apply_output_filters(formatted_text)
 
         meta: Dict[str, Any] = {
             "strategy": strategy,
@@ -158,6 +378,8 @@ class TextGenerator:
             "top_k": top_k,
             "beam_width": beam_width,
             "style": style,
+            "purpose": purpose,
+            "constraints_report": constraints_report,
         }
 
         return GenerationResult(prompt=prompt, generated_text=filtered, metadata=meta)
