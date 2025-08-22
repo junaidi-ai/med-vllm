@@ -21,6 +21,8 @@ import torch
 sys.path.append(str(Path(__file__).parent.parent))
 from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter
 from tests.medical.memory_profiler import MemoryProfiler
+from medvllm.utils.ner_metrics import compute_ner_metrics
+from medvllm.tasks import NERProcessor
 
 
 def get_system_info() -> Dict[str, Any]:
@@ -277,6 +279,90 @@ class MedicalModelBenchmark:
 
         return results
 
+    # --- NER metrics on JSONL fixture (regex/gazetteer fallback) ---
+    def evaluate_fixture_ner(
+        self,
+        dataset_jsonl: Optional[str] = None,
+        match: str = "strict",
+        iou_threshold: float = 0.5,
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate NER on a JSONL fixture with fields: text, entities, split.
+
+        This uses the rule-based/gazetteer fallback in NERProcessor to extract
+        entities and computes strict/overlap metrics.
+        """
+        if not dataset_jsonl:
+            # default to project fixture if present
+            default_path = (
+                Path(__file__).parent.parent / "tests/fixtures/data/datasets/ner_dataset.jsonl"
+            )
+            dataset_jsonl = str(default_path)
+
+        path = Path(dataset_jsonl)
+        if not path.exists():
+            print(f"[ner] Skipping: dataset JSONL not found at {path}")
+            return None
+
+        # Load data
+        rows: List[Dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    rows.append(json.loads(line))
+        except Exception as e:
+            print(f"[ner] Failed to read JSONL: {e}")
+            return None
+
+        test_rows = [r for r in rows if str(r.get("split", "")).lower() == "test"] or rows
+        if not test_rows:
+            print("[ner] Skipping: no rows available for evaluation")
+            return None
+
+        # Processor with extended gazetteer for better coverage
+        from types import SimpleNamespace
+
+        cfg = SimpleNamespace(ner_enable_extended_gazetteer=True)
+        proc = NERProcessor(inference_pipeline=None, config=cfg)
+
+        gold_docs = []
+        pred_docs = []
+        for r in test_rows:
+            text = r.get("text", "")
+            gold = r.get("entities", [])
+            gold_docs.append(
+                [
+                    {"start": int(e["start"]), "end": int(e["end"]), "type": str(e["type"]).lower()}
+                    for e in gold
+                ]
+            )
+            res = proc.extract_entities(text)
+            pred_docs.append(
+                [
+                    {"start": int(e["start"]), "end": int(e["end"]), "type": str(e["type"]).lower()}
+                    for e in res.entities
+                ]
+            )
+
+        metrics = compute_ner_metrics(
+            gold_docs, pred_docs, match=match, iou_threshold=iou_threshold
+        )
+        result = {
+            "model_type": self.config.model_type,
+            "dataset_jsonl": str(path),
+            "match": match,
+            "iou_threshold": iou_threshold,
+            "num_examples": len(test_rows),
+            "metrics": metrics,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        self._save_ner_result(result)
+        self._print_ner_result(result)
+        return result
+
     # --- Classification accuracy on fixtures (majority baseline) ---
     def evaluate_fixture_classification(self) -> Optional[Dict[str, Any]]:
         """Evaluate simple majority-class baseline accuracy on a fixture CSV.
@@ -446,6 +532,26 @@ class MedicalModelBenchmark:
             except Exception as e:
                 print(f"[debug] Post-write check failed for classification JSON: {e}")
 
+    def _save_ner_result(self, result: Dict[str, Any]):
+        ts = int(time.time())
+        filename = f"{self.config.model_type}_ner_metrics_{ts}.json"
+        filepath = self.output_dir / filename
+        if self.config.debug_io:
+            print(f"[debug] Writing NER metrics JSON to: {filepath}")
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(result, f, indent=2)
+        except Exception as e:
+            print(f"[debug] Failed to write NER JSON: {e}")
+            return
+        if self.config.debug_io:
+            try:
+                exists = filepath.exists()
+                size = filepath.stat().st_size if exists else -1
+                print(f"[debug] NER JSON write complete. exists={exists} size={size}")
+            except Exception as e:
+                print(f"[debug] Post-write check failed for NER JSON: {e}")
+
     @staticmethod
     def _print_classification_result(result: Dict[str, Any]):
         print("\n" + "=" * 50)
@@ -460,6 +566,27 @@ class MedicalModelBenchmark:
         print(f"Precision:       {m['precision']:.4f}")
         print(f"Recall:          {m['recall']:.4f}")
         print(f"F1:              {m['f1']:.4f}")
+        print("=" * 50 + "\n")
+
+    @staticmethod
+    def _print_ner_result(result: Dict[str, Any]):
+        print("\n" + "=" * 50)
+        print(
+            f"NER Metrics - {result['model_type']} (match: {result['match']}, IoU: {result['iou_threshold']})"
+        )
+        print("=" * 50)
+        print(f"Dataset:         {result['dataset_jsonl']}")
+        print(f"Num Examples:    {result['num_examples']}")
+        print("-" * 50)
+        micro = result["metrics"]["micro"]
+        macro = result["metrics"].get("macro", {})
+        print(
+            f"Micro P/R/F1:    {micro['precision']:.4f} / {micro['recall']:.4f} / {micro['f1']:.4f}"
+        )
+        if macro:
+            print(
+                f"Macro P/R/F1:    {macro['precision']:.4f} / {macro['recall']:.4f} / {macro['f1']:.4f}"
+            )
         print("=" * 50 + "\n")
 
     def _save_result(self, result: BenchmarkResult):
@@ -606,6 +733,31 @@ def parse_args():
         action="store_true",
         help="Print debug information when writing JSON outputs",
     )
+    # NER options
+    parser.add_argument(
+        "--test-ner",
+        action="store_true",
+        help="Evaluate NER strict/overlap metrics on the JSONL fixture dataset",
+    )
+    parser.add_argument(
+        "--ner-dataset-jsonl",
+        type=str,
+        default=None,
+        help="Path to JSONL dataset with fields: text, entities, split (defaults to project fixture)",
+    )
+    parser.add_argument(
+        "--ner-match",
+        type=str,
+        choices=["strict", "overlap"],
+        default="strict",
+        help="NER matching strategy: strict or overlap",
+    )
+    parser.add_argument(
+        "--ner-iou-threshold",
+        type=float,
+        default=0.5,
+        help="IoU threshold for overlap matching",
+    )
 
     return parser.parse_args()
 
@@ -645,3 +797,10 @@ if __name__ == "__main__":
     benchmark.evaluate_fixture_classification()
     # Optional classification metrics on a small Hugging Face dataset sample
     benchmark.evaluate_hf_dataset_classification()
+    # Optional NER metrics on JSONL fixture
+    if args.test_ner:
+        benchmark.evaluate_fixture_ner(
+            dataset_jsonl=args.ner_dataset_jsonl,
+            match=args.ner_match,
+            iou_threshold=args.ner_iou_threshold,
+        )
