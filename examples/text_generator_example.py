@@ -85,12 +85,37 @@ def main() -> None:
         max_length=64,
     )
 
+    # New: Fine-grained length and style controls
+    res_controls = tg.generate(
+        "Create discharge instructions for pneumonia.",
+        strategy="beam",
+        beam_width=3,
+        max_length=128,
+        readability="general",  # audience: general public
+        tone="friendly",  # conversational tone
+        structure="bullet",  # bullet points
+        specialty="pulmonology",  # domain focus
+        target_words=80,  # soft cap
+        target_chars=600,  # hard cap via constraints
+    )
+
+    # New: Load and apply a style preset (JSON)
+    # See: examples/presets/patient_education.json
+    res_preset = tg.generate(
+        "Patient education on diabetes foot care.",
+        strategy="greedy",
+        style_preset="examples/presets/patient_education.json",
+        max_length=96,
+    )
+
     print("\n--- Greedy ---\n", res_greedy.generated_text)
     print("\n--- Sampling ---\n", res_sampling.generated_text)
     print("\n--- With Context ---\n", res_context.generated_text)
     print("\n--- Template Strategy ---\n", res_template.generated_text)
     print("\n--- Few-shot Strategy ---\n", res_few_shot.generated_text)
     print("\n--- T5 Backend ---\n", res_t5_backend.generated_text)
+    print("\n--- Style Controls ---\n", res_controls.generated_text)
+    print("\n--- Preset (patient education) ---\n", res_preset.generated_text)
 
 
 if __name__ == "__main__":

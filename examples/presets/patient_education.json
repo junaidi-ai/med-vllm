@@ -1,0 +1,11 @@
+{
+  "readability_level": "general",
+  "tone": "friendly",
+  "structure": "bullet",
+  "specialty": "endocrinology",
+  "target_word_count": 150,
+  "enforce_disclaimer": true,
+  "required_disclaimer": "This information is not a substitute for professional medical advice.",
+  "hipaa_filter_enabled": true,
+  "expand_abbreviations": true
+}

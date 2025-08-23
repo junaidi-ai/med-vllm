@@ -13,10 +13,12 @@ This module is intentionally lightweight and self-contained.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 import logging
 
 import torch
+import json
+import os
 
 from medvllm.llm import LLM
 from medvllm.sampling_params import SamplingParams
@@ -88,6 +90,13 @@ class MedicalConstraints:
     normalize_units_spacing: bool = True
     # Profile controls (purpose-specific presets): 'patient', 'clinical', 'research'
     profile: Optional[str] = None
+    # Readability, tone, structure and specialty styling toggles
+    readability_level: Optional[str] = None  # 'general' | 'specialist'
+    tone: Optional[str] = None  # 'formal' | 'informal'
+    structure: Optional[str] = None  # 'soap' | 'bullet' | 'paragraph'
+    specialty: Optional[str] = None  # e.g., 'cardiology', 'oncology'
+    # Length controls
+    target_word_count: Optional[int] = None
 
     def apply_output_filters(self, text: str) -> str:
         # Redact banned phrases in a simple way
@@ -132,6 +141,41 @@ class MedicalConstraints:
             self.expand_abbreviations = False
             # Disclaimer optional
             self.enforce_disclaimer = False
+
+    # --- presets ---
+    def apply_preset(self, preset: Dict[str, Any]) -> None:
+        """Shallow update of constraint-related fields from a preset dict."""
+        if not isinstance(preset, dict):
+            return
+        # recognized keys
+        keys = {
+            "banned_phrases",
+            "required_disclaimer",
+            "enforce_disclaimer",
+            "max_length_chars",
+            "hipaa_filter_enabled",
+            "ontology_verify_enabled",
+            "ontology_default",
+            "factual_checks_enabled",
+            "contradiction_detection_enabled",
+            "speculative_flagging_enabled",
+            "confidence_scoring_enabled",
+            "add_inline_citations",
+            "append_references_section",
+            "hedging_markers",
+            "expand_abbreviations",
+            "abbreviation_map",
+            "normalize_units_spacing",
+            "profile",
+            "readability_level",
+            "tone",
+            "structure",
+            "specialty",
+            "target_word_count",
+        }
+        for k in keys:
+            if k in preset:
+                setattr(self, k, preset[k])
 
     def _hipaa_redact(self, text: str) -> Tuple[str, Dict[str, int]]:
         """Very simple PII redaction using regex; returns (text, counts).
@@ -305,6 +349,15 @@ class TextGenerator:
         few_shot_examples: Optional[List[Any]] = None,
         # purpose/profile for constraints
         purpose: Optional[str] = None,
+        # new: fine-grained styling & length controls
+        readability: Optional[str] = None,
+        tone: Optional[str] = None,
+        structure: Optional[str] = None,
+        specialty: Optional[str] = None,
+        target_words: Optional[int] = None,
+        target_chars: Optional[int] = None,
+        # simple JSON style preset support (path or dict)
+        style_preset: Optional[Union[str, Dict[str, Any]]] = None,
     ) -> GenerationResult:
         """Generate text according to the strategy and constraints.
 
@@ -319,7 +372,46 @@ class TextGenerator:
         except Exception:
             pass
 
-        styled_prompt = self._apply_style(prompt, style)
+        # Apply (optional) preset first
+        preset_meta: Dict[str, Any] = {}
+        if style_preset is not None:
+            try:
+                if isinstance(style_preset, str):
+                    loaded = self.load_style_preset(style_preset)
+                    if isinstance(loaded, dict):
+                        self.constraints.apply_preset(loaded)
+                        preset_meta["loaded_preset_path"] = style_preset
+                elif isinstance(style_preset, dict):
+                    self.constraints.apply_preset(style_preset)
+                    preset_meta["loaded_preset_inline"] = True
+            except Exception as e:
+                preset_meta["preset_error"] = str(e)
+
+        # Override constraint length by characters if specified
+        if target_chars is not None and target_chars > 0:
+            self.constraints.max_length_chars = target_chars
+        # Keep target words inside constraints for metadata, but enforce post-gen
+        if target_words is not None and target_words > 0:
+            self.constraints.target_word_count = target_words
+        # Adjust readability/tone/structure/specialty at constraint level for metadata
+        if readability:
+            self.constraints.readability_level = readability
+        if tone:
+            self.constraints.tone = tone
+        if structure:
+            self.constraints.structure = structure
+        if specialty:
+            self.constraints.specialty = specialty
+
+        styled_prompt = self._apply_style_components(
+            prompt,
+            style=style,
+            readability=self.constraints.readability_level,
+            tone=self.constraints.tone,
+            structure=self.constraints.structure,
+            specialty=self.constraints.specialty,
+            target_words=self.constraints.target_word_count,
+        )
         backend_adapter = create_backend(backend)
         prepared_prompt = backend_adapter.prepare_prompt(styled_prompt)
 
@@ -354,6 +446,15 @@ class TextGenerator:
 
         # Apply output-side constraints in stages
         post_text = backend_adapter.postprocess(text)
+        # Enforce target word count softly after generation (before other filters)
+        if (
+            self.constraints.target_word_count is not None
+            and self.constraints.target_word_count > 0
+        ):
+            try:
+                post_text = self._truncate_by_words(post_text, self.constraints.target_word_count)
+            except Exception:
+                pass
         constraints_report: Dict[str, Any] = {}
 
         # HIPAA redaction
@@ -422,9 +523,17 @@ class TextGenerator:
             "beam_width": beam_width,
             "style": style,
             "purpose": purpose,
+            "readability": self.constraints.readability_level,
+            "tone": self.constraints.tone,
+            "structure": self.constraints.structure,
+            "specialty": self.constraints.specialty,
+            "target_words": self.constraints.target_word_count,
+            "target_chars": self.constraints.max_length_chars,
             "constraints_report": constraints_report,
             "factual_report": factual_report,
         }
+        if preset_meta:
+            meta["style_preset"] = preset_meta
 
         return GenerationResult(prompt=prompt, generated_text=filtered, metadata=meta)
 
@@ -458,18 +567,86 @@ class TextGenerator:
     # Internal helpers
     # -----------------------------
     def _apply_style(self, prompt: str, style: Optional[str]) -> str:
-        if not style:
-            return prompt
-        style = style.lower()
-        if style == "concise":
-            prefix = "Please respond concisely and to the point.\n\n"
-        elif style == "formal":
-            prefix = "Use a formal, clinical tone suitable for medical documentation.\n\n"
-        elif style == "patient_friendly":
-            prefix = "Explain in plain language suitable for patients. Avoid jargon.\n\n"
-        else:
-            prefix = f"Style: {style}. Write accordingly.\n\n"
-        return prefix + prompt
+        # Backward-compatible wrapper
+        return self._apply_style_components(prompt, style=style)
+
+    def _apply_style_components(
+        self,
+        prompt: str,
+        *,
+        style: Optional[str] = None,
+        readability: Optional[str] = None,
+        tone: Optional[str] = None,
+        structure: Optional[str] = None,
+        specialty: Optional[str] = None,
+        target_words: Optional[int] = None,
+    ) -> str:
+        """Compose an instruction prefix capturing style controls in a simple way."""
+        lines: List[str] = []
+        # Legacy style presets
+        if style:
+            s = style.lower()
+            if s == "concise":
+                lines.append("Please respond concisely and to the point.")
+            elif s == "formal":
+                lines.append("Use a formal, clinical tone suitable for medical documentation.")
+            elif s in {"patient_friendly", "patient-friendly", "lay"}:
+                lines.append("Explain in plain language suitable for patients. Avoid jargon.")
+            else:
+                lines.append(f"Style: {style}. Write accordingly.")
+
+        # Readability
+        if readability:
+            r = readability.lower()
+            if r in {"general", "patient", "public"}:
+                lines.append("Audience: general public. Avoid technical jargon; define terms.")
+            elif r in {"specialist", "professional", "clinician"}:
+                lines.append("Audience: medical professionals. Use precise clinical terminology.")
+
+        # Tone
+        if tone:
+            t = tone.lower()
+            if t in {"formal", "clinical"}:
+                lines.append("Tone: formal, objective, and clinically precise.")
+            elif t in {"informal", "friendly"}:
+                lines.append("Tone: conversational and approachable while remaining accurate.")
+
+        # Structure templates
+        if structure:
+            st = structure.lower()
+            if st in {"soap", "soap_notes", "soap-note"}:
+                lines.append(
+                    "Structure the response as SOAP notes: Subjective, Objective, Assessment, Plan."
+                )
+            elif st in {"bullet", "bulleted"}:
+                lines.append("Use concise bullet points where appropriate.")
+            elif st in {"paragraph", "narrative"}:
+                lines.append("Use cohesive paragraphs with clear transitions.")
+
+        # Specialty-specific styling
+        if specialty:
+            lines.append(
+                f"Specialty focus: {specialty}. Prefer terminology and nuances for this domain."
+            )
+
+        # Target length (words)
+        if target_words is not None and target_words > 0:
+            lines.append(f"Target length: about {int(target_words)} words (concise if possible).")
+
+        if lines:
+            prefix = "\n".join(lines) + "\n\n"
+            return prefix + prompt
+        return prompt
+
+    def _truncate_by_words(self, text: str, max_words: int) -> str:
+        words = text.split()
+        if len(words) <= max_words:
+            return text
+        truncated = " ".join(words[:max_words]).rstrip()
+        # Preserve closing punctuation if it exists shortly after cutoff
+        if not truncated.endswith(('.', '!', '?')):
+            truncated += "..."
+        return truncated
 
     def _run_once(self, prompt: str, sp: SamplingParams) -> str:
         outputs = self.engine.generate([prompt], sp, use_tqdm=False)
@@ -717,3 +894,23 @@ class TextGenerator:
         if text_with_citations is not None:
             report["text_with_citations"] = text_with_citations
         return report
+
+    # -----------------------------
+    # Style preset I/O helpers
+    # -----------------------------
+    def save_style_preset(self, path: str, preset: Dict[str, Any]) -> None:
+        """Save a style preset dict to a JSON file."""
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(preset, f, indent=2, ensure_ascii=False)
+
+    def load_style_preset(self, path: str) -> Dict[str, Any]:
+        """Load a style preset dict from a JSON file. Returns empty dict on failure."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except Exception as e:
+            logger.warning(f"Failed to load style preset '{path}': {e}")
+        return {}
