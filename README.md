@@ -96,6 +96,21 @@ coverage html
 
 The HTML report will be available in the `htmlcov` directory.
 
+### Quality & Evaluation
+
+- A/B smoke for text generation strategies (offline echo engine):
+
+  ```bash
+  python scripts/ab_test_textgen.py --dataset benchmarks/datasets/textgen_small.jsonl --output benchmark_results_cpu_smoke/textgen_ab_results.json
+  ```
+
+- Domain expert evaluation protocol and template: see `docs/expert_eval_protocol.md` and `docs/expert_eval_template.csv`.
+  Aggregate filled scores with:
+
+  ```bash
+  python scripts/aggregate_expert_eval.py path/to/your_eval.csv
+  ```
+
 ### Test Structure
 
 The test suite is organized as follows:

@@ -1,0 +1,3 @@
+evaluator,item_id,strategy,accuracy,clarity,completeness,safety,tone_style,notes
+JD,ex1,greedy,4,4,3,5,4,
+JD,ex1,sampling,3,4,3,4,4,

@@ -33,6 +33,12 @@ jobs:
         # Use pytest.ini's configuration (testpaths=tests)
         python -m pytest -v --cov=medvllm --cov-report=xml
     
+    - name: A/B smoke (echo engine)
+      run: |
+        python scripts/ab_test_textgen.py \
+          --dataset benchmarks/datasets/textgen_small.jsonl \
+          --output benchmark_results_cpu_smoke/textgen_ab_results.json
+    
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
