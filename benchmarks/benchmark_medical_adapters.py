@@ -1,7 +1,10 @@
 """Benchmark script for medical model adapters."""
 
 import argparse
+import json
+import os
 import time
+from datetime import datetime
 from typing import Dict, Tuple
 
 import numpy as np
@@ -20,6 +23,15 @@ def parse_args():
         default="biobert",
         choices=["biobert", "clinicalbert"],
         help="Type of medical model to benchmark",
+    )
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default="",
+        help=(
+            "Hugging Face model identifier or local path. "
+            "Defaults: biobert=monologg/biobert_v1.1_pubmed, clinicalbert=emilyalsentzer/Bio_ClinicalBERT"
+        ),
     )
     parser.add_argument(
         "--batch-sizes",
@@ -61,6 +73,17 @@ def parse_args():
         "--use-mixed-precision",
         action="store_true",
         help="Use mixed precision (FP16) for inference",
+    )
+    parser.add_argument(
+        "--force-cpu",
+        action="store_true",
+        help="Force CPU even if CUDA is available",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="benchmark_results_cpu_smoke",
+        help="Directory to save JSON results",
     )
     return parser.parse_args()
 
@@ -133,13 +156,15 @@ def benchmark_adapter(
                 # Replay graph
                 start_time = time.time()
                 g.replay()
-                torch.cuda.synchronize()
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
                 end_time = time.time()
             else:
                 # Standard forward pass
                 start_time = time.time()
                 _ = adapter(**test_data)
-                torch.cuda.synchronize()
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
                 end_time = time.time()
 
             latencies.append((end_time - start_time) * 1000)  # Convert to ms
@@ -156,34 +181,31 @@ def main():
     args = parse_args()
 
     # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        "cpu" if args.force_cpu else ("cuda" if torch.cuda.is_available() else "cpu")
+    )
     print(f"Using device: {device}")
 
-    # Configure model
-    config = {
-        "vocab_size": 30522,
-        "hidden_size": 768,
-        "num_hidden_layers": 12,
-        "num_attention_heads": 12,
-        "intermediate_size": 3072,
-        "hidden_act": "gelu",
-        "hidden_dropout_prob": 0.1,
-        "attention_probs_dropout_prob": 0.1,
-        "max_position_embeddings": 512,
-        "type_vocab_size": 2,
-        "initializer_range": 0.02,
-        "layer_norm_eps": 1e-12,
-        "pad_token_id": 0,
-        "use_optimized_attention": args.use_optimized,
-        "use_cuda_graphs": args.use_cuda_graphs,
-        "use_mixed_precision": args.use_mixed_precision,
+    # Determine default model name if not provided
+    default_names = {
+        "biobert": "monologg/biobert_v1.1_pubmed",
+        "clinicalbert": "emilyalsentzer/Bio_ClinicalBERT",
     }
+    model_name = args.model_name or default_names[args.model_type]
 
-    # Initialize adapter
+    # Initialize adapter via from_pretrained
     if args.model_type == "biobert":
-        adapter = BioBERTAdapter(config=config)
+        adapter = BioBERTAdapter.from_pretrained(
+            model_name,
+            use_cuda_graphs=args.use_cuda_graphs,
+            enable_mixed_precision=args.use_mixed_precision,
+        )
     else:
-        adapter = ClinicalBERTAdapter(config=config)
+        adapter = ClinicalBERTAdapter.from_pretrained(
+            model_name,
+            use_cuda_graphs=args.use_cuda_graphs,
+            enable_mixed_precision=args.use_mixed_precision,
+        )
 
     # Move to device and set to eval mode
     adapter = adapter.to(device)
@@ -193,9 +215,20 @@ def main():
     if args.use_mixed_precision and torch.cuda.is_available():
         adapter = adapter.half()
 
+    # Derive vocab size and max position embeddings
+    if getattr(adapter, "tokenizer", None) is not None:
+        vocab_size = len(adapter.tokenizer)
+    else:
+        vocab_size = getattr(adapter.model.config, "vocab_size", 30522)
+    max_pos = getattr(adapter.model.config, "max_position_embeddings", 512)
+
+    # Ensure output directory exists
+    os.makedirs(args.output_dir, exist_ok=True)
+
     # Print model info
     num_params = sum(p.numel() for p in adapter.parameters() if p.requires_grad)
     print(f"Model: {args.model_type.upper()}")
+    print(f"Model name: {model_name}")
     print(f"Parameters: {num_params:,}")
     print(f"Optimized: {args.use_optimized}")
     print(f"CUDA Graphs: {args.use_cuda_graphs}")
@@ -207,14 +240,14 @@ def main():
     for batch_size in args.batch_sizes:
         for seq_length in args.seq_lengths:
             # Skip invalid combinations
-            if seq_length > config["max_position_embeddings"]:
+            if seq_length > max_pos:
                 continue
 
             # Generate test data
             test_data = generate_test_data(
                 batch_size=batch_size,
                 seq_length=seq_length,
-                vocab_size=config["vocab_size"],
+                vocab_size=vocab_size,
                 device=device,
             )
 
@@ -262,6 +295,31 @@ def main():
             f"{result['tokens_per_second']:>19,.0f}"
         )
     print("=" * 80)
+
+    # Save results to JSON
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = os.path.join(
+        args.output_dir,
+        f"{args.model_type}_adapter_benchmark_{timestamp}.json",
+    )
+    payload = {
+        "model_type": args.model_type,
+        "model_name": model_name,
+        "device": str(device),
+        "num_warmup": args.num_warmup,
+        "num_iterations": args.num_iterations,
+        "use_cuda_graphs": args.use_cuda_graphs,
+        "use_mixed_precision": args.use_mixed_precision,
+        "batch_sizes": args.batch_sizes,
+        "seq_lengths": args.seq_lengths,
+        "vocab_size": vocab_size,
+        "max_position_embeddings": max_pos,
+        "results": results,
+        "timestamp": timestamp,
+    }
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    print(f"Saved JSON results to: {output_path}")
 
 
 if __name__ == "__main__":

@@ -1837,7 +1837,9 @@ sys.modules.update(
 @pytest.fixture
 def mock_transformers():
     """Fixture that provides access to the mocked transformers module."""
-    return transformers
+    # Always return the live module from sys.modules to reflect any patches
+    # applied in pytest_configure (e.g., patch_transformers()).
+    return sys.modules.get("transformers", transformers)
 
 
 @pytest.fixture(autouse=True)

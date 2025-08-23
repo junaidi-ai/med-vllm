@@ -63,3 +63,17 @@ PYTHONPATH=. python3 benchmarks/benchmark_ner.py \
 PYTHONPATH=. python3 benchmarks/benchmark_linking.py \
   --paragraphs 30 --runs 3 --ontology RXNORM
 ```
+
+## Adapter Benchmarks (Extended Grid, CPU)
+- __Grid__: batch sizes [1, 2, 4]; seq lengths [64, 128, 256]; warmup 5; iterations 30; device cpu; fp32
+- __Notes__: Flash Attention not installed (falls back to standard attention). Adapters handle tokenizer extensions automatically.
+
+- __BioBERT__ (`monologg/biobert_v1.1_pubmed`)
+  - JSON: `benchmark_results_cpu_smoke/biobert_adapter_benchmark_20250823_095012.json`
+  - Log: `benchmark_results_cpu_smoke/biobert_extended.log`
+  - Highlight: best throughput ≈ 1,139 tokens/s at batch=1, seq=64
+
+- __ClinicalBERT__ (`emilyalsentzer/Bio_ClinicalBERT`)
+  - JSON: `benchmark_results_cpu_smoke/clinicalbert_adapter_benchmark_20250823_095103.json`
+  - Log: `benchmark_results_cpu_smoke/clinicalbert_extended.log`
+  - Highlight: best throughput ≈ 1,390 tokens/s at batch=4, seq=256

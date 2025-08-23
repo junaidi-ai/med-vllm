@@ -58,20 +58,34 @@ class ClinicalBERTAdapter(MedicalModelAdapterBase):
 
         from transformers import AutoModel
 
-        # Load the model and tokenizer
+        # Separate adapter-specific kwargs from HF model kwargs
+        adapter_keys = {
+            "tensor_parallel_size",
+            "use_cuda_graphs",
+            "memory_efficient",
+            "enable_mixed_precision",
+            "skip_tokenizer_setup",
+        }
+        adapter_cfg = {
+            "model_name_or_path": model_name_or_path,
+            "tensor_parallel_size": kwargs.pop("tensor_parallel_size", 1),
+            "use_cuda_graphs": kwargs.pop("use_cuda_graphs", False),
+            "memory_efficient": kwargs.pop("memory_efficient", True),
+            "enable_mixed_precision": kwargs.pop("enable_mixed_precision", False),
+            "skip_tokenizer_setup": kwargs.pop("skip_tokenizer_setup", False),
+        }
+        for k in list(kwargs.keys()):
+            if k in adapter_keys:
+                kwargs.pop(k, None)
+
+        # Trust remote code by default for community models
+        kwargs.setdefault("trust_remote_code", True)
+
+        # Load underlying HF model
         model = AutoModel.from_pretrained(model_name_or_path, **kwargs)
 
-        # Create config dictionary for the adapter
-        config = {
-            "model_name_or_path": model_name_or_path,
-            "tensor_parallel_size": kwargs.get("tensor_parallel_size", 1),
-            "use_cuda_graphs": kwargs.get("use_cuda_graphs", False),
-            "memory_efficient": kwargs.get("memory_efficient", True),
-            "enable_mixed_precision": kwargs.get("enable_mixed_precision", False),
-        }
-
         # Create and return the adapter instance
-        return cls(model=model, config=config)
+        return cls(model=model, config=adapter_cfg)
 
     def __init__(self, model: nn.Module, config: Dict[str, Any]):
         super().__init__(model, config)

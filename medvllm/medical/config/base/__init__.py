@@ -745,6 +745,95 @@ class BaseMedicalConfig(Config):
             setattr(self, key, value)
         return self
 
+    def __eq__(self, other: object) -> bool:
+        """Equality based on stable serialized dictionary representation.
+
+        - Returns False when compared to non-config objects or different classes.
+        - Uses to_dict(), which already includes dynamic `_extra_fields` and
+          guards against self-referential recursion via an internal flag.
+        """
+        if self is other:
+            return True
+        if not isinstance(other, BaseMedicalConfig):
+            return False
+        if type(self) is not type(other):
+            return False
+
+        try:
+            return self.to_dict() == other.to_dict()  # type: ignore[union-attr]
+        except Exception:
+            # Conservative fallback to string comparison
+            return str(self.to_dict()) == str(other.to_dict())  # type: ignore[union-attr]
+
+    def __hash__(self) -> int:
+        """Hash based on a deterministic, hashable transform of to_dict().
+
+        Ensures equal configs (by __eq__) have identical hashes and tolerates
+        unhashable nested values by converting them to stable, hashable tuples.
+        """
+
+        def to_hashable(value, _seen=None):
+            if _seen is None:
+                _seen = set()
+            try:
+                vid = id(value)
+                if vid in _seen:
+                    return "<recursion>"
+                _seen.add(vid)
+            except Exception:
+                pass
+
+            # Primitive types
+            if value is None or isinstance(value, (str, int, float, bool)):
+                return value
+
+            # Dict: sort keys for deterministic ordering
+            if isinstance(value, dict):
+                items = []
+                try:
+                    keys = sorted(value.keys(), key=lambda x: str(x))
+                except Exception:
+                    keys = list(value.keys())
+                for k in keys:
+                    items.append((str(k), to_hashable(value[k], _seen)))
+                return ("dict", tuple(items))
+
+            # List/Tuple: preserve order
+            if isinstance(value, (list, tuple)):
+                return ("list", tuple(to_hashable(v, _seen) for v in value))
+
+            # Set: order-independent; sort by string form of hashable rep
+            if isinstance(value, set):
+                conv = [to_hashable(v, _seen) for v in value]
+                try:
+                    conv_sorted = tuple(sorted(conv))
+                except Exception:
+                    conv_sorted = tuple(sorted((str(v) for v in conv)))
+                return ("set", conv_sorted)
+
+            # Objects with to_dict
+            if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+                try:
+                    return ("obj", to_hashable(value.to_dict(), _seen))
+                except Exception:
+                    pass
+
+            # Fallback to string representation
+            try:
+                return ("str", str(value))
+            except Exception:
+                return ("repr", repr(value))
+
+        try:
+            base = self.to_dict()
+        except Exception:
+            # As a fallback, use __dict__ filtered of private attrs
+            base = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+
+        # Include class name to reduce cross-type collisions
+        rep = (self.__class__.__name__, to_hashable(base))
+        return hash(rep)
+
     def copy(self) -> "BaseMedicalConfig":
         """Create a deep copy of the configuration.
 

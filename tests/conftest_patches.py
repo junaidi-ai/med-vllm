@@ -182,7 +182,7 @@ def patch_transformers():
 
     def patched_post_init(self):
         # Skip the original __post_init__ to avoid calling AutoConfig.from_pretrained
-        if not hasattr(self, "hf_config"):
+        if getattr(self, "hf_config", None) is None:
             # Create a mock config with required attributes
             self.hf_config = MagicMock()
             self.hf_config.max_position_embeddings = 4096
@@ -191,6 +191,14 @@ def patch_transformers():
                 if hasattr(self, "model_type") and self.model_type == "medical_llm"
                 else "bert"
             )
+        # Mirror production capping behavior
+        try:
+            mpe = getattr(self.hf_config, "max_position_embeddings", None)
+            if mpe is not None and hasattr(self, "max_model_len"):
+                self.max_model_len = min(self.max_model_len, mpe)
+        except Exception:
+            # Be lenient in tests; if anything goes wrong, leave max_model_len as-is
+            pass
 
     # Apply the patch
     OriginalConfig.__post_init__ = patched_post_init
@@ -822,6 +830,8 @@ def patch_medical_config():
     MedicalModelConfig.to_json = patched_to_json
     MedicalModelConfig.copy = patched_copy
     MedicalModelConfig.__eq__ = patched_eq
+    # Ensure instances are hashable using the stable dict-based hash
+    MedicalModelConfig.__hash__ = config_hash
     MedicalModelConfig.__hash__ = config_hash
 
     # Ensure the patched class has the required attributes for tests

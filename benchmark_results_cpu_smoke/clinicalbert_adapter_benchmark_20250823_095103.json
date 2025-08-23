@@ -1,0 +1,78 @@
+{
+  "model_type": "clinicalbert",
+  "model_name": "emilyalsentzer/Bio_ClinicalBERT",
+  "device": "cpu",
+  "num_warmup": 5,
+  "num_iterations": 30,
+  "use_cuda_graphs": false,
+  "use_mixed_precision": false,
+  "batch_sizes": [
+    1,
+    2,
+    4
+  ],
+  "seq_lengths": [
+    64,
+    128,
+    256
+  ],
+  "vocab_size": 29037,
+  "max_position_embeddings": 512,
+  "results": [
+    {
+      "batch_size": 1,
+      "seq_length": 64,
+      "avg_latency_ms": 307.2947899500529,
+      "tokens_per_second": 208.26906961358645
+    },
+    {
+      "batch_size": 1,
+      "seq_length": 128,
+      "avg_latency_ms": 291.92618529001874,
+      "tokens_per_second": 438.46700450264973
+    },
+    {
+      "batch_size": 1,
+      "seq_length": 256,
+      "avg_latency_ms": 698.7300554911295,
+      "tokens_per_second": 366.3789728066878
+    },
+    {
+      "batch_size": 2,
+      "seq_length": 64,
+      "avg_latency_ms": 317.2080834706624,
+      "tokens_per_second": 403.5206120837659
+    },
+    {
+      "batch_size": 2,
+      "seq_length": 128,
+      "avg_latency_ms": 724.5356321334839,
+      "tokens_per_second": 353.3297586016255
+    },
+    {
+      "batch_size": 2,
+      "seq_length": 256,
+      "avg_latency_ms": 931.9575707117716,
+      "tokens_per_second": 549.3812337496931
+    },
+    {
+      "batch_size": 4,
+      "seq_length": 64,
+      "avg_latency_ms": 255.0551732381185,
+      "tokens_per_second": 1003.7044014825742
+    },
+    {
+      "batch_size": 4,
+      "seq_length": 128,
+      "avg_latency_ms": 399.7479518254598,
+      "tokens_per_second": 1280.8070627052327
+    },
+    {
+      "batch_size": 4,
+      "seq_length": 256,
+      "avg_latency_ms": 736.5458488464355,
+      "tokens_per_second": 1390.2732621516634
+    }
+  ],
+  "timestamp": "20250823_095103"
+}

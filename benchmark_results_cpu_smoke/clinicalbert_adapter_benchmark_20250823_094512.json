@@ -1,0 +1,26 @@
+{
+  "model_type": "clinicalbert",
+  "model_name": "emilyalsentzer/Bio_ClinicalBERT",
+  "device": "cpu",
+  "num_warmup": 2,
+  "num_iterations": 5,
+  "use_cuda_graphs": false,
+  "use_mixed_precision": false,
+  "batch_sizes": [
+    1
+  ],
+  "seq_lengths": [
+    128
+  ],
+  "vocab_size": 29037,
+  "max_position_embeddings": 512,
+  "results": [
+    {
+      "batch_size": 1,
+      "seq_length": 128,
+      "avg_latency_ms": 200.3511905670166,
+      "tokens_per_second": 638.8781600835287
+    }
+  ],
+  "timestamp": "20250823_094512"
+}

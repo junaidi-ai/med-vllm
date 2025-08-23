@@ -20,4 +20,5 @@ jupyter>=1.0.0
 
 # Test coverage
 coverage>=7.0.0
-codecov>=3.0.0
+# codecov 3.x is not available on PyPI; pin to latest 2.x
+codecov==2.1.13
