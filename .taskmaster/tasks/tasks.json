@@ -487,7 +487,7 @@
         "dependencies": [
           4
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -572,7 +572,7 @@
           6,
           7
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -580,7 +580,7 @@
             "description": "Create the overall structure of the command-line interface and implement argument parsing functionality",
             "dependencies": [],
             "details": "Define the command hierarchy, subcommands, and options. Implement argument parsing using a library like argparse or click. Create a clear help system that explains available commands. Design flags for model selection, input/output paths, and configuration options. Document the CLI structure with a diagram or schema.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {

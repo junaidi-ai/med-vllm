@@ -24,6 +24,7 @@ def cli() -> None:
 # Import and register subcommands
 try:
     from .model_commands import register_commands as register_model_commands
+    from .inference_commands import register_commands as register_inference_commands
 
     def register_commands(cli: Any) -> None:
         """Register all CLI commands.
@@ -32,6 +33,7 @@ try:
             cli: The Click CLI group to register commands with
         """
         register_model_commands(cli)
+        register_inference_commands(cli)
 
 except ImportError as e:
     console.print(f"[yellow]Warning: Could not load CLI commands: {e}[/]")
