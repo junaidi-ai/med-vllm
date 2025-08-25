@@ -392,6 +392,15 @@ class MedicalModelConfig(BaseMedicalConfig):
         # Call parent's __post_init__ first to set up basic fields
         super().__post_init__()
 
+        # If Base.from_dict placed 'version_legacy' as an attribute, remove it to
+        # prevent leaking into to_dict()/serialization and equality checks.
+        if hasattr(self, "version_legacy"):
+            try:
+                delattr(self, "version_legacy")
+            except Exception:
+                # Best-effort cleanup; ignore if deletion fails
+                pass
+
         # Set default pretrained paths if not specified
         self._set_default_pretrained_paths()
 

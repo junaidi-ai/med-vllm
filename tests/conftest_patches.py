@@ -219,6 +219,13 @@ def patch_transformers():
         # Create a copy of the data to avoid modifying the input
         data_copy = data.copy()
 
+        # Handle legacy version key: map 'version' -> InitVar and config_version
+        legacy_version = None
+        if "version" in data_copy:
+            legacy_version = data_copy.pop("version")
+            if "config_version" not in data_copy:
+                data_copy["config_version"] = legacy_version
+
         # Handle legacy/renamed fields
         field_mappings = {
             "model_name_or_path": "model",  # Map model_name_or_path to model
@@ -253,9 +260,13 @@ def patch_transformers():
         for key, value in data_copy.items():
             setattr(instance, key, value)
 
-        # Call __post_init__ if it exists
+        # Call __post_init__ if it exists, passing legacy version if supported
         if hasattr(instance, "__post_init__"):
-            instance.__post_init__()
+            try:
+                instance.__post_init__(version_legacy=legacy_version)
+            except TypeError:
+                # Fallback for classes without version_legacy InitVar
+                instance.__post_init__()
 
         return instance
 
@@ -467,44 +478,26 @@ def patch_medical_config():
         ensures required fields are present with proper defaults, and maintains
         backward compatibility with test expectations.
         """
-        # First get the original dictionary
-        if hasattr(self, "_original_to_dict"):
-            result = self._original_to_dict()
-        else:
+        # First get the original dictionary from production
+        try:
+            result = original_to_dict(self)
+        except Exception:
             result = {}
 
-        # Convert all fields to their string representations
-        for field, value in vars(self).items():
-            if field.startswith("_"):
-                continue
+        # Remove any private/internal keys that may have leaked via extra fields
+        # e.g., production to_dict sets a transient flag `_serializing` on self, and
+        # some test instrumentation may mirror it into _extra_fields. Ensure such
+        # internals never appear in the serialized dict.
+        if isinstance(result, dict):
+            result = {k: v for k, v in result.items() if not str(k).startswith("_")}
 
-            if value is None:
-                result[field] = None
-            elif isinstance(value, (str, int, float, bool)):
-                result[field] = value
-            elif hasattr(value, "value"):  # Handle enum values
-                result[field] = str(value.value).lower()
-            elif isinstance(value, (list, tuple)):
-                processed = []
-                for item in value:
-                    if hasattr(item, "value"):  # Handle enum items in lists
-                        processed.append(str(item.value).lower())
-                    elif isinstance(item, dict):
-                        processed.append(
-                            {
-                                k: str(v.value).lower() if hasattr(v, "value") else v
-                                for k, v in item.items()
-                            }
-                        )
-                    else:
-                        processed.append(str(item).lower() if item is not None else None)
-                result[field] = [p for p in processed if p is not None]
-            elif isinstance(value, dict):
-                result[field] = {
-                    k: str(v.value).lower() if hasattr(v, "value") else v for k, v in value.items()
-                }
-            else:
-                result[field] = str(value)
+        # Drop legacy keys to align with production serialization
+        result.pop("version", None)
+        result.pop("version_legacy", None)
+
+        # Also drop dynamic or heavy fields not meant for stable serialization
+        result.pop("hf_config", None)
+        result.pop("domain_config", None)
 
         # Process enum fields to ensure consistent string representation
         enum_fields = {
@@ -619,7 +612,6 @@ def patch_medical_config():
         required_fields = {
             # Required fields with defaults
             "model": result.get("model", "default_model"),  # Use existing model if present
-            "version": "0.1.0",  # Version expected by backward compatibility test
             # Medical domain fields
             "medical_entity_types": ["disease"],  # Default value expected by tests
             "medical_specialties": [],
@@ -672,13 +664,9 @@ def patch_medical_config():
                 else:
                     result[field] = default
 
-        # Special handling for backward compatibility
-        if "config_version" in result and "version" not in result:
-            result["version"] = result["config_version"]
-
-        # Ensure version is set to 0.1.0 for backward compatibility tests
-        if "version" in result and result["version"] == "1.0.0":
-            result["version"] = "0.1.0"
+        # Remove legacy keys to align with production serialization
+        result.pop("version", None)
+        result.pop("version_legacy", None)
 
         return result
 
@@ -721,28 +709,32 @@ def patch_medical_config():
             updates.update(update)
         updates.update(kwargs)
 
+        # Validate that all update keys are known fields; unknowns should raise.
+        # Prefer dataclass fields when available, otherwise fallback to to_dict keys.
+        dataclass_fields = getattr(self, "__dataclass_fields__", None)
+        if dataclass_fields is not None and len(dataclass_fields) > 0:
+            valid_fields = set(dataclass_fields.keys())
+        else:
+            # Fallback: use serialized keys as the whitelist
+            try:
+                valid_fields = set(self.to_dict().keys())
+            except Exception:
+                valid_fields = set()
+
+        unknown = [k for k in updates.keys() if k not in valid_fields]
+        if unknown:
+            # Match test expectation: raise AttributeError (TypeError also acceptable)
+            raise AttributeError(f"Unknown field(s) in copy update: {unknown}")
+
         # If we have the original copy method, use it with the merged updates
         if original_copy:
-            return original_copy(self, **updates)
+            # Route updates via 'update' param to preserve original merging semantics
+            return original_copy(self, update=updates)
 
-        # Fallback implementation if original_copy is not available
-        import copy
-
-        new_config = copy.deepcopy(self)
-
-        # Apply updates to the new config
-        for key, value in updates.items():
-            if not hasattr(new_config, key):
-                raise AttributeError(
-                    f"'{new_config.__class__.__name__}' object has no attribute '{key}'"
-                )
-            setattr(new_config, key, value)
-
-        # Ensure any post-processing is done (like in __post_init__)
-        if hasattr(new_config, "__post_init__"):
-            new_config.__post_init__()
-
-        return new_config
+        # Fallback implementation if original_copy is not available: go through from_dict
+        data = self.to_dict()
+        data.update(updates)
+        return self.__class__.from_dict(data)
 
     # Patch __eq__ to handle mock objects and compare based on dict representation
     def patched_eq(self, other):
@@ -871,7 +863,6 @@ def patch_medical_config():
         "model_type": "medical_llm",
         "model_name_or_path": None,
         "pretrained_model_name_or_path": None,
-        "version": "1.0.0",  # Add version attribute for backward compatibility
     }
 
     for attr, default in default_attrs.items():

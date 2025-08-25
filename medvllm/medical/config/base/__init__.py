@@ -181,7 +181,9 @@ class BaseMedicalConfig(Config):
         # Separate known params from extra fields
         parent_kwargs = {k: v for k, v in kwargs.items() if k in known_params}
         extra_fields = {
-            k: v for k, v in kwargs.items() if k not in known_params and not k.startswith("_")
+            k: v
+            for k, v in kwargs.items()
+            if k not in known_params and not k.startswith("_") and k != "version"
         }
 
         print(f"[DEBUG] Parent kwargs: {parent_kwargs}")
@@ -264,6 +266,12 @@ class BaseMedicalConfig(Config):
             if debug:
                 print("[DEBUG] Mapping 'version' to 'config_version'")
             object.__setattr__(self, "config_version", value)
+            # Ensure no stale dynamic 'version' remains in _extra_fields
+            if "_extra_fields" in self.__dict__ and "version" in self.__dict__["_extra_fields"]:
+                try:
+                    del self.__dict__["_extra_fields"]["version"]
+                except Exception:
+                    pass
             return
 
         # Special handling for _extra_fields to prevent recursion
@@ -552,6 +560,9 @@ class BaseMedicalConfig(Config):
             # Include dynamic attributes from _extra_fields
             if hasattr(self, "_extra_fields"):
                 for key, value in self._extra_fields.items():
+                    # Filter out legacy alias keys that should not be serialized
+                    if key in {"version", "version_legacy"}:
+                        continue
                     if key not in result:
                         result[key] = convert_value(value)
 

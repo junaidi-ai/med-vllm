@@ -1,0 +1,4 @@
+# Expected substrings for `python -m medvllm.cli model list`
+Registered Models
+biobert-base-cased-v1.2
+clinical-bert-base-uncased

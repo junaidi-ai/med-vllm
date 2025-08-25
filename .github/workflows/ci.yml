@@ -38,6 +38,10 @@ jobs:
         python scripts/ab_test_textgen.py \
           --dataset benchmarks/datasets/textgen_small.jsonl \
           --output benchmark_results_cpu_smoke/textgen_ab_results.json
+
+    - name: Run UAT scenarios
+      run: |
+        bash scripts/uat/run_uat.sh
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

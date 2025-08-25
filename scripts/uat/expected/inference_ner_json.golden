@@ -1,0 +1,2 @@
+# Expected substrings for `python -m medvllm.cli inference ner --text ... --json-out`
+OR: entities || spans

@@ -1,0 +1,4 @@
+# Expected substrings for `python -m medvllm.cli examples`
+Quick examples
+inference ner
+model list

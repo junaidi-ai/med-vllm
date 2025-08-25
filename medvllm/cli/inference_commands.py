@@ -119,6 +119,13 @@ def _read_input(text: Optional[str], input_file: Optional[str], input_format: st
             warn(
                 "Large stdin input detected (>20k chars). Consider a smaller excerpt for quicker turnaround."
             )
+        if not data.strip():
+            # Treat empty stdin as no input provided
+            raise click.UsageError(
+                "No input provided. Use --text, --input <file>, or pipe via stdin.\n"
+                "Examples:\n  python -m medvllm.cli inference ner --text 'HTN and DM'\n"
+                "  cat note.txt | python -m medvllm.cli inference ner --json-out"
+            )
         return data
     raise click.UsageError(
         "No input provided. Use --text, --input <file>, or pipe via stdin.\n"
@@ -420,7 +427,18 @@ def cmd_generate(
         constraints.target_word_count = target_words
 
     with timed("Initialize generator"):
-        generator = TextGenerator(model, constraints=constraints)
+        # Use a lightweight fake engine for tests when env flag is set
+        if os.environ.get("MEDVLLM_TEST_FAKE_ENGINE", "0") == "1":
+
+            class _FakeEngine:
+                def generate(self, prompts, sampling_params, use_tqdm: bool = False):  # type: ignore[no-untyped-def]
+                    prompt = prompts[0]
+                    text = f"FAKE -> {prompt[:120]}"
+                    return [{"text": text, "prompt": prompt}]
+
+            generator = TextGenerator(_FakeEngine(), constraints=constraints)
+        else:
+            generator = TextGenerator(model, constraints=constraints)
     # Minor validation/warnings for strategy/parameters
     if strategy.lower() == "greedy" and beam_width and beam_width != 1:
         warn("beam_width is ignored for greedy strategy.")
