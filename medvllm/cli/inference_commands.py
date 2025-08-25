@@ -17,16 +17,33 @@ import os
 import click
 from rich.console import Console
 from rich.table import Table
+from medvllm.cli.utils import warn
 
 from medvllm.tasks import NERProcessor, TextGenerator, MedicalConstraints
 from medvllm.engine.model_runner.registry import get_registry, ModelNotFoundError
 
 console = Console()
 
+# Local context settings to support -h alias without importing root CLI
+CONTEXT_SETTINGS = {
+    "help_option_names": ["-h", "--help"],
+    "max_content_width": 100,
+}
 
-@click.group(name="inference")
+
+@click.group(name="inference", context_settings=CONTEXT_SETTINGS)
 def inference_group() -> None:
-    """Run inference tasks (NER, text generation)."""
+    """Run inference tasks (NER, text generation, classification).
+
+    Input tips:
+    - Provide exactly one of --text or --input; you can also pipe stdin.
+    - Use --input-format to force PDF/text when needed (defaults to auto).
+
+    Examples:
+      python -m medvllm.cli inference ner --text "HTN and DM" --json-out
+      python -m medvllm.cli inference generate --text "Explain HTN" --model your-hf-model
+      cat note.txt | python -m medvllm.cli inference classification --json-out
+    """
     pass
 
 
@@ -46,6 +63,10 @@ def _read_input(text: Optional[str], input_file: Optional[str], input_format: st
     Returns:
         The input content as a string.
     """
+    # Enforce mutual exclusivity for clarity
+    if text and input_file:
+        raise click.UsageError("Provide only one of --text or --input (or pipe via stdin).")
+
     if text:
         return text
     if input_file:
@@ -77,15 +98,33 @@ def _read_input(text: Optional[str], input_file: Optional[str], input_format: st
                 return content
             except ImportError as e:
                 raise click.ClickException(
-                    "PDF support requires 'pypdf'. Install it (e.g., pip install pypdf) or use --input-format text."
+                    "PDF support requires 'pypdf'. Install it: pip install pypdf. "
+                    "Alternatively, re-run with --input-format text if your file is plain text."
                 ) from e
         # default: treat as text file
+        try:
+            size = os.path.getsize(input_file)
+            if size > 2 * 1024 * 1024:  # 2MB
+                warn(
+                    f"Large input file (~{size/1024/1024:.1f} MB). Processing may be slow; consider summarizing the input."
+                )
+        except Exception:
+            pass
         with open(input_file, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
     # Fallback: read from stdin if piped
     if not click.get_text_stream("stdin").isatty():
-        return click.get_text_stream("stdin").read()
-    raise click.UsageError("No input provided. Use --text, --input <file>, or pipe via stdin.")
+        data = click.get_text_stream("stdin").read()
+        if len(data) > 20000:
+            warn(
+                "Large stdin input detected (>20k chars). Consider a smaller excerpt for quicker turnaround."
+            )
+        return data
+    raise click.UsageError(
+        "No input provided. Use --text, --input <file>, or pipe via stdin.\n"
+        "Examples:\n  python -m medvllm.cli inference ner --text 'HTN and DM'\n"
+        "  cat note.txt | python -m medvllm.cli inference ner --json-out"
+    )
 
 
 # -----------------------------
@@ -132,7 +171,7 @@ def _validate_model_task(model: Optional[str], task: str) -> None:
 # -----------------------------
 
 
-@inference_group.command(name="ner")
+@inference_group.command(name="ner", context_settings=CONTEXT_SETTINGS)
 @click.option("--text", "text_", type=str, help="Direct input text.")
 @click.option(
     "--input", "input_file", type=click.Path(exists=True, dir_okay=False), help="Input file path."
@@ -165,7 +204,13 @@ def cmd_ner(
     no_link: bool,
     output_file: Optional[str],
 ) -> None:
-    """Run medical NER on input text and print entities (optionally linked)."""
+    """Run medical NER and print entities (optionally ontology-linked).
+
+    Examples:
+      python -m medvllm.cli inference ner --text "Patient with HTN and DM." --json-out
+      python -m medvllm.cli inference ner --input note.txt --output ner.json --json-out
+      python -m medvllm.cli inference ner --text "on metformin" --ontology UMLS
+    """
     text = _read_input(text_, input_file, input_format)
     # Build processor and optional model-backed adapter
     if model:
@@ -174,7 +219,7 @@ def cmd_ner(
             from transformers import pipeline as hf_pipeline  # type: ignore
         except Exception as e:  # pragma: no cover
             raise click.ClickException(
-                "Model-backed NER requires 'transformers'. Install it to use --model."
+                "Model-backed NER requires 'transformers'. Install it: pip install transformers"
             ) from e
 
         try:
@@ -229,7 +274,7 @@ def cmd_ner(
         try:
             ner = proc.link_entities(ner, ontology=ontology)
         except Exception as e:  # graceful degradation
-            console.print(f"[yellow]Linking failed: {e}. Showing unlinked entities.[/]")
+            warn(f"Linking failed: {e}. Showing unlinked entities.")
 
     if json_out:
         data = {"entities": ner.entities}
@@ -276,7 +321,7 @@ def cmd_ner(
 # -----------------------------
 
 
-@inference_group.command(name="generate")
+@inference_group.command(name="generate", context_settings=CONTEXT_SETTINGS)
 @click.option("--text", "text_", type=str, help="Prompt text.")
 @click.option(
     "--input", "input_file", type=click.Path(exists=True, dir_okay=False), help="Prompt file path."
@@ -349,7 +394,15 @@ def cmd_generate(
     json_meta: bool,
     output_file: Optional[str],
 ) -> None:
-    """Generate medical text according to the chosen strategy and constraints."""
+    """Generate medical text according to the chosen strategy and constraints.
+
+    Examples:
+      python -m medvllm.cli inference generate \
+        --text "Explain hypertension to a patient." \
+        --model your-hf-model --strategy beam --beam-width 3 --json-meta
+
+      cat prompt.txt | python -m medvllm.cli inference generate --model your-hf-model
+    """
     # Validate model/task compatibility if possible
     _validate_model_task(model, task="generation")
     prompt = _read_input(text_, input_format=input_format, input_file=input_file)
@@ -366,9 +419,9 @@ def cmd_generate(
     generator = TextGenerator(model, constraints=constraints)
     # Minor validation/warnings for strategy/parameters
     if strategy.lower() == "greedy" and beam_width and beam_width != 1:
-        console.print("[yellow]Warning:[/] beam_width is ignored for greedy strategy.")
+        warn("beam_width is ignored for greedy strategy.")
     if strategy.lower() == "beam" and (top_k or (top_p and top_p > 0)):
-        console.print("[yellow]Warning:[/] top-k/top-p are typically ignored for beam search.")
+        warn("top-k/top-p are typically ignored for beam search.")
 
     res = generator.generate(
         prompt,
@@ -411,7 +464,7 @@ def register_commands(cli: Any) -> None:
 # -----------------------------
 
 
-@inference_group.command(name="classification")
+@inference_group.command(name="classification", context_settings=CONTEXT_SETTINGS)
 @click.option("--text", "text_", type=str, help="Input text to classify.")
 @click.option(
     "--input", "input_file", type=click.Path(exists=True, dir_okay=False), help="Input file path."
@@ -452,7 +505,7 @@ def cmd_classification(
         from transformers import pipeline  # type: ignore
     except Exception as e:
         raise click.ClickException(
-            "transformers is not available for classification. Install extras or specify a simpler mode."
+            "Classification requires 'transformers'. Install it: pip install transformers"
         ) from e
 
     try:

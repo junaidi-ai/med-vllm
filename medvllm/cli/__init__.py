@@ -1,4 +1,11 @@
-"""Med-vLLM command line interface."""
+"""Med-vLLM command line interface.
+
+Provides a unified CLI with:
+- model management commands under `model`
+- inference commands under `inference` (NER, generate, classification)
+
+Use `-h/--help` on any command for contextual guidance and examples.
+"""
 
 from typing import Any, Optional
 
@@ -13,11 +20,27 @@ install(show_locals=True)
 # Create console instance
 console = Console()
 
+# Global Click context settings for consistent help UX
+CONTEXT_SETTINGS = {
+    "help_option_names": ["-h", "--help"],
+    "max_content_width": 100,
+}
 
-@click.group()
+
+@click.group(context_settings=CONTEXT_SETTINGS)
 @click.version_option()
 def cli() -> None:
-    """Med-vLLM - Medical Variant of vLLM for Healthcare Applications."""
+    """Med-vLLM - Medical Variant of vLLM for Healthcare Applications.
+
+    Tips:
+    - Use `--text` for inline input, `--input` for files, or pipe via stdin.
+    - Add `--json-out`/`--json-meta` to emit machine-readable outputs.
+
+    Examples:
+      python -m medvllm.cli model list
+      python -m medvllm.cli inference ner --text "HTN on metformin" --json-out
+      cat note.txt | python -m medvllm.cli inference generate --model your-hf-model
+    """
     pass
 
 

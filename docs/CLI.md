@@ -54,6 +54,12 @@ medvllm
   ```bash
   python -m medvllm.cli --help
   ```
+- Help alias:
+  - All commands support `-h` as a short alias for `--help`.
+  ```bash
+  python -m medvllm.cli -h
+  python -m medvllm.cli inference ner -h
+  ```
 - Group help (e.g., inference):
   ```bash
   python -m medvllm.cli inference --help
@@ -71,6 +77,10 @@ Each inference subcommand supports one or more of the following:
 - Stdin (pipe): `cat note.txt | python -m medvllm.cli inference ner`
 
 If no input is provided, the CLI reads from stdin when piped; otherwise it errors.
+
+Notes on input size:
+- If `--input` file size exceeds ~2MB, the CLI prints a warning that processing may be slow.
+- If stdin input exceeds ~20k characters, the CLI prints a warning suggesting a smaller excerpt.
 
 ## Inference Commands
 

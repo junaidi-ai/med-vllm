@@ -1,4 +1,7 @@
-"""CLI commands for model management."""
+"""CLI commands for model management.
+
+Use `-h/--help` on any command for contextual guidance and examples.
+"""
 
 import json
 from typing import Any, Dict, Optional, Tuple
@@ -6,15 +9,28 @@ from typing import Any, Dict, Optional, Tuple
 import click
 from rich.console import Console
 from rich.table import Table
+from medvllm.cli.utils import warn, error, success, hint
 
 from medvllm.engine.model_runner import registry
 
 console = Console()
 
+# Local context settings to support -h alias and consistent formatting
+CONTEXT_SETTINGS = {
+    "help_option_names": ["-h", "--help"],
+    "max_content_width": 100,
+}
 
-@click.group()
+
+@click.group(context_settings=CONTEXT_SETTINGS)
 def model() -> None:
-    """Manage models in the registry."""
+    """Manage models in the registry.
+
+    Examples:
+      python -m medvllm.cli model list
+      python -m medvllm.cli model list-capabilities --json
+      python -m medvllm.cli model register my-bert /models/bert --type generic --tag baseline
+    """
     pass
 
 
@@ -22,7 +38,7 @@ def model() -> None:
 from medvllm.engine.model_runner.registry import ModelType
 
 
-@model.command()
+@model.command(context_settings=CONTEXT_SETTINGS)
 @click.argument("name")
 @click.argument("path")
 @click.option(
@@ -43,7 +59,12 @@ def register(
     tags: Tuple[str, ...],
     params: Tuple[str, ...],
 ) -> None:
-    """Register a new model in the registry."""
+    """Register a new model in the registry.
+
+    Examples:
+      python -m medvllm.cli model register biobert models/biobert \
+        --type generic --description "BioBERT HF model" --tag hf --param loader=my.pkg.CustomLoader
+    """
     try:
         # Parse parameters
         params_dict: Dict[str, str] = {}
@@ -54,7 +75,13 @@ def register(
             params_dict[key] = value
 
         # Get the ModelType enum value
-        model_type_enum = ModelType[model_type_str.upper()]
+        try:
+            model_type_enum = ModelType[model_type_str.upper()]
+        except KeyError as e:
+            valid = ", ".join([t.name.lower() for t in ModelType])
+            raise click.BadParameter(
+                f"Unknown model type '{model_type_str}'. Valid types: {valid}"
+            ) from e
 
         # Register the model with the registry
         # Get tags as list of strings
@@ -73,14 +100,10 @@ def register(
                     module = import_module(module_path)
                     loader = getattr(module, class_name)
                     if not (isinstance(loader, type) and hasattr(loader, "load_model")):
-                        console.print(
-                            f"[yellow]Warning: {loader_str} is not a valid loader class, ignoring[/]"
-                        )
+                        warn(f"{loader_str} is not a valid loader class, ignoring")
                         loader = None
                 except (ImportError, AttributeError, ValueError) as e:
-                    console.print(
-                        f"[yellow]Warning: Could not load loader {loader_str}: {e}, ignoring[/]"
-                    )
+                    warn(f"Could not load loader {loader_str}: {e}, ignoring")
                     loader = None
 
         # Include path in the parameters dictionary
@@ -99,33 +122,39 @@ def register(
             loader=loader,
             parameters=model_params,
         )
-        console.print(f"[green]✓[/] Registered model: {name}")
+        success(f"Registered model: {name}")
     except Exception as e:
-        console.print(f"[red]✗ Failed to register model: {str(e)}[/]")
+        error(f"Failed to register model: {str(e)}")
+        hint("run 'python -m medvllm.cli model list' to inspect current registry.")
         raise click.Abort()
 
 
-@model.command()
+@model.command(context_settings=CONTEXT_SETTINGS)
 @click.argument("name")
 @click.option("--force", is_flag=True, help="Force unregister even if in use")
 def unregister(name: str, force: bool) -> None:
-    """Remove a model from the registry."""
+    """Remove a model from the registry.
+
+    Example:
+      python -m medvllm.cli model unregister my-bert
+    """
     try:
         registry.unregister(name)
-        console.print(f"[green]✓[/] Unregistered model: {name}")
+        success(f"Unregistered model: {name}")
     except KeyError:
-        console.print(f"[yellow]![/] Model not found: {name}")
+        warn(f"Model not found: {name}")
+        hint("run 'python -m medvllm.cli model list' to see available models.")
     except Exception as e:
         if force:
             registry._models.pop(name, None)  # Force remove
-            console.print(f"[yellow]![/] Force unregistered model: {name}")
+            warn(f"Force unregistered model: {name}")
         else:
-            console.print(f"[red]✗ Failed to unregister model: {str(e)}[/]")
-            console.print("Use --force to force unregister")
+            error(f"Failed to unregister model: {str(e)}")
+            hint("Use --force to force unregister if you are certain.")
             raise click.Abort()
 
 
-@model.command("list")
+@model.command("list", context_settings=CONTEXT_SETTINGS)
 @click.option("--type", "model_type_str", help="Filter by model type")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 def list_models(model_type_str: Optional[str], output_json: bool) -> None:
@@ -136,7 +165,15 @@ def list_models(model_type_str: Optional[str], output_json: bool) -> None:
         output_json: If True, output as JSON instead of a table
     """
     try:
-        model_type_enum = ModelType[model_type_str.upper()] if model_type_str else None
+        model_type_enum = None
+        if model_type_str:
+            try:
+                model_type_enum = ModelType[model_type_str.upper()]
+            except KeyError as e:
+                valid = ", ".join([t.name.lower() for t in ModelType])
+                raise click.BadParameter(
+                    f"Unknown model type '{model_type_str}'. Valid types: {valid}"
+                ) from e
         models = registry.list_models(model_type_enum)
 
         if output_json:
@@ -169,11 +206,11 @@ def list_models(model_type_str: Optional[str], output_json: bool) -> None:
 
         console.print(table)
     except Exception as e:
-        console.print(f"[red]✗ Failed to list models: {str(e)}[/]")
+        error(f"Failed to list models: {str(e)}")
         raise click.Abort()
 
 
-@model.command("list-capabilities")
+@model.command("list-capabilities", context_settings=CONTEXT_SETTINGS)
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 def list_capabilities(output_json: bool) -> None:
     """List registered models with their declared task capabilities.
@@ -205,15 +242,19 @@ def list_capabilities(output_json: bool) -> None:
             table.add_row(r["name"], tasks_str)
         console.print(table)
     except Exception as e:
-        console.print(f"[red]✗ Failed to list capabilities: {str(e)}[/]")
+        error(f"Failed to list capabilities: {str(e)}")
         raise click.Abort()
 
 
-@model.command()
+@model.command(context_settings=CONTEXT_SETTINGS)
 @click.argument("name")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
 def info(name: str, output: Optional[str]) -> None:
-    """Show detailed information about a model."""
+    """Show detailed information about a model.
+
+    Example:
+      python -m medvllm.cli model info biobert --output biobert.json
+    """
     try:
         meta = registry.get_metadata(name)
         info = {
@@ -229,25 +270,30 @@ def info(name: str, output: Optional[str]) -> None:
         if output:
             with open(output, "w") as f:
                 json.dump(info, f, indent=2)
-            console.print(f"[green]✓[/] Model info saved to {output}")
+            success(f"Model info saved to {output}")
         else:
             console.print_json(data=info)
     except KeyError:
-        console.print(f"[red]✗ Model not found: {name}[/]")
+        error(f"Model not found: {name}")
+        hint("run 'python -m medvllm.cli model list' to see available models.")
         raise click.Abort()
     except Exception as e:
-        console.print(f"[red]✗ Failed to get model info: {str(e)}[/]")
+        error(f"Failed to get model info: {str(e)}")
         raise click.Abort()
 
 
-@model.command()
+@model.command(context_settings=CONTEXT_SETTINGS)
 def clear_cache() -> None:
-    """Clear the model cache."""
+    """Clear the model cache.
+
+    Example:
+      python -m medvllm.cli model clear-cache
+    """
     try:
         registry.clear_cache()
-        console.print("[green]✓[/] Model cache cleared")
+        success("Model cache cleared")
     except Exception as e:
-        console.print(f"[red]✗ Failed to clear cache: {str(e)}[/]")
+        error(f"Failed to clear cache: {str(e)}")
         raise click.Abort()
 
 
