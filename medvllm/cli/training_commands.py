@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import json
 import os
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Callable, Tuple
 
 import click
 import torch
@@ -67,22 +70,60 @@ def training_group() -> None:
 @click.option(
     "--output", type=click.Path(file_okay=False), default="./toy_finetune", show_default=True
 )
-@click.option("--toy", is_flag=True, help="Run a built-in toy model/dataset example")
-def train_cmd(epochs: int, batch_size: int, lr: float, amp: bool, output: str, toy: bool) -> None:
-    """Train a model. Currently supports a built-in toy example via --toy.
+@click.option("--toy", is_flag=True, help="Run the built-in toy example")
+@click.option(
+    "--entrypoint",
+    type=str,
+    default=None,
+    help="Python entrypoint in form 'module.sub:func' or '/path/to/file.py:func' that returns (model, train_ds, eval_ds_or_none)",
+)
+@click.option(
+    "--config",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Optional JSON config passed to the entrypoint function as a dict",
+)
+def train_cmd(
+    epochs: int,
+    batch_size: int,
+    lr: float,
+    amp: bool,
+    output: str,
+    toy: bool,
+    entrypoint: str | None,
+    config: str | None,
+) -> None:
+    """Train a model via either --toy or a custom --entrypoint.
 
-    Example:
+    Examples:
       python -m medvllm.cli training train --toy --epochs 3 --batch-size 32 --lr 1e-3
+      python -m medvllm.cli training train --entrypoint mypkg.mymod:build --config config.json --epochs 1
     """
-    if not toy:
-        raise click.UsageError("Only --toy mode is implemented in this minimal training CLI.")
+    if not toy and not entrypoint:
+        raise click.UsageError("Provide either --toy or --entrypoint.")
 
-    console.print("[bold]Running toy training example[/bold]")
+    if toy and entrypoint:
+        raise click.UsageError("Choose only one of --toy or --entrypoint.")
 
-    # Build toy data/model
-    train_ds = _ToyDataset(n=1024, seed=0)
-    eval_ds = _ToyDataset(n=256, seed=1)
-    model = _ToyModel()
+    # Build data/model
+    if toy:
+        console.print("[bold]Running toy training example[/bold]")
+        train_ds = _ToyDataset(n=1024, seed=0)
+        eval_ds = _ToyDataset(n=256, seed=1)
+        model = _ToyModel()
+    else:
+        cfg_payload: dict[str, Any] = {}
+        if config is not None:
+            with open(config, "r", encoding="utf-8") as f:
+                cfg_payload = json.load(f)
+        fn = _resolve_entrypoint(entrypoint)  # type: ignore[arg-type]
+        result = fn(cfg_payload)
+        try:
+            model, train_ds, eval_ds = result
+        except Exception as e:  # pragma: no cover - helpful error message
+            raise click.ClickException(
+                "Entrypoint must return a tuple (model, train_dataset, eval_dataset_or_none)."
+            ) from e
 
     # Trainer config
     cfg = TrainerConfig(
@@ -101,6 +142,28 @@ def train_cmd(epochs: int, batch_size: int, lr: float, amp: bool, output: str, t
     trainer.train(train_ds, eval_dataset=eval_ds, output_dir=os.fspath(output))
 
     console.print(f"[green]Done. Saved artifacts under[/green] {output}")
+
+
+def _resolve_entrypoint(spec: str) -> Callable[[dict[str, Any]], Tuple[Any, Any, Any | None]]:
+    if ":" not in spec:
+        raise click.UsageError("--entrypoint must be in the form 'module.or.path:func'")
+    mod_part, func_name = spec.split(":", 1)
+
+    # If it's a filesystem path
+    if os.path.exists(mod_part):
+        module_name = os.path.splitext(os.path.basename(mod_part))[0]
+        spec_obj = importlib.util.spec_from_file_location(module_name, mod_part)
+        if spec_obj is None or spec_obj.loader is None:
+            raise click.ClickException(f"Failed to load module from path: {mod_part}")
+        module = importlib.util.module_from_spec(spec_obj)
+        spec_obj.loader.exec_module(module)
+    else:
+        module = importlib.import_module(mod_part)
+
+    fn = getattr(module, func_name, None)
+    if not callable(fn):
+        raise click.ClickException(f"Function '{func_name}' not found/callable in '{mod_part}'.")
+    return fn  # type: ignore[return-value]
 
 
 def register_commands(cli: Any) -> None:

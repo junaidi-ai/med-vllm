@@ -17,6 +17,7 @@ This document describes the command-line interface exposed by `medvllm.cli`.
 - Command groups registered:
   - `model` — model registry management
   - `inference` — run inference tasks (NER, generation, classification)
+  - `training` — experimental training utilities
 
 ## Command Tree (Diagram)
 
@@ -42,10 +43,12 @@ medvllm
     │   ├── list
     │   ├── info
     │   └── clear-cache
-    └── inference
+    ├── inference
         ├── ner
         ├── generate
         └── classification
+    └── training
+        └── train
 ```
 
 ## Getting Help
@@ -223,6 +226,41 @@ python -m medvllm.cli model list-capabilities
 
 # JSON output
 python -m medvllm.cli model list-capabilities --json
+```
+
+## Training (Experimental)
+File: `medvllm/cli/training_commands.py`
+
+- Description: Minimal utilities to run training loops using the lightweight `MedicalModelTrainer`.
+- Commands:
+  - `training train` — run a simple training job.
+
+Options (subset):
+- `--epochs`, `--batch-size`, `--lr`, `--amp/--no-amp`, `--output`
+- Modes:
+  - `--toy` — built-in synthetic dataset + tiny MLP (good for smoke tests)
+  - `--entrypoint module.or.path:func` — dynamic loader for custom training targets
+  - `--config config.json` — optional JSON dict passed to the entrypoint function
+
+Entrypoint contract:
+- The function referenced by `--entrypoint` must return a tuple `(model, train_dataset, eval_dataset_or_none)` compatible with PyTorch.
+
+Examples:
+```bash
+# Built-in toy example
+python -m medvllm.cli training train --toy --epochs 2 --batch-size 32 --lr 1e-3 --output ./toy_run
+
+# Custom entrypoint from an installed module
+python -m medvllm.cli training train \
+  --entrypoint mypkg.my_module:build_training_objects \
+  --config configs/train_small.json \
+  --epochs 3 --batch-size 16 --lr 5e-4 --output ./runs/exp1
+
+# Custom entrypoint from a local file path
+python -m medvllm.cli training train \
+  --entrypoint /abs/path/to/entrypoint.py:build \
+  --config /abs/path/to/config.json \
+  --epochs 1 --batch-size 8 --lr 1e-3 --output ./runs/path_exp
 ```
 
 ## Return Codes
