@@ -9,7 +9,15 @@ from typing import Dict, Tuple
 
 import numpy as np
 import torch
-from tqdm import tqdm
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    MofNCompleteColumn,
+)
 
 from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter
 
@@ -151,23 +159,35 @@ def benchmark_adapter(
     # Benchmark
     latencies = []
     with torch.no_grad():
-        for _ in tqdm(range(num_iterations), desc=f"Batch {batch_size}, Seq {seq_length}"):
-            if use_cuda_graphs and torch.cuda.is_available():
-                # Replay graph
-                start_time = time.time()
-                g.replay()
-                if torch.cuda.is_available():
-                    torch.cuda.synchronize()
-                end_time = time.time()
-            else:
-                # Standard forward pass
-                start_time = time.time()
-                _ = adapter(**test_data)
-                if torch.cuda.is_available():
-                    torch.cuda.synchronize()
-                end_time = time.time()
+        with Progress(
+            SpinnerColumn(),
+            TextColumn(f"[bold]Iter b{batch_size}s{seq_length}[/]"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("ETA:"),
+            TimeRemainingColumn(),
+        ) as progress:
+            t = progress.add_task("iter", total=num_iterations)
+            for _ in range(num_iterations):
+                if use_cuda_graphs and torch.cuda.is_available():
+                    # Replay graph
+                    start_time = time.time()
+                    g.replay()
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                    end_time = time.time()
+                else:
+                    # Standard forward pass
+                    start_time = time.time()
+                    _ = adapter(**test_data)
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                    end_time = time.time()
 
-            latencies.append((end_time - start_time) * 1000)  # Convert to ms
+                latencies.append((end_time - start_time) * 1000)  # Convert to ms
+                progress.advance(t)
 
     # Calculate metrics
     avg_latency = np.mean(latencies)
@@ -237,50 +257,63 @@ def main():
 
     # Benchmark different configurations
     results = []
-    for batch_size in args.batch_sizes:
-        for seq_length in args.seq_lengths:
-            # Skip invalid combinations
-            if seq_length > max_pos:
-                continue
+    total_cfg = len(args.batch_sizes) * len(args.seq_lengths)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold]Benchmarking configs[/]"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("ETA:"),
+        TimeRemainingColumn(),
+    ) as progress:
+        cfg_task = progress.add_task("cfgs", total=total_cfg)
+        for batch_size in args.batch_sizes:
+            for seq_length in args.seq_lengths:
+                # Skip invalid combinations
+                if seq_length > max_pos:
+                    continue
 
-            # Generate test data
-            test_data = generate_test_data(
-                batch_size=batch_size,
-                seq_length=seq_length,
-                vocab_size=vocab_size,
-                device=device,
-            )
+                # Generate test data
+                test_data = generate_test_data(
+                    batch_size=batch_size,
+                    seq_length=seq_length,
+                    vocab_size=vocab_size,
+                    device=device,
+                )
 
-            # Convert to half precision if using mixed precision
-            if args.use_mixed_precision and torch.cuda.is_available():
-                test_data = {
-                    k: v.half() if v.dtype == torch.float32 else v for k, v in test_data.items()
-                }
+                # Convert to half precision if using mixed precision
+                if args.use_mixed_precision and torch.cuda.is_available():
+                    test_data = {
+                        k: v.half() if v.dtype == torch.float32 else v for k, v in test_data.items()
+                    }
 
-            # Benchmark
-            avg_latency, tokens_per_second = benchmark_adapter(
-                adapter=adapter,
-                test_data=test_data,
-                num_warmup=args.num_warmup,
-                num_iterations=args.num_iterations,
-                use_cuda_graphs=args.use_cuda_graphs,
-            )
+                # Benchmark
+                avg_latency, tokens_per_second = benchmark_adapter(
+                    adapter=adapter,
+                    test_data=test_data,
+                    num_warmup=args.num_warmup,
+                    num_iterations=args.num_iterations,
+                    use_cuda_graphs=args.use_cuda_graphs,
+                )
 
-            results.append(
-                {
-                    "batch_size": batch_size,
-                    "seq_length": seq_length,
-                    "avg_latency_ms": avg_latency,
-                    "tokens_per_second": tokens_per_second,
-                }
-            )
+                results.append(
+                    {
+                        "batch_size": batch_size,
+                        "seq_length": seq_length,
+                        "avg_latency_ms": avg_latency,
+                        "tokens_per_second": tokens_per_second,
+                    }
+                )
 
-            print(
-                f"Batch: {batch_size:3d}, "
-                f"Seq: {seq_length:4d}, "
-                f"Latency: {avg_latency:.2f} ms, "
-                f"Throughput: {tokens_per_second:,.0f} tokens/s"
-            )
+                print(
+                    f"Batch: {batch_size:3d}, "
+                    f"Seq: {seq_length:4d}, "
+                    f"Latency: {avg_latency:.2f} ms, "
+                    f"Throughput: {tokens_per_second:,.0f} tokens/s"
+                )
+                progress.advance(cfg_task)
 
     # Print summary
     print("\n" + "=" * 80)

@@ -615,7 +615,7 @@
               3
             ],
             "details": "Implement progress bars or spinners for time-consuming operations. Add estimated time remaining where possible. Create a library of example commands for common medical NLP tasks. Include a 'examples' command that shows use cases. Add verbose output options for debugging and detailed operation information.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {

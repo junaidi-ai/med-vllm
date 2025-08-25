@@ -3,6 +3,7 @@
 Provides a unified CLI with:
 - model management commands under `model`
 - inference commands under `inference` (NER, generate, classification)
+- examples command for quick-start usage samples
 
 Use `-h/--help` on any command for contextual guidance and examples.
 """
@@ -13,12 +14,12 @@ import click
 from click import Group
 from rich.console import Console
 from rich.traceback import install
+from medvllm.cli.utils import set_verbose, console
 
 # Enable rich traceback for better error messages
 install(show_locals=True)
 
-# Create console instance
-console = Console()
+# Console is provided by utils for shared styling
 
 # Global Click context settings for consistent help UX
 CONTEXT_SETTINGS = {
@@ -29,7 +30,13 @@ CONTEXT_SETTINGS = {
 
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.version_option()
-def cli() -> None:
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Enable verbose debug output for operations (also honors MEDVLLM_VERBOSE=1)",
+    envvar="MEDVLLM_VERBOSE",
+)
+def cli(verbose: bool = False) -> None:
     """Med-vLLM - Medical Variant of vLLM for Healthcare Applications.
 
     Tips:
@@ -41,6 +48,10 @@ def cli() -> None:
       python -m medvllm.cli inference ner --text "HTN on metformin" --json-out
       cat note.txt | python -m medvllm.cli inference generate --model your-hf-model
     """
+    # Set global verbosity once at entry
+    set_verbose(bool(verbose))
+
+    # no-op group body
     pass
 
 
@@ -68,6 +79,47 @@ except ImportError as e:
 
 
 register_commands(cli)
+
+
+@cli.command()
+def examples() -> None:
+    """Show common example commands for medical NLP tasks."""
+    console.print("[bold]Quick examples[/bold]\n")
+    lines = [
+        ("List registered models", "python -m medvllm.cli model list"),
+        ("Show model capabilities", "python -m medvllm.cli model list-capabilities"),
+        (
+            "Register a model",
+            "python -m medvllm.cli model register biobert /models/biobert --type generic",
+        ),
+        (
+            "Run NER on text (JSON)",
+            "python -m medvllm.cli inference ner --text 'HTN and DM' --json-out",
+        ),
+        (
+            "Run NER on file and save",
+            "python -m medvllm.cli inference ner --input note.txt --json-out --output ner.json",
+        ),
+        (
+            "Generate text (beam)",
+            "python -m medvllm.cli inference generate --text 'Explain hypertension' --model gpt2 --strategy beam --beam-width 3",
+        ),
+        (
+            "Generate with metadata",
+            "cat prompt.txt | python -m medvllm.cli inference generate --model gpt2 --json-meta --output out.txt",
+        ),
+        (
+            "Classify sentiment",
+            "python -m medvllm.cli inference classification --text 'This is helpful' --json-out",
+        ),
+        (
+            "Verbose mode",
+            "MEDVLLM_VERBOSE=1 python -m medvllm.cli inference ner --text 'on metformin' --ontology UMLS --verbose",
+        ),
+    ]
+    for title, cmd in lines:
+        console.print(f"• [cyan]{title}[/cyan]\n    [dim]{cmd}[/dim]")
+
 
 if __name__ == "__main__":
     cli()  # type: ignore[no-untyped-call]

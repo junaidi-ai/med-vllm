@@ -16,6 +16,15 @@ from typing import Dict, List, Any, Optional
 
 import numpy as np
 import torch
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    MofNCompleteColumn,
+)
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -231,51 +240,84 @@ class MedicalModelBenchmark:
         """Run the benchmark with the current configuration."""
         results = []
 
-        for batch_size in self.config.batch_sizes:
-            for seq_length in self.config.seq_lengths:
-                print(f"\nBenchmarking - Batch: {batch_size}, SeqLen: {seq_length}")
+        total_configs = len(self.config.batch_sizes) * len(self.config.seq_lengths)
+        cfg_index = 0
 
-                # Warmup
-                for _ in range(self.config.warmup_iterations):
-                    inputs = self.generate_inputs(batch_size, seq_length)
-                    with torch.no_grad():
-                        _ = self.model(**inputs)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]Benchmarking configs[/]"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("ETA:"),
+            TimeRemainingColumn(),
+        ) as progress:
+            cfg_task = progress.add_task("configs", total=total_configs)
 
-                # Benchmark
-                latencies = []
-                mem_profiler = MemoryProfiler(device=self.device.type)
+            for batch_size in self.config.batch_sizes:
+                for seq_length in self.config.seq_lengths:
+                    cfg_index += 1
+                    progress.update(
+                        cfg_task, advance=1, description=f"Batch {batch_size}, Seq {seq_length}"
+                    )
+                    print(f"\nBenchmarking - Batch: {batch_size}, SeqLen: {seq_length}")
 
-                for _ in range(self.config.num_iterations):
-                    inputs = self.generate_inputs(batch_size, seq_length)
+                    # Warmup (show a small spinner-like task)
+                    if self.config.warmup_iterations > 0:
+                        warm_task = progress.add_task(
+                            f"warmup b{batch_size}s{seq_length}",
+                            total=self.config.warmup_iterations,
+                        )
+                        for _ in range(self.config.warmup_iterations):
+                            inputs = self.generate_inputs(batch_size, seq_length)
+                            with torch.no_grad():
+                                _ = self.model(**inputs)
+                            progress.advance(warm_task)
+                        progress.remove_task(warm_task)
 
-                    with mem_profiler.profile():
-                        start_time = time.perf_counter()
-                        with torch.no_grad():
-                            _ = self.model(**inputs)
-                        end_time = time.perf_counter()
+                    # Benchmark with per-iteration ETA
+                    iter_task = progress.add_task(
+                        f"iter b{batch_size}s{seq_length}", total=self.config.num_iterations
+                    )
 
-                    latencies.append((end_time - start_time) * 1000)  # ms
+                    latencies = []
+                    mem_profiler = MemoryProfiler(device=self.device.type)
 
-                # Calculate metrics
-                avg_latency = np.mean(latencies)
-                tokens_per_second = (batch_size * seq_length) / (avg_latency / 1000)
+                    for _ in range(self.config.num_iterations):
+                        inputs = self.generate_inputs(batch_size, seq_length)
 
-                # Create result
-                result = BenchmarkResult(
-                    model_type=self.config.model_type,
-                    batch_size=batch_size,
-                    seq_length=seq_length,
-                    use_kv_cache=self.config.use_kv_cache,
-                    precision=self.config.precision,
-                    device=str(self.device),
-                    avg_latency_ms=avg_latency,
-                    tokens_per_second=tokens_per_second,
-                    memory_usage_mb=mem_profiler.results,
-                )
+                        with mem_profiler.profile():
+                            start_time = time.perf_counter()
+                            with torch.no_grad():
+                                _ = self.model(**inputs)
+                            end_time = time.perf_counter()
 
-                results.append(result)
-                self._save_result(result)
-                self._print_result(result)
+                        latencies.append((end_time - start_time) * 1000)  # ms
+                        progress.advance(iter_task)
+
+                    progress.remove_task(iter_task)
+
+                    # Calculate metrics
+                    avg_latency = np.mean(latencies)
+                    tokens_per_second = (batch_size * seq_length) / (avg_latency / 1000)
+
+                    # Create result
+                    result = BenchmarkResult(
+                        model_type=self.config.model_type,
+                        batch_size=batch_size,
+                        seq_length=seq_length,
+                        use_kv_cache=self.config.use_kv_cache,
+                        precision=self.config.precision,
+                        device=str(self.device),
+                        avg_latency_ms=avg_latency,
+                        tokens_per_second=tokens_per_second,
+                        memory_usage_mb=mem_profiler.results,
+                    )
+
+                    results.append(result)
+                    self._save_result(result)
+                    self._print_result(result)
 
         return results
 

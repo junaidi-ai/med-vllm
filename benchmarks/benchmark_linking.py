@@ -13,6 +13,15 @@ from __future__ import annotations
 
 import argparse
 import time
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    MofNCompleteColumn,
+)
 
 from medvllm.tasks import NERProcessor
 from medvllm.tasks.ner_processor import lookup_in_ontology
@@ -49,10 +58,13 @@ def main() -> None:
 
     text = build_long_note(args.paragraphs)
 
-    # Extract once
-    t0 = time.perf_counter()
-    res = proc.extract_entities(text)
-    t1 = time.perf_counter()
+    # Extract once (show spinner)
+    with Progress(SpinnerColumn(), TextColumn("[bold]Extracting entities...")) as p:
+        task = p.add_task("extract", total=None)
+        t0 = time.perf_counter()
+        res = proc.extract_entities(text)
+        t1 = time.perf_counter()
+        p.remove_task(task)
 
     # Clear cache before first linking timing
     lookup_in_ontology.cache_clear()
@@ -60,13 +72,27 @@ def main() -> None:
     timings = []
     cache_stats = []
     current = None
-    for i in range(max(1, args.runs)):
-        s = time.perf_counter()
-        current = proc.link_entities(res)  # uses default ontology
-        e = time.perf_counter()
-        timings.append(e - s)
-        ci = lookup_in_ontology.cache_info()
-        cache_stats.append((ci.hits, ci.misses, ci.currsize))
+    runs = max(1, args.runs)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold]Linking entities[/]"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("ETA:"),
+        TimeRemainingColumn(),
+    ) as progress:
+        task = progress.add_task("linking", total=runs)
+        for _ in range(runs):
+            s = time.perf_counter()
+            current = proc.link_entities(res)  # uses default ontology
+            e = time.perf_counter()
+            timings.append(e - s)
+            ci = lookup_in_ontology.cache_info()
+            cache_stats.append((ci.hits, ci.misses, ci.currsize))
+            progress.advance(task)
+        progress.remove_task(task)
 
     print("=== Benchmark: Ontology Linking Cache Effectiveness ===")
     print(f"Paragraphs: {args.paragraphs}")

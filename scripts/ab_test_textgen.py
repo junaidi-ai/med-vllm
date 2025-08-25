@@ -9,6 +9,14 @@ from typing import Any, Dict, List
 
 from medvllm.tasks import TextGenerator, MedicalConstraints
 from medvllm.metrics import corpus_bleu, corpus_rouge_l, train_unigram_lm, perplexity
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 
 class EchoEngine:
@@ -69,25 +77,35 @@ def run_ab(
     for strat in strategies:
         gens: List[str] = []
         per_item: List[Dict[str, Any]] = []
-        for d in data:
-            res = tg.generate(
-                d["prompt"],
-                strategy=strat,
-                temperature=temperature,
-                top_p=top_p,
-                beam_width=beam_width,
-                max_length=256,
-                readability="general",
-                tone="formal",
-            )
-            gens.append(res.generated_text)
-            per_item.append({
-                "id": d.get("id"),
-                "prompt": d.get("prompt"),
-                "reference": d.get("reference"),
-                "generated_text": res.generated_text,
-                "metadata": res.metadata,
-            })
+        with Progress(
+            SpinnerColumn(style="cyan"),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            task = progress.add_task(f"Generating ({strat})", total=len(data))
+            for d in data:
+                res = tg.generate(
+                    d["prompt"],
+                    strategy=strat,
+                    temperature=temperature,
+                    top_p=top_p,
+                    beam_width=beam_width,
+                    max_length=256,
+                    readability="general",
+                    tone="formal",
+                )
+                gens.append(res.generated_text)
+                per_item.append({
+                    "id": d.get("id"),
+                    "prompt": d.get("prompt"),
+                    "reference": d.get("reference"),
+                    "generated_text": res.generated_text,
+                    "metadata": res.metadata,
+                })
+                progress.advance(task)
 
         bleu = corpus_bleu(references, gens)
         rouge = corpus_rouge_l(references, gens)

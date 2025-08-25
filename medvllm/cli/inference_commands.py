@@ -17,7 +17,7 @@ import os
 import click
 from rich.console import Console
 from rich.table import Table
-from medvllm.cli.utils import warn
+from medvllm.cli.utils import warn, debug, spinner, timed
 
 from medvllm.tasks import NERProcessor, TextGenerator, MedicalConstraints
 from medvllm.engine.model_runner.registry import get_registry, ModelNotFoundError
@@ -223,11 +223,12 @@ def cmd_ner(
             ) from e
 
         try:
-            nlp = hf_pipeline(
-                "token-classification",
-                model=model,
-                aggregation_strategy="simple",
-            )
+            with spinner("Loading NER pipeline..."):
+                nlp = hf_pipeline(
+                    "token-classification",
+                    model=model,
+                    aggregation_strategy="simple",
+                )
 
             class HFTokenClsAdapter:
                 def __init__(self, pipe: Any) -> None:
@@ -268,11 +269,13 @@ def cmd_ner(
     else:
         proc = NERProcessor(inference_pipeline=None, config=None)
 
-    ner = proc.extract_entities(text)
+    with timed("NER extraction"):
+        ner = proc.extract_entities(text)
 
     if not no_link:
         try:
-            ner = proc.link_entities(ner, ontology=ontology)
+            with timed("Ontology linking"):
+                ner = proc.link_entities(ner, ontology=ontology)
         except Exception as e:  # graceful degradation
             warn(f"Linking failed: {e}. Showing unlinked entities.")
 
@@ -416,29 +419,31 @@ def cmd_generate(
     if target_words and target_words > 0:
         constraints.target_word_count = target_words
 
-    generator = TextGenerator(model, constraints=constraints)
+    with timed("Initialize generator"):
+        generator = TextGenerator(model, constraints=constraints)
     # Minor validation/warnings for strategy/parameters
     if strategy.lower() == "greedy" and beam_width and beam_width != 1:
         warn("beam_width is ignored for greedy strategy.")
     if strategy.lower() == "beam" and (top_k or (top_p and top_p > 0)):
         warn("top-k/top-p are typically ignored for beam search.")
 
-    res = generator.generate(
-        prompt,
-        max_length=max_length,
-        strategy=strategy,
-        temperature=temperature,
-        top_p=top_p if top_p > 0 else None,
-        top_k=top_k if top_k > 0 else None,
-        beam_width=beam_width,
-        purpose=purpose,
-        readability=readability,
-        tone=tone,
-        structure=structure,
-        specialty=specialty,
-        target_words=target_words if target_words > 0 else None,
-        target_chars=target_chars if target_chars > 0 else None,
-    )
+    with spinner("Generating text..."):
+        res = generator.generate(
+            prompt,
+            max_length=max_length,
+            strategy=strategy,
+            temperature=temperature,
+            top_p=top_p if top_p > 0 else None,
+            top_k=top_k if top_k > 0 else None,
+            beam_width=beam_width,
+            purpose=purpose,
+            readability=readability,
+            tone=tone,
+            structure=structure,
+            specialty=specialty,
+            target_words=target_words if target_words > 0 else None,
+            target_chars=target_chars if target_chars > 0 else None,
+        )
 
     # Print generated text and optionally write to file
     console.print(res.generated_text)
@@ -509,8 +514,10 @@ def cmd_classification(
         ) from e
 
     try:
-        clf = pipeline("text-classification", model=model, return_all_scores=False)
-        result = clf(text)
+        with spinner("Loading classification pipeline..."):
+            clf = pipeline("text-classification", model=model, return_all_scores=False)
+        with timed("Classification inference"):
+            result = clf(text)
     except Exception as e:  # pragma: no cover - depends on env
         raise click.ClickException(f"Failed to run classification: {e}") from e
 
