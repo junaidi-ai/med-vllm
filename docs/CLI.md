@@ -21,6 +21,19 @@ This document describes the command-line interface exposed by `medvllm.cli`.
 ## Command Tree (Diagram)
 
 ```
+
+JSON output schema (consistent across modes):
+```json
+{
+  "entities": [
+    { "text": "HTN", "type": "condition", "start": 10, "end": 13, "confidence": 0.92,
+      "ontology_links": [ { "ontology": "UMLS", "code": "C0020538", "name": "Hypertension", "score": 0.91 } ]
+    }
+  ]
+}
+```
+- `confidence` may be absent/0.0 in processor-only mode.
+- `ontology_links` present unless `--no-link`.
 medvllm
 └── (root CLI)
     ├── model
@@ -64,13 +77,24 @@ If no input is provided, the CLI reads from stdin when piped; otherwise it error
 ### NER
 File: `medvllm/cli/inference_commands.py` → `cmd_ner`
 
-- Description: Run lightweight medical NER via `NERProcessor`, optionally with ontology linking.
+- Description: Medical NER via `NERProcessor` with dual-mode operation:
+  - Processor-only (default): fast regex/gazetteer fallback, no external deps.
+  - Model-backed (optional): specify `--model` to use a Hugging Face token-classification pipeline via an internal adapter; output normalized to the same schema.
+
 - Options:
   - `--text, --input` — input source
+  - `--input-format [auto|text|pdf]` — auto-detects by extension when `auto`
+  - `--model NAME` — optional model id or registered name for model-backed NER
   - `--ontology UMLS` — ontology to use for linking (default: `UMLS`)
   - `--no-link` — disable ontology linking
   - `--json-out` — print JSON
   - `--output FILE` — write output to file. Writes JSON when `--json-out` is set; otherwise writes the rendered table.
+
+- Model/task validation:
+  - When `--model` is provided, the CLI validates that the model supports the `ner` task using the model registry metadata (`capabilities["tasks"]`).
+  - If the model is registered and does not list `ner`, the command fails with: `Model '<name>' does not support task 'ner'`.
+  - If the model is not registered, a warning is shown and validation is skipped.
+  - See also: `python -m medvllm.cli model list-capabilities`.
 
 Examples:
 ```bash
@@ -88,6 +112,12 @@ python -m medvllm.cli inference ner --input note.txt --json-out --output ner.jso
 
 # Save to file (table text)
 python -m medvllm.cli inference ner --input note.txt --output ner.txt
+
+# Model-backed NER with validation (model must support 'ner')
+python -m medvllm.cli inference ner \
+  --text "Patient with Hypertension." \
+  --model biobert-base-cased-v1.2 \
+  --json-out
 ```
 
 Output (table mode):
@@ -177,6 +207,12 @@ File: `medvllm/cli/model_commands.py`
 ```bash
 python -m medvllm.cli model list
 python -m medvllm.cli model info --name biobert-base-cased-v1.2
+
+# List declared task capabilities (used by NER validation)
+python -m medvllm.cli model list-capabilities
+
+# JSON output
+python -m medvllm.cli model list-capabilities --json
 ```
 
 ## Return Codes

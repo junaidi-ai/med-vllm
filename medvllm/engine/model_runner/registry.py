@@ -384,12 +384,14 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                 "model_type": ModelType.BIOMEDICAL,
                 "description": "BioBERT v1.2 - Biomedical Language Model",
                 "tags": ["biomedical", "biobert", "pretrained"],
+                "capabilities": {"tasks": ["ner", "classification"]},
             },
             {
                 "name": "clinical-bert-base-uncased",
                 "model_type": ModelType.CLINICAL,
                 "description": "Clinical BERT - Pretrained on clinical notes",
                 "tags": ["clinical", "bert", "pretrained"],
+                "capabilities": {"tasks": ["ner", "classification"]},
             },
         ]
 
@@ -402,6 +404,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                     model_type=model_info_typed["model_type"],
                     description=model_info_typed["description"],
                     tags=model_info_typed["tags"],
+                    capabilities=model_info_typed.get("capabilities"),
                 )
                 logger.info("Registered default model: %s", model_info_typed["name"])
             except ModelRegistryError as e:
@@ -614,6 +617,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                 loader=BioBERTAdapter,  # type: ignore[arg-type]
                 description="BioBERT: Biomedical Text Mining with BERT",
                 tags=["biomedical", "bert"],
+                capabilities={"tasks": ["ner", "classification"]},
             )
 
             # Register ClinicalBERT
@@ -625,6 +629,7 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
                 loader=ClinicalBERTAdapter,  # type: ignore[arg-type]
                 description="ClinicalBERT: Clinical Text Mining with BERT",
                 tags=["clinical", "bert"],
+                capabilities={"tasks": ["ner", "classification"]},
             )
 
         except ImportError as e:

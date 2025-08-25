@@ -591,7 +591,7 @@
               1
             ],
             "details": "Create mechanisms to select between different AI models. Implement task specification (e.g., summarization, entity extraction). Build handlers for different input formats (text files, PDFs, direct input). Add validation for inputs and configurations. Ensure proper error handling for invalid model/task combinations.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {

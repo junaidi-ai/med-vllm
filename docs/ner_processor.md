@@ -193,3 +193,14 @@ It reports extract time, each link run timing, and `lookup_in_ontology()` cache 
 
 - Ontology linking here is a stub for demonstration; it includes small demonstration dictionaries for UMLS, SNOMED, LOINC, and RXNORM.
 - HTML highlighting aims to be simple and dependency-free.
+
+## CLI Usage (Dual-Mode)
+
+`NERProcessor` powers the CLI `inference ner` command in two modes:
+
+- Processor-only (default): runs without model dependencies.
+- Model-backed: pass `--model <name>` to use a Hugging Face token-classification pipeline internally via an adapter.
+
+Validation: when `--model` is provided, the CLI checks the model registry metadata and ensures `capabilities["tasks"]` includes `"ner"`. If unsupported, the command fails; if the model is unregistered, validation is skipped with a warning.
+
+Output schema is consistent across modes (per-entity): `text`, `type`, `start`, `end`, optional `confidence`, and optional `ontology_links` (unless `--no-link`). See `docs/CLI.md` for examples.

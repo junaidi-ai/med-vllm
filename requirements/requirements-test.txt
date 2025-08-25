@@ -34,3 +34,6 @@ pytest-memray>=1.4.0  # For memory leak detection
 # Utils
 tqdm>=4.65.0  # For progress bars
 pytest-asyncio>=0.20.0  # For async test support
+
+# PDF support for CLI tests
+pypdf>=4.0.0

@@ -12,12 +12,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 import json
+import os
 
 import click
 from rich.console import Console
 from rich.table import Table
 
 from medvllm.tasks import NERProcessor, TextGenerator, MedicalConstraints
+from medvllm.engine.model_runner.registry import get_registry, ModelNotFoundError
 
 console = Console()
 
@@ -33,16 +35,96 @@ def inference_group() -> None:
 # -----------------------------
 
 
-def _read_input(text: Optional[str], input_file: Optional[str]) -> str:
+def _read_input(text: Optional[str], input_file: Optional[str], input_format: str = "auto") -> str:
+    """Read input from direct text, file path (txt/pdf), or stdin.
+
+    Args:
+        text: Direct text input.
+        input_file: Path to an input file.
+        input_format: 'auto' | 'text' | 'pdf'. When 'auto', inferred from file ext.
+
+    Returns:
+        The input content as a string.
+    """
     if text:
         return text
     if input_file:
-        with open(input_file, "r", encoding="utf-8") as f:
+        fmt = input_format.lower().strip() if input_format else "auto"
+        ext = os.path.splitext(input_file)[1].lower()
+        if fmt == "auto":
+            if ext == ".pdf":
+                fmt = "pdf"
+            else:
+                fmt = "text"
+
+        if fmt == "pdf":
+            try:
+                # Lazy import to avoid hard dependency
+                from pypdf import PdfReader  # type: ignore
+
+                reader = PdfReader(input_file)
+                pages = []
+                for p in reader.pages:
+                    try:
+                        pages.append(p.extract_text() or "")
+                    except Exception:
+                        pages.append("")
+                content = "\n\n".join(pages).strip()
+                if not content:
+                    raise click.ClickException(
+                        "No extractable text found in PDF. Ensure the PDF is text-based, not scanned."
+                    )
+                return content
+            except ImportError as e:
+                raise click.ClickException(
+                    "PDF support requires 'pypdf'. Install it (e.g., pip install pypdf) or use --input-format text."
+                ) from e
+        # default: treat as text file
+        with open(input_file, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
     # Fallback: read from stdin if piped
     if not click.get_text_stream("stdin").isatty():
         return click.get_text_stream("stdin").read()
     raise click.UsageError("No input provided. Use --text, --input <file>, or pipe via stdin.")
+
+
+# -----------------------------
+# Model/task validation
+# -----------------------------
+
+
+def _validate_model_task(model: Optional[str], task: str) -> None:
+    """Validate that a model supports a given task based on registry metadata.
+
+    If the model is not registered, we cannot validate and will warn (but allow).
+    If registered and capabilities specify supported tasks, enforce compatibility.
+    """
+    if not model:
+        return
+    try:
+        registry = get_registry()
+        if not registry.is_registered(model):
+            console.print(
+                f"[yellow]Warning:[/] Model '{model}' is not registered; skipping compatibility validation."
+            )
+            return
+        meta = registry.get_metadata(model)
+        caps = getattr(meta, "capabilities", {}) or {}
+        tasks = set(caps.get("tasks", []) or [])
+        if tasks and task not in tasks:
+            raise click.ClickException(
+                f"Model '{model}' does not support task '{task}'. Supported tasks: {sorted(tasks)}"
+            )
+    except ModelNotFoundError:
+        console.print(
+            f"[yellow]Warning:[/] Model '{model}' not found in registry; skipping compatibility validation."
+        )
+    except click.ClickException:
+        # Propagate validation errors to Click to signal command failure
+        raise
+    except Exception as e:
+        # Do not block execution on validation errors; provide a clear message
+        console.print(f"[yellow]Validation warning:[/] {e}")
 
 
 # -----------------------------
@@ -56,6 +138,16 @@ def _read_input(text: Optional[str], input_file: Optional[str]) -> str:
     "--input", "input_file", type=click.Path(exists=True, dir_okay=False), help="Input file path."
 )
 @click.option(
+    "--input-format",
+    type=click.Choice(["auto", "text", "pdf"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="Input format when using --input. With auto, infers from file extension.",
+)
+@click.option(
+    "--model", type=str, required=False, help="Optional model name or path for model-backed NER."
+)
+@click.option(
     "--ontology", type=str, default="UMLS", show_default=True, help="Ontology to use for linking."
 )
 @click.option("--json-out", is_flag=True, help="Output JSON instead of a table.")
@@ -66,15 +158,71 @@ def _read_input(text: Optional[str], input_file: Optional[str]) -> str:
 def cmd_ner(
     text_: Optional[str],
     input_file: Optional[str],
+    input_format: str,
+    model: Optional[str],
     ontology: str,
     json_out: bool,
     no_link: bool,
     output_file: Optional[str],
 ) -> None:
     """Run medical NER on input text and print entities (optionally linked)."""
-    text = _read_input(text_, input_file)
+    text = _read_input(text_, input_file, input_format)
+    # Build processor and optional model-backed adapter
+    if model:
+        _validate_model_task(model, task="ner")
+        try:
+            from transformers import pipeline as hf_pipeline  # type: ignore
+        except Exception as e:  # pragma: no cover
+            raise click.ClickException(
+                "Model-backed NER requires 'transformers'. Install it to use --model."
+            ) from e
 
-    proc = NERProcessor(inference_pipeline=None, config=None)
+        try:
+            nlp = hf_pipeline(
+                "token-classification",
+                model=model,
+                aggregation_strategy="simple",
+            )
+
+            class HFTokenClsAdapter:
+                def __init__(self, pipe: Any) -> None:
+                    self.pipe = pipe
+
+                def run_inference(self, text: str, task_type: str = "ner") -> dict:
+                    if task_type != "ner":
+                        return {"entities": []}
+                    outs = self.pipe(text)
+                    ents = []
+                    for ent in outs:
+                        start = int(ent.get("start", -1))
+                        end = int(ent.get("end", -1))
+                        word = ent.get("word")
+                        if (start < 0 or end < 0) and isinstance(word, str):
+                            # best-effort fallback
+                            idx = text.find(word)
+                            if idx >= 0:
+                                start, end = idx, idx + len(word)
+                        etype = ent.get("entity_group") or ent.get("entity") or "entity"
+                        ents.append(
+                            {
+                                "text": word
+                                if isinstance(word, str)
+                                else (text[start:end] if start >= 0 and end >= 0 else ""),
+                                "type": str(etype).lower(),
+                                "start": start,
+                                "end": end,
+                                "confidence": float(ent.get("score", 0.0)),
+                            }
+                        )
+                    return {"entities": ents}
+
+            adapter = HFTokenClsAdapter(nlp)
+            proc = NERProcessor(inference_pipeline=adapter, config=None)
+        except Exception as e:
+            raise click.ClickException(f"Model-backed NER failed: {e}") from e
+    else:
+        proc = NERProcessor(inference_pipeline=None, config=None)
+
     ner = proc.extract_entities(text)
 
     if not no_link:
@@ -133,6 +281,13 @@ def cmd_ner(
 @click.option(
     "--input", "input_file", type=click.Path(exists=True, dir_okay=False), help="Prompt file path."
 )
+@click.option(
+    "--input-format",
+    type=click.Choice(["auto", "text", "pdf"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="Input format when using --input. With auto, infers from file extension.",
+)
 @click.option("--model", type=str, required=True, help="Model name or path for generation.")
 @click.option(
     "--strategy",
@@ -175,6 +330,7 @@ def cmd_ner(
 def cmd_generate(
     text_: Optional[str],
     input_file: Optional[str],
+    input_format: str,
     model: str,
     strategy: str,
     max_length: int,
@@ -194,7 +350,9 @@ def cmd_generate(
     output_file: Optional[str],
 ) -> None:
     """Generate medical text according to the chosen strategy and constraints."""
-    prompt = _read_input(text_, input_file)
+    # Validate model/task compatibility if possible
+    _validate_model_task(model, task="generation")
+    prompt = _read_input(text_, input_format=input_format, input_file=input_file)
 
     constraints = MedicalConstraints()
     if no_disclaimer:
@@ -206,6 +364,12 @@ def cmd_generate(
         constraints.target_word_count = target_words
 
     generator = TextGenerator(model, constraints=constraints)
+    # Minor validation/warnings for strategy/parameters
+    if strategy.lower() == "greedy" and beam_width and beam_width != 1:
+        console.print("[yellow]Warning:[/] beam_width is ignored for greedy strategy.")
+    if strategy.lower() == "beam" and (top_k or (top_p and top_p > 0)):
+        console.print("[yellow]Warning:[/] top-k/top-p are typically ignored for beam search.")
+
     res = generator.generate(
         prompt,
         max_length=max_length,
@@ -253,6 +417,13 @@ def register_commands(cli: Any) -> None:
     "--input", "input_file", type=click.Path(exists=True, dir_okay=False), help="Input file path."
 )
 @click.option(
+    "--input-format",
+    type=click.Choice(["auto", "text", "pdf"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="Input format when using --input. With auto, infers from file extension.",
+)
+@click.option(
     "--model",
     type=str,
     default="distilbert-base-uncased-finetuned-sst-2-english",
@@ -266,6 +437,7 @@ def register_commands(cli: Any) -> None:
 def cmd_classification(
     text_: Optional[str],
     input_file: Optional[str],
+    input_format: str,
     model: str,
     json_out: bool,
     output_file: Optional[str],
@@ -275,7 +447,7 @@ def cmd_classification(
     This is a lightweight wrapper to enable basic classification via CLI until a
     dedicated classifier exists in medvllm/tasks.
     """
-    text = _read_input(text_, input_file)
+    text = _read_input(text_, input_file, input_format)
     try:
         from transformers import pipeline  # type: ignore
     except Exception as e:

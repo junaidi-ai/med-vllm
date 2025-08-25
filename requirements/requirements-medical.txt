@@ -41,3 +41,6 @@ anyio>=3.0.0  # For async/await support
 
 # Logging & Debugging
 loguru>=0.6.0  # For structured logging
+
+# PDF Input Support
+pypdf>=4.0.0

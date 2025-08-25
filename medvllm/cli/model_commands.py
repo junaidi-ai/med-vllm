@@ -173,6 +173,42 @@ def list_models(model_type_str: Optional[str], output_json: bool) -> None:
         raise click.Abort()
 
 
+@model.command("list-capabilities")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+def list_capabilities(output_json: bool) -> None:
+    """List registered models with their declared task capabilities.
+
+    Shows capabilities["tasks"] from the model registry metadata when available.
+    """
+    try:
+        models = registry.list_models(None)
+        rows = []
+        for m in models:
+            name = m.get("name", "")
+            try:
+                meta = registry.get_metadata(name)
+                caps = getattr(meta, "capabilities", {}) or {}
+                tasks = caps.get("tasks", []) or []
+            except Exception:
+                tasks = []
+            rows.append({"name": name, "tasks": list(tasks)})
+
+        if output_json:
+            click.echo(json.dumps(rows, indent=2))
+            return
+
+        table = Table(title="Model Capabilities (tasks)")
+        table.add_column("Name", style="cyan")
+        table.add_column("Tasks", style="green")
+        for r in rows:
+            tasks_str = ", ".join(r["tasks"]) if r["tasks"] else ""
+            table.add_row(r["name"], tasks_str)
+        console.print(table)
+    except Exception as e:
+        console.print(f"[red]✗ Failed to list capabilities: {str(e)}[/]")
+        raise click.Abort()
+
+
 @model.command()
 @click.argument("name")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
