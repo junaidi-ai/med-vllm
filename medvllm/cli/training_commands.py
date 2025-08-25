@@ -68,6 +68,13 @@ def training_group() -> None:
     "--amp/--no-amp", default=False, show_default=True, help="Use mixed precision (CUDA only)"
 )
 @click.option(
+    "--device",
+    type=click.Choice(["auto", "cpu", "cuda", "xla"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="Device to train on. 'xla' requires torch_xla installed.",
+)
+@click.option(
     "--output", type=click.Path(file_okay=False), default="./toy_finetune", show_default=True
 )
 @click.option("--toy", is_flag=True, help="Run the built-in toy example")
@@ -88,6 +95,7 @@ def train_cmd(
     batch_size: int,
     lr: float,
     amp: bool,
+    device: str,
     output: str,
     toy: bool,
     entrypoint: str | None,
@@ -134,6 +142,7 @@ def train_cmd(
         use_amp=amp,
         log_every=20,
         save_every_epochs=epochs,  # save at end only by default
+        device=None if device.lower() == "auto" else device.lower(),
     )
 
     console.print(f"config: {asdict(cfg)}")

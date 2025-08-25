@@ -236,7 +236,7 @@ File: `medvllm/cli/training_commands.py`
   - `training train` — run a simple training job.
 
 Options (subset):
-- `--epochs`, `--batch-size`, `--lr`, `--amp/--no-amp`, `--output`
+- `--epochs`, `--batch-size`, `--lr`, `--amp/--no-amp`, `--device {auto|cpu|cuda|xla}`, `--output`
 - Modes:
   - `--toy` — built-in synthetic dataset + tiny MLP (good for smoke tests)
   - `--entrypoint module.or.path:func` — dynamic loader for custom training targets
@@ -262,6 +262,9 @@ python -m medvllm.cli training train \
   --config /abs/path/to/config.json \
   --epochs 1 --batch-size 8 --lr 1e-3 --output ./runs/path_exp
 ```
+
+Notes:
+- Minimal TPU support via torch_xla: use `--device xla`. Requires `torch-xla` installed and environment configured. AMP uses XLA autocast (bfloat16 recommended).
 
 ## Return Codes
 - `0` on success

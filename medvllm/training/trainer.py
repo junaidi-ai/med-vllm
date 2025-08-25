@@ -6,6 +6,12 @@ from typing import Any, Dict, Iterable, Optional
 import torch
 from torch.utils.data import DataLoader
 
+# Optional XLA (TPU) support
+try:  # pragma: no cover - only active when torch_xla is installed
+    import torch_xla.core.xla_model as xm  # type: ignore
+except Exception:  # noqa: BLE001 - broad for optional dep
+    xm = None  # type: ignore[assignment]
+
 
 @dataclass
 class TrainerConfig:
@@ -57,10 +63,26 @@ class MedicalModelTrainer:
     def __init__(self, model: torch.nn.Module, config: TrainerConfig):
         self.model = model
         self.config = config
-        self.device = torch.device(self._resolve_device())
+
+        # Resolve device, including optional XLA
+        resolved = self._resolve_device()
+        if resolved == "xla":
+            if xm is None:
+                raise RuntimeError(
+                    "XLA device requested but torch_xla is not available. Install torch-xla to use TPU."
+                )
+            self.device = xm.xla_device()
+        else:
+            self.device = torch.device(resolved)
+
+        # AMP: CUDA GradScaler only; XLA uses torch.autocast("xla") instead
         self.scaler: Optional[torch.cuda.amp.GradScaler] = (
             torch.cuda.amp.GradScaler()
-            if (self.config.use_amp and self.device.type == "cuda")
+            if (
+                self.config.use_amp
+                and isinstance(self.device, torch.device)
+                and self.device.type == "cuda"
+            )
             else None
         )
 
@@ -69,7 +91,12 @@ class MedicalModelTrainer:
 
     def _resolve_device(self) -> str:
         if self.config.device is not None:
-            return self.config.device
+            # allow explicit 'xla' to select TPU when available
+            dev = self.config.device.lower()
+            if dev.startswith("xla"):
+                return "xla"
+            return dev
+        # auto: prefer CUDA, else CPU (do not auto-pick XLA)
         return "cuda" if torch.cuda.is_available() else "cpu"
 
     def prepare_for_training(self) -> None:
@@ -150,7 +177,15 @@ class MedicalModelTrainer:
                         self.scaler.step(self.optimizer)  # type: ignore[arg-type]
                         self.scaler.update()
                     else:
-                        self.optimizer.step()  # type: ignore[union-attr]
+                        if (
+                            xm is not None
+                            and isinstance(self.device, torch.device)
+                            and self.device.type == "xla"
+                        ):
+                            # XLA requires optimizer_step for correct graph execution
+                            xm.optimizer_step(self.optimizer, barrier=True)  # type: ignore[arg-type]
+                        else:
+                            self.optimizer.step()  # type: ignore[union-attr]
 
                     if self.scheduler is not None:
                         self.scheduler.step()  # type: ignore[union-attr]
@@ -200,8 +235,26 @@ class MedicalModelTrainer:
         return self.model(**inputs)
 
     def _forward_loss(self, batch: Dict[str, Any]) -> torch.Tensor:
-        if self.scaler is not None and self.config.use_amp and self.device.type == "cuda":
-            with torch.cuda.amp.autocast(dtype=self.config.amp_dtype):
+        if self.config.use_amp:
+            # CUDA autocast
+            if isinstance(self.device, torch.device) and self.device.type == "cuda":
+                with torch.cuda.amp.autocast(dtype=self.config.amp_dtype):
+                    out = self.model(**batch)
+            # XLA autocast (bfloat16 recommended)
+            elif (
+                xm is not None
+                and isinstance(self.device, torch.device)
+                and self.device.type == "xla"
+            ):
+                # torch.autocast supports device_type="xla" when torch_xla is installed
+                dtype = (
+                    torch.bfloat16
+                    if self.config.amp_dtype not in (torch.bfloat16, torch.float16)
+                    else self.config.amp_dtype
+                )
+                with torch.autocast(device_type="xla", dtype=dtype):
+                    out = self.model(**batch)
+            else:
                 out = self.model(**batch)
         else:
             out = self.model(**batch)
