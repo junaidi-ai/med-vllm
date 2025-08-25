@@ -645,7 +645,7 @@
           3,
           4
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -653,7 +653,7 @@
             "description": "Develop the core Trainer class with basic training loop functionality, gradient computation, and parameter updates.",
             "dependencies": [],
             "details": "Create a modular Trainer class that handles the training loop, forward/backward passes, and parameter updates. Implement configurable batch processing, device management (CPU/GPU/TPU), and basic logging. Ensure the class has a clean API with initialization, training, and inference methods.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
