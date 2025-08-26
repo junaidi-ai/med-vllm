@@ -1,0 +1,3 @@
+# Optional distributed training dependencies
+# Install only if you plan to use DeepSpeed; otherwise the trainer works with DDP/single-process.
+deepspeed

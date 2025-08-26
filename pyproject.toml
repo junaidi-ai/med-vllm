@@ -41,6 +41,11 @@ dev = [
     "types-python-dateutil",
 ]
 
+# Optional extras for distributed training
+distributed = [
+    "deepspeed",
+]
+
 [project.urls]
 Homepage="https://github.com/SHA888/med-vllm"
 

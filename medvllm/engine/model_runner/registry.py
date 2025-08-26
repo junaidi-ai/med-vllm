@@ -326,9 +326,11 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
         if not name or not isinstance(name, str):
             raise ModelValidationError("Model name must be a non-empty string")
 
-        if not all(c.isalnum() or c in ".-_" for c in name):
+        # Allow Hugging Face Hub identifiers which commonly include '/'
+        # Accept: alphanumeric plus ['.', '-', '_', '/']
+        if not all(c.isalnum() or c in ".-_/" for c in name):
             raise ModelValidationError(
-                "Model name can only contain alphanumeric characters, '.', '-', and '_'",
+                "Model name can only contain alphanumeric characters, '.', '-', '_', and '/'",
                 model_name=name,
             )
 
@@ -609,28 +611,36 @@ class ModelRegistry(Generic[ModelT, ConfigT]):
             from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter
 
             # Register BioBERT
-            self.register(
-                name="dmis-lab/biobert-v1.1",
-                model_type=ModelType.BIOMEDICAL,
-                model_class=BertModel,  # type: ignore[arg-type]
-                config_class=BertConfig,  # type: ignore[arg-type]
-                loader=BioBERTAdapter,  # type: ignore[arg-type]
-                description="BioBERT: Biomedical Text Mining with BERT",
-                tags=["biomedical", "bert"],
-                capabilities={"tasks": ["ner", "classification"]},
-            )
+            bio_name = "dmis-lab/biobert-v1.1"
+            if not self.is_registered(bio_name):
+                self.register(
+                    name=bio_name,
+                    model_type=ModelType.BIOMEDICAL,
+                    model_class=BertModel,  # type: ignore[arg-type]
+                    config_class=BertConfig,  # type: ignore[arg-type]
+                    loader=BioBERTAdapter,  # type: ignore[arg-type]
+                    description="BioBERT: Biomedical Text Mining with BERT",
+                    tags=["biomedical", "bert"],
+                    capabilities={"tasks": ["ner", "classification"]},
+                )
+            else:
+                logger.debug("Medical model '%s' already registered; skipping.", bio_name)
 
             # Register ClinicalBERT
-            self.register(
-                name="emilyalsentzer/Bio_ClinicalBERT",
-                model_type=ModelType.CLINICAL,
-                model_class=BertModel,  # type: ignore[arg-type]
-                config_class=BertConfig,  # type: ignore[arg-type]
-                loader=ClinicalBERTAdapter,  # type: ignore[arg-type]
-                description="ClinicalBERT: Clinical Text Mining with BERT",
-                tags=["clinical", "bert"],
-                capabilities={"tasks": ["ner", "classification"]},
-            )
+            clinical_name = "emilyalsentzer/Bio_ClinicalBERT"
+            if not self.is_registered(clinical_name):
+                self.register(
+                    name=clinical_name,
+                    model_type=ModelType.CLINICAL,
+                    model_class=BertModel,  # type: ignore[arg-type]
+                    config_class=BertConfig,  # type: ignore[arg-type]
+                    loader=ClinicalBERTAdapter,  # type: ignore[arg-type]
+                    description="ClinicalBERT: Clinical Text Mining with BERT",
+                    tags=["clinical", "bert"],
+                    capabilities={"tasks": ["ner", "classification"]},
+                )
+            else:
+                logger.debug("Medical model '%s' already registered; skipping.", clinical_name)
 
         except ImportError as e:
             logger.warning(f"Failed to import medical model adapters: {e}")

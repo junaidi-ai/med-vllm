@@ -22,3 +22,7 @@ jupyter>=1.0.0
 coverage>=7.0.0
 # codecov 3.x is not available on PyPI; pin to latest 2.x
 codecov==2.1.13
+
+# Optional: Distributed/ZeRO optimizer runtime (GPU builds require matching CUDA)
+# Install only if needed; otherwise trainer falls back to DDP/single-process.
+deepspeed
