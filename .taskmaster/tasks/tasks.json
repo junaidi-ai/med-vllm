@@ -664,7 +664,7 @@
               1
             ],
             "details": "Create dataset adapters for common medical imaging formats. Implement preprocessing pipelines for normalization, augmentation, and transformation. Support both 2D and 3D medical data. Add handling for metadata and annotations. Ensure efficient data loading with proper caching mechanisms.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {

@@ -44,3 +44,11 @@ loguru>=0.6.0  # For structured logging
 
 # PDF Input Support
 pypdf>=4.0.0
+
+# Imaging (optional)
+# For DICOM support
+pydicom>=2.3.0
+# For NIfTI support
+nibabel>=5.2.0
+# Generic image IO fallback (PNG/JPG)
+imageio>=2.34.0
