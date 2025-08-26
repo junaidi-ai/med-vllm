@@ -67,6 +67,17 @@ class TrainerConfig:
     save_every_epochs: int = 1
     save_optimizer: bool = True
     save_scheduler: bool = True
+    save_every_steps: Optional[int] = None
+    resume_from: Optional[str] = None  # path to checkpoint .pt
+
+    # export
+    export_torchscript: bool = False
+    export_onnx: bool = False
+    export_input_example: Optional[Dict[str, Any]] = None  # required for export
+    onnx_opset: int = 13
+
+    # model versioning
+    model_versioning: bool = True
 
     # gradient checkpointing
     gradient_checkpointing: bool = False
@@ -227,6 +238,16 @@ class MedicalModelTrainer:
         self.prepare_for_training()
 
         try:
+            # Resume from checkpoint if provided
+            start_epoch = 0
+            global_step = 0
+            if self.config.resume_from:
+                if self._is_rank0():
+                    self._log({"resume_from": self.config.resume_from})
+                resume_state = self._load_checkpoint(self.config.resume_from)
+                start_epoch = int(resume_state.get("epoch", 0))
+                global_step = int(resume_state.get("global_step", 0))
+
             train_loader, train_sampler = self._build_dataloader(
                 train_dataset,
                 batch_size=self.config.batch_size,
@@ -244,10 +265,9 @@ class MedicalModelTrainer:
             total_steps = self.config.total_steps or (len(train_loader) * self.config.num_epochs)
             self._maybe_build_scheduler(total_steps)
 
-            global_step = 0
             accum_steps = max(1, self.config.gradient_accumulation_steps)
 
-            for epoch in range(self.config.num_epochs):
+            for epoch in range(start_epoch, self.config.num_epochs):
                 self.model.train()
                 running_loss = 0.0
 
@@ -295,6 +315,20 @@ class MedicalModelTrainer:
                             self.optimizer.zero_grad(set_to_none=True)  # type: ignore[union-attr]
                         global_step += 1
 
+                        # Optional step-based checkpointing
+                        if (
+                            self._is_rank0()
+                            and self.config.save_every_steps is not None
+                            and self.config.save_every_steps > 0
+                            and (global_step % self.config.save_every_steps == 0)
+                        ):
+                            self._save_checkpoint(
+                                output_dir,
+                                f"checkpoint-step{global_step}",
+                                epoch=epoch,
+                                global_step=global_step,
+                            )
+
                     running_loss += loss.item() * accum_steps
                     if self._is_rank0() and global_step % max(1, self.config.log_every) == 0:
                         self._log(
@@ -319,11 +353,18 @@ class MedicalModelTrainer:
                         self._log({"epoch": epoch, "eval_loss": eval_res.loss, **eval_res.metrics})
 
                 if self._is_rank0() and (epoch + 1) % max(1, self.config.save_every_epochs) == 0:
-                    self._save_checkpoint(output_dir, f"checkpoint-epoch{epoch+1}")
+                    self._save_checkpoint(
+                        output_dir,
+                        f"checkpoint-epoch{epoch+1}",
+                        epoch=epoch + 1,
+                        global_step=global_step,
+                    )
 
             # final save
             if self._is_rank0():
                 self._save_model(output_dir)
+                # optional export artifacts
+                self._export_artifacts(output_dir)
         finally:
             # Ensure distributed resources are properly released
             self._shutdown_distributed()
@@ -401,7 +442,14 @@ class MedicalModelTrainer:
             return data.to(self.device)
         return data
 
-    def _save_checkpoint(self, output_dir: str, name: str) -> None:
+    def _save_checkpoint(
+        self,
+        output_dir: str,
+        name: str,
+        *,
+        epoch: Optional[int] = None,
+        global_step: Optional[int] = None,
+    ) -> None:
         import os
 
         os.makedirs(output_dir, exist_ok=True)
@@ -430,6 +478,15 @@ class MedicalModelTrainer:
             payload["scheduler_state"] = self.scheduler.state_dict()
         if self.scaler is not None:
             payload["scaler_state"] = self.scaler.state_dict()
+        payload["trainer_state"] = {
+            "epoch": epoch,
+            "global_step": global_step,
+        }
+
+        # simple versioning: include incrementing version in manifest and payload
+        if self.config.model_versioning:
+            version = self._next_version(output_dir)
+            payload["version"] = version
         torch.save(payload, ckpt_path)
 
     def _save_model(self, output_dir: str) -> None:
@@ -446,9 +503,24 @@ class MedicalModelTrainer:
                     state = self.model.state_dict()
             else:
                 state = self.model.state_dict()
-            torch.save(state, os.path.join(output_dir, "pytorch_model.bin"))
+            # versioned save
+            if self.config.model_versioning:
+                v = self._next_version(output_dir)
+                ver_path = os.path.join(output_dir, f"pytorch_model.v{v}.bin")
+                torch.save(state, ver_path)
+                # also keep/update latest
+                torch.save(state, os.path.join(output_dir, "pytorch_model.bin"))
+            else:
+                torch.save(state, os.path.join(output_dir, "pytorch_model.bin"))
         else:
-            torch.save(self.model.state_dict(), os.path.join(output_dir, "pytorch_model.bin"))
+            state = self.model.state_dict()
+            if self.config.model_versioning:
+                v = self._next_version(output_dir)
+                ver_path = os.path.join(output_dir, f"pytorch_model.v{v}.bin")
+                torch.save(state, ver_path)
+                torch.save(state, os.path.join(output_dir, "pytorch_model.bin"))
+            else:
+                torch.save(state, os.path.join(output_dir, "pytorch_model.bin"))
 
     def _log(self, data: Dict[str, Any]) -> None:
         # minimal logging; can be replaced by structured logging later
@@ -602,3 +674,131 @@ class MedicalModelTrainer:
             return
         # Basic full-module wrap. Advanced auto-wrap policies can be added later.
         self.model = FSDP(self.model)  # type: ignore[no-redef]
+
+    # -------------------- Checkpoint load / Export / Versioning helpers --------------------
+    def _load_checkpoint(self, path: str) -> Dict[str, Any]:
+        """Load checkpoint into model/optimizer/scheduler/scaler if present.
+
+        Returns trainer_state with epoch/global_step if available.
+        """
+        device = self.device if isinstance(self.device, torch.device) else torch.device("cpu")
+        ckpt = torch.load(path, map_location=device)
+        model_state = ckpt.get("model_state")
+        if model_state is not None:
+            # If wrapped (DDP/FSDP), load on .module if needed
+            target = self.model.module if hasattr(self.model, "module") else self.model
+            target.load_state_dict(model_state)
+        if self.optimizer is not None and "optimizer_state" in ckpt:
+            try:
+                self.optimizer.load_state_dict(ckpt["optimizer_state"])  # type: ignore[union-attr]
+            except Exception:
+                warnings.warn("Optimizer state not loaded (mismatch).")
+        if self.scheduler is not None and "scheduler_state" in ckpt:
+            try:
+                self.scheduler.load_state_dict(ckpt["scheduler_state"])  # type: ignore[union-attr]
+            except Exception:
+                warnings.warn("Scheduler state not loaded (mismatch).")
+        if self.scaler is not None and "scaler_state" in ckpt:
+            try:
+                self.scaler.load_state_dict(ckpt["scaler_state"])  # type: ignore[union-attr]
+            except Exception:
+                warnings.warn("GradScaler state not loaded (mismatch).")
+        ts = ckpt.get("trainer_state", {}) or {}
+        return ts
+
+    def _export_artifacts(self, output_dir: str) -> None:
+        if not (self.config.export_torchscript or self.config.export_onnx):
+            return
+        sample = self.config.export_input_example
+        if not isinstance(sample, dict):
+            warnings.warn(
+                "export_* requested but export_input_example is missing; skipping export."
+            )
+            return
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                # Determine positional call signature: assume dict maps to kwargs
+                example_kwargs = self._move_to_device(sample)
+
+                # Prefer a single tensor input for robust export; ignore typical target keys
+                ignore_keys = {"labels", "label", "targets", "target", "y"}
+                tensor_inputs = {
+                    k: v
+                    for k, v in example_kwargs.items()
+                    if torch.is_tensor(v) and k not in ignore_keys
+                }
+
+                single_name = None
+                single_tensor = None
+                if len(tensor_inputs) == 1:
+                    single_name, single_tensor = next(iter(tensor_inputs.items()))
+
+                # TorchScript export
+                if self.config.export_torchscript:
+                    ts_path = os.path.join(output_dir, "model.torchscript.pt")
+                    try:
+                        if single_tensor is not None:
+                            traced = torch.jit.trace(
+                                lambda x: self.model(**{single_name: x}), single_tensor
+                            )  # type: ignore[arg-type]
+                        else:
+                            # Fallback to kwargs-based tracing (may fail for some models)
+                            traced = torch.jit.trace_module(
+                                self.model, {"forward": ((), example_kwargs)}
+                            )  # type: ignore[arg-type]
+                        traced.save(ts_path)
+                    except Exception as e:
+                        warnings.warn(f"TorchScript export failed: {e}")
+
+                # ONNX export
+                if self.config.export_onnx:
+                    onnx_path = os.path.join(output_dir, "model.onnx")
+                    try:
+                        if single_tensor is not None:
+                            torch.onnx.export(
+                                lambda x: self.model(**{single_name: x}),
+                                args=(single_tensor,),
+                                f=onnx_path,
+                                input_names=[single_name],
+                                output_names=["output"],
+                                opset_version=int(self.config.onnx_opset),
+                                dynamic_axes={single_name: {0: "batch"}},
+                            )
+                        else:
+                            torch.onnx.export(
+                                self.model,
+                                args=(),
+                                f=onnx_path,
+                                kwargs=example_kwargs,
+                                input_names=list(example_kwargs.keys()),
+                                output_names=["output"],
+                                opset_version=int(self.config.onnx_opset),
+                                dynamic_axes={k: {0: "batch"} for k in example_kwargs.keys()},
+                            )
+                    except Exception as e:
+                        warnings.warn(f"ONNX export failed: {e}")
+        except Exception as e:  # pragma: no cover - export is best effort
+            warnings.warn(f"Export failed: {e}")
+
+    def _next_version(self, output_dir: str) -> int:
+        """Increment and persist a simple integer version in manifest.json."""
+        import json
+
+        os.makedirs(output_dir, exist_ok=True)
+        manifest_path = os.path.join(output_dir, "manifest.json")
+        data: Dict[str, Any] = {"latest_version": 0}
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {"latest_version": 0}
+        v = int(data.get("latest_version", 0)) + 1
+        data["latest_version"] = v
+        try:
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except Exception:
+            pass
+        return v

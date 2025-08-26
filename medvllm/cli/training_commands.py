@@ -10,7 +10,7 @@ from typing import Any, Callable, Tuple
 import click
 import torch
 from torch import nn
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 from medvllm.cli.utils import console
 from medvllm.training import MedicalModelTrainer, TrainerConfig
@@ -90,6 +90,36 @@ def training_group() -> None:
     default=None,
     help="Optional JSON config passed to the entrypoint function as a dict",
 )
+# Checkpointing / resume
+@click.option("--save-every-steps", type=int, default=None, help="Save checkpoint every N steps")
+@click.option(
+    "--resume-from",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to a checkpoint .pt to resume from",
+)
+# Export
+@click.option(
+    "--export-torchscript/--no-export-torchscript",
+    default=False,
+    show_default=True,
+    help="Export TorchScript after training",
+)
+@click.option(
+    "--export-onnx/--no-export-onnx",
+    default=False,
+    show_default=True,
+    help="Export ONNX after training",
+)
+@click.option("--onnx-opset", type=int, default=13, show_default=True, help="ONNX opset version")
+@click.option(
+    "--export-auto-example/--no-export-auto-example",
+    default=True,
+    show_default=True,
+    help="Auto-derive export input example from the first training batch (or toy example)",
+)
+# Versioning
+@click.option("--no-versioning", is_flag=True, default=False, help="Disable model versioning")
 def train_cmd(
     epochs: int,
     batch_size: int,
@@ -100,6 +130,13 @@ def train_cmd(
     toy: bool,
     entrypoint: str | None,
     config: str | None,
+    save_every_steps: int | None,
+    resume_from: str | None,
+    export_torchscript: bool,
+    export_onnx: bool,
+    onnx_opset: int,
+    export_auto_example: bool,
+    no_versioning: bool,
 ) -> None:
     """Train a model via either --toy or a custom --entrypoint.
 
@@ -114,11 +151,15 @@ def train_cmd(
         raise click.UsageError("Choose only one of --toy or --entrypoint.")
 
     # Build data/model
+    export_input_example: dict[str, Any] | None = None
     if toy:
         console.print("[bold]Running toy training example[/bold]")
         train_ds = _ToyDataset(n=1024, seed=0)
         eval_ds = _ToyDataset(n=256, seed=1)
         model = _ToyModel()
+        if export_auto_example and (export_torchscript or export_onnx):
+            # Toy shapes: input: (B,2), labels: (B,)
+            export_input_example = {"input": torch.randn(1, 2), "labels": torch.tensor([1])}
     else:
         cfg_payload: dict[str, Any] = {}
         if config is not None:
@@ -133,6 +174,23 @@ def train_cmd(
                 "Entrypoint must return a tuple (model, train_dataset, eval_dataset_or_none)."
             ) from e
 
+        # Auto derive export example: take first batch from train_ds
+        if export_auto_example and (export_torchscript or export_onnx):
+            try:
+                loader = DataLoader(train_ds, batch_size=1, shuffle=False)
+                first_batch = next(iter(loader))
+                if isinstance(first_batch, dict):
+                    export_input_example = {
+                        k: (v if torch.is_tensor(v) else torch.as_tensor(v))
+                        for k, v in first_batch.items()
+                    }
+                else:
+                    console.print(
+                        "[yellow]Auto example: first batch is not a dict; skipping.[/yellow]"
+                    )
+            except Exception as e:
+                console.print(f"[yellow]Auto example extraction failed: {e}[/yellow]")
+
     # Trainer config
     cfg = TrainerConfig(
         learning_rate=lr,
@@ -142,6 +200,13 @@ def train_cmd(
         use_amp=amp,
         log_every=20,
         save_every_epochs=epochs,  # save at end only by default
+        save_every_steps=save_every_steps,
+        resume_from=resume_from,
+        export_torchscript=export_torchscript,
+        export_onnx=export_onnx,
+        onnx_opset=onnx_opset,
+        export_input_example=export_input_example,
+        model_versioning=not no_versioning,
         device=None if device.lower() == "auto" else device.lower(),
     )
 
