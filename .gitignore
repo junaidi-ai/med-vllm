@@ -220,3 +220,7 @@ node_modules/
 # Task files
 # tasks.json
 # tasks/ 
+
+# Local artifacts
+tiny_trained_model/
+*.deb
