@@ -75,7 +75,10 @@ def training_group() -> None:
     help="Device to train on. 'xla' requires torch_xla installed.",
 )
 @click.option(
-    "--output", type=click.Path(file_okay=False), default="./toy_finetune", show_default=True
+    "--output",
+    type=click.Path(file_okay=False),
+    default="./local_runs/toy_finetune",
+    show_default=True,
 )
 @click.option("--toy", is_flag=True, help="Run the built-in toy example")
 @click.option(

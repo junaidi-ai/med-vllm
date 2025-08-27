@@ -224,3 +224,8 @@ node_modules/
 # Local artifacts
 tiny_trained_model/
 *.deb
+
+# Smoke run artifacts (trainer examples/tests)
+toy_run_tmp/
+toy_seg_run/
+local_runs/

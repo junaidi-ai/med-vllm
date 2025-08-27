@@ -55,7 +55,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--amp", action="store_true")
-    parser.add_argument("--output", type=str, default="./toy_finetune")
+    parser.add_argument("--output", type=str, default="./local_runs/toy_finetune")
     args = parser.parse_args()
 
     train_ds = ToyDataset(n=1024, seed=0)
