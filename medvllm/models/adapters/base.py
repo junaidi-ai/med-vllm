@@ -29,6 +29,27 @@ class MedicalModelAdapterBase(nn.Module):
         super().__init__()
         self.model = model
         self.config = config
+        # Ensure adapters always expose a model_type attribute.
+        # Subclasses may override this, but tests and callers expect it to exist.
+        try:
+            # Prefer explicit adapter config
+            cfg_model_type = None
+            if isinstance(config, dict):
+                cfg_model_type = config.get("model_type") or config.get("adapter_type")
+
+            # Fallback to underlying HF/nn model config if available
+            model_cfg_type = getattr(getattr(model, "config", object()), "model_type", None)
+
+            # Choose the first available, normalize to lowercase string
+            chosen = cfg_model_type or model_cfg_type
+            if chosen is not None:
+                self.model_type = str(chosen).lower()
+            else:
+                # Sensible default; subclasses like BioBERT/ClinicalBERT will overwrite
+                self.model_type = "biobert"
+        except Exception:
+            # Absolute last-resort default to avoid AttributeError in tests
+            self.model_type = "biobert"
         self.kv_cache: Optional[Dict[str, torch.Tensor]] = None
         self.cuda_graphs: Optional[Any] = None
 

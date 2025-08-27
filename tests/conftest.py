@@ -10,9 +10,18 @@ import os
 import pytest
 import types
 import contextlib
+import warnings
 import importlib.util
 import pkgutil
 from unittest.mock import MagicMock
+
+# Suppress noisy Pydantic "protected namespace" warnings in tests
+warnings.filterwarnings(
+    "ignore",
+    message=r".*protected namespace.*",
+    category=UserWarning,
+    module=r"pydantic\..*",
+)
 
 # Add the project root to the Python path to ensure imports work
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,6 +39,7 @@ from tests.conftest_patches import (
     patch_medical_model,
     patch_transformers,
     patch_medical_config,
+    patch_datasets,
 )
 
 # Add the project root to the Python path
@@ -48,9 +58,27 @@ def pytest_configure(config):
     # Apply transformers/adapters/models/config patches
     try:
         patch_transformers()
+        # Defensive: ensure AutoTokenizer exists on the mocked transformers
+        try:
+            import sys as _sys
+
+            _t = _sys.modules.get("transformers")
+            if _t is not None and not hasattr(_t, "AutoTokenizer"):
+
+                class _AutoTok:
+                    @classmethod
+                    def from_pretrained(cls, *args, **kwargs):
+                        inst = cls()
+                        setattr(inst, "pad_token_id", 0)
+                        return inst
+
+                setattr(_t, "AutoTokenizer", _AutoTok)
+        except Exception:
+            pass
         patch_adapters()
         patch_medical_model()
         patch_medical_config()
+        patch_datasets()
     except Exception as e:
         print(f"Warning applying test patches: {e}")
 

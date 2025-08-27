@@ -4,6 +4,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+# Skip this module if optional huggingface-datasets is not available
+pytest.importorskip("datasets", reason="datasets not installed")
+
 from medvllm.data import get_dataset
 
 
