@@ -1,0 +1,10 @@
+{
+  "profile": "cpu",
+  "description": "CPU inference with dynamic int8 quantization",
+  "engine": {
+    "device": "cpu",
+    "tensor_parallel_size": 1,
+    "quantization_bits": 8,
+    "quantization_method": "dynamic"
+  }
+}

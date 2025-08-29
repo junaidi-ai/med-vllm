@@ -1,0 +1,10 @@
+{
+  "profile": "gpu_8bit",
+  "description": "Single-GPU inference using bitsandbytes 8-bit quantization",
+  "engine": {
+    "device": "cuda",
+    "tensor_parallel_size": 1,
+    "quantization_bits": 8,
+    "quantization_method": "bnb-8bit"
+  }
+}

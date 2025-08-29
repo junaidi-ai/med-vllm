@@ -1,0 +1,10 @@
+{
+  "profile": "gpu_4bit",
+  "description": "Single-GPU inference using bitsandbytes 4-bit NF4 quantization",
+  "engine": {
+    "device": "cuda",
+    "tensor_parallel_size": 1,
+    "quantization_bits": 4,
+    "quantization_method": "bnb-nf4"
+  }
+}

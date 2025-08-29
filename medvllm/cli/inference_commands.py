@@ -356,6 +356,48 @@ def cmd_ner(
 )
 @click.option("--model", type=str, required=True, help="Model name or path for generation.")
 @click.option(
+    "--quantization-bits",
+    type=click.IntRange(0, 8),
+    default=None,
+    help="Quantize weights to N bits if supported (4 or 8). Default: disabled.",
+)
+@click.option(
+    "--quantization-method",
+    type=str,
+    default=None,
+    help="Quantization method: dynamic|torch|cpu (int8 CPU) or bnb-8bit|bnb-nf4 (GPU).",
+)
+@click.option(
+    "--flash-attention/--no-flash-attention",
+    "flash_attention",
+    default=None,
+    help="Enable FlashAttention if available (default: leave as-is).",
+)
+@click.option(
+    "--grad-checkpointing",
+    is_flag=True,
+    default=False,
+    help="Enable gradient checkpointing on supported models (reduces memory).",
+)
+@click.option(
+    "--tf32",
+    is_flag=True,
+    default=False,
+    help="Enable TF32 matmul on Ampere+ GPUs for speed (may slightly change numerics).",
+)
+@click.option(
+    "--matmul-precision",
+    type=click.Choice(["highest", "high", "medium", "low"], case_sensitive=False),
+    default=None,
+    help="torch.set_float32_matmul_precision value (torch>=2).",
+)
+@click.option(
+    "--cudnn-benchmark/--no-cudnn-benchmark",
+    "cudnn_benchmark",
+    default=None,
+    help="Control torch.backends.cudnn.benchmark (default: leave as-is).",
+)
+@click.option(
     "--strategy",
     type=click.Choice(["greedy", "sampling", "beam"], case_sensitive=False),
     default="beam",
@@ -398,6 +440,13 @@ def cmd_generate(
     input_file: Optional[str],
     input_format: str,
     model: str,
+    quantization_bits: Optional[int],
+    quantization_method: Optional[str],
+    flash_attention: Optional[bool],
+    grad_checkpointing: bool,
+    tf32: bool,
+    matmul_precision: Optional[str],
+    cudnn_benchmark: Optional[bool],
     strategy: str,
     max_length: int,
     temperature: float,
@@ -438,6 +487,25 @@ def cmd_generate(
         constraints.target_word_count = target_words
 
     with timed("Initialize generator"):
+        # Build engine kwargs (quantization + optimization flags) regardless of engine type
+        engine_kwargs: dict[str, Any] = {}
+        # Quantization
+        if quantization_bits is not None:
+            engine_kwargs["quantization_bits"] = quantization_bits
+        if quantization_method is not None:
+            engine_kwargs["quantization_method"] = quantization_method
+        # Optimization flags
+        if flash_attention is not None:
+            engine_kwargs["enable_flash_attention"] = flash_attention
+        if grad_checkpointing:
+            engine_kwargs["grad_checkpointing"] = True
+        if tf32:
+            engine_kwargs["allow_tf32"] = True
+        if matmul_precision is not None:
+            engine_kwargs["torch_matmul_precision"] = matmul_precision
+        if cudnn_benchmark is not None:
+            engine_kwargs["cudnn_benchmark"] = cudnn_benchmark
+
         # Use a lightweight fake engine for tests when env flag is set
         if os.environ.get("MEDVLLM_TEST_FAKE_ENGINE", "0") == "1":
 
@@ -447,9 +515,9 @@ def cmd_generate(
                     text = f"FAKE -> {prompt[:120]}"
                     return [{"text": text, "prompt": prompt}]
 
-            generator = TextGenerator(_FakeEngine(), constraints=constraints)
+            generator = TextGenerator(_FakeEngine(), constraints=constraints, **engine_kwargs)
         else:
-            generator = TextGenerator(model, constraints=constraints)
+            generator = TextGenerator(model, constraints=constraints, **engine_kwargs)
     # Minor validation/warnings for strategy/parameters
     if strategy.lower() == "greedy" and beam_width and beam_width != 1:
         warn("beam_width is ignored for greedy strategy.")

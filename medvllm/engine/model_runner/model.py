@@ -55,36 +55,79 @@ class ModelManager:
         device = kwargs.pop("device", self.runner.device)
         dtype = kwargs.pop("torch_dtype", self.runner.dtype)
 
-        try:
-            # Try to load from registry first
-            model = registry.load_model(
-                model_name_or_path,
-                device=device,
-                torch_dtype=dtype,
-                trust_remote_code=True,
-                device_map="auto" if str(device) == "cuda" else None,
-                **kwargs,
-            )
-        except (KeyError, RuntimeError) as e:
-            # Fall back to direct loading if not in registry or loading fails
+        # Quantization preferences from Config
+        q_bits = getattr(self.runner.config, "quantization_bits", None)
+        q_method = (getattr(self.runner.config, "quantization_method", None) or "").lower()
+
+        # Helper: attempt bitsandbytes-aware loading when requested
+        def _load_with_bnb(bits: int, method: str) -> Optional[PreTrainedModel]:
             try:
-                model = AutoModelForCausalLM.from_pretrained(
+                # Prefer direct HF loading with bnb flags
+                load_kwargs: dict[str, Any] = {
+                    "trust_remote_code": True,
+                }
+                if bits == 8:
+                    load_kwargs["load_in_8bit"] = True
+                elif bits == 4:
+                    load_kwargs["load_in_4bit"] = True
+                    # Default to nf4 if method mentions nf4
+                    if "nf4" in method:
+                        load_kwargs["bnb_4bit_quant_type"] = "nf4"
+                # device mapping for quantized load
+                load_kwargs["device_map"] = "auto"
+
+                model_ = AutoModelForCausalLM.from_pretrained(
                     model_name_or_path,
-                    trust_remote_code=True,
+                    **load_kwargs,
+                )
+                return model_
+            except Exception:
+                return None
+
+        # If bitsandbytes quantization requested, try that path first (bypass registry)
+        if q_bits in (4, 8) and ("bnb" in q_method):
+            model = _load_with_bnb(int(q_bits), q_method)
+            if model is None:
+                # Fall back to regular paths if bnb load failed
+                pass
+
+        # (moved) backend/runtime optimizations will be applied after model is loaded and optional quantization
+
+        if 'model' not in locals() or model is None:  # type: ignore[name-defined]
+            try:
+                # Try to load from registry first
+                model = registry.load_model(
+                    model_name_or_path,
+                    device=device,
                     torch_dtype=dtype,
+                    trust_remote_code=True,
                     device_map="auto" if str(device) == "cuda" else None,
                     **kwargs,
                 )
+            except (KeyError, RuntimeError) as e:
+                # Fall back to direct loading if not in registry or loading fails
+                try:
+                    # If bnb was requested but earlier path failed, try once more here
+                    if q_bits in (4, 8) and ("bnb" in q_method):
+                        model = _load_with_bnb(int(q_bits), q_method)
+                    if not model:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            model_name_or_path,
+                            trust_remote_code=True,
+                            torch_dtype=dtype,
+                            device_map="auto" if str(device) == "cuda" else None,
+                            **kwargs,
+                        )
 
-                # If not using device_map, move model to the specified device
-                if str(device) != "cuda" or not hasattr(model, "hf_device_map"):
-                    model = model.to(device)
+                    # If not using device_map, move model to the specified device
+                    if str(device) != "cuda" or not hasattr(model, "hf_device_map"):
+                        model = model.to(device)
 
-            except Exception as inner_e:
-                raise RuntimeError(
-                    f"Failed to load model '{model_name_or_path}'. "
-                    f"Registry error: {str(e)}, Direct load error: {str(inner_e)}"
-                ) from inner_e
+                except Exception as inner_e:
+                    raise RuntimeError(
+                        f"Failed to load model '{model_name_or_path}'. "
+                        f"Registry error: {str(e)}, Direct load error: {str(inner_e)}"
+                    ) from inner_e
 
         # Store the model and its config
         self.model = model  # type: ignore[assignment]
@@ -102,6 +145,83 @@ class ModelManager:
         ):
             # Handle case where model is wrapped in DataParallel or similar
             model.module.eval()
+
+        # Apply post-load dynamic quantization on CPU if requested and not bnb
+        if q_bits == 8 and (q_method in ("", None, "dynamic", "torch", "cpu")):
+            try:
+                # Dynamic quantization works on CPU modules
+                from medvllm.optim.quantization import quantize_model, QuantizationConfig
+
+                if str(device) != "cpu":
+                    # create a cpu copy for quantized eval
+                    model_cpu = model.to("cpu")
+                else:
+                    model_cpu = model
+                qcfg = QuantizationConfig(dtype=torch.qint8, inplace=False)
+                model = quantize_model(model_cpu, qcfg)
+                # keep on CPU after dynamic quantization
+            except Exception:
+                # Best-effort; continue with original model
+                pass
+
+        # Apply backend/runtime optimizations based on Config (after model is ready)
+        try:
+            cfg = self.runner.config
+            # Torch backends and matmul precision
+            allow_tf32 = bool(getattr(cfg, "allow_tf32", False))
+            mm_prec = getattr(cfg, "torch_matmul_precision", None)
+            cudnn_bench = getattr(cfg, "cudnn_benchmark", None)
+            if torch.cuda.is_available():
+                try:
+                    torch.backends.cuda.matmul.allow_tf32 = bool(allow_tf32)
+                except Exception:
+                    pass
+                if isinstance(cudnn_bench, bool):
+                    try:
+                        torch.backends.cudnn.benchmark = cudnn_bench
+                    except Exception:
+                        pass
+            if isinstance(mm_prec, str):
+                try:
+                    torch.set_float32_matmul_precision(mm_prec)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+            # FlashAttention (best-effort)
+            enable_fa = getattr(cfg, "enable_flash_attention", None)
+            if enable_fa is True and model is not None:
+                try:
+                    from medvllm.optim.flash_attention import (
+                        FlashAttentionConfig,
+                        enable_flash_attention,
+                    )
+
+                    fa_kwargs = getattr(cfg, "flash_attention_config", None) or {}
+                    fa_cfg = (
+                        FlashAttentionConfig.from_dict(fa_kwargs)
+                        if isinstance(fa_kwargs, dict)
+                        else FlashAttentionConfig()
+                    )
+                    model = enable_flash_attention(model, config=fa_cfg)
+                except Exception:
+                    # If FA not available or fails, continue
+                    pass
+
+            # Gradient checkpointing (best-effort; eval stays set for inference)
+            if bool(getattr(cfg, "grad_checkpointing", False)) and model is not None:
+                try:
+                    if hasattr(model, "gradient_checkpointing_enable"):
+                        model.gradient_checkpointing_enable()  # type: ignore[attr-defined]
+                    elif hasattr(model, "enable_input_require_grads"):
+                        model.enable_input_require_grads()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+            # Persist possibly patched model
+            self.model = model  # type: ignore[assignment]
+        except Exception:
+            # Non-fatal: continue with loaded model as-is
+            pass
 
         # Create medical adapter if enabled
         self._setup_adapter(model, model_name_or_path)

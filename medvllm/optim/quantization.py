@@ -72,20 +72,24 @@ def quantize_model(
     # Prepare model for quantization
     model.eval()
 
-    # Apply dynamic quantization
-    quantized_model = torch.quantization.quantize_dynamic(
-        model,
-        # Only quantize Linear and LayerNorm layers by default
-        (
-            {nn.Linear, nn.LayerNorm}
-            if config.exclude_modules is None
-            else {m for m in [nn.Linear, nn.LayerNorm] if should_quantize(m.__name__)}
-        ),
-        dtype=config.dtype,
-        inplace=config.inplace,
-    )
-
-    return quantized_model
+    # Apply dynamic quantization if available; otherwise, no-op
+    qapi = getattr(torch, "quantization", None)
+    qfunc = getattr(qapi, "quantize_dynamic", None) if qapi is not None else None
+    if callable(qfunc):
+        quantized_model = qfunc(  # type: ignore[misc]
+            model,
+            # Only quantize Linear and LayerNorm layers by default
+            (
+                {nn.Linear, nn.LayerNorm}
+                if config.exclude_modules is None
+                else {m for m in [nn.Linear, nn.LayerNorm] if should_quantize(m.__name__)}
+            ),
+            dtype=config.dtype,
+            inplace=config.inplace,
+        )
+        return quantized_model
+    # Fallback: return original model unmodified
+    return model
 
 
 def save_quantized_model(
@@ -185,3 +189,67 @@ def load_quantized_model(
         model = quantize_model(model, quant_config)
 
     return model
+
+
+# --- Bitsandbytes helpers (best-effort wrappers) ---
+def bnb_load_quantized(
+    model_name_or_path: str,
+    bits: int = 8,
+    method: str = "bnb-8bit",
+    device_map: Optional[str] = "auto",
+    trust_remote_code: bool = True,
+    **kwargs: Any,
+):
+    """Load a model in 8-bit or 4-bit using transformers + bitsandbytes flags.
+
+    Args:
+        model_name_or_path: HF repo id or local path.
+        bits: 8 or 4.
+        method: "bnb-8bit" or "bnb-nf4" (nf4 for 4-bit).
+        device_map: device map to use (e.g., "auto").
+        trust_remote_code: pass-through for HF loading.
+        **kwargs: forwarded to from_pretrained.
+
+    Returns:
+        Loaded model (PreTrainedModel).
+    """
+    load_kwargs: Dict[str, Any] = {"trust_remote_code": trust_remote_code}
+    if bits == 8:
+        load_kwargs["load_in_8bit"] = True
+    elif bits == 4:
+        load_kwargs["load_in_4bit"] = True
+        if "nf4" in (method or "").lower():
+            load_kwargs["bnb_4bit_quant_type"] = "nf4"
+    else:
+        raise ValueError(f"Unsupported bits for bnb_load_quantized: {bits}")
+
+    if device_map is not None:
+        load_kwargs["device_map"] = device_map
+
+    load_kwargs.update(kwargs)
+    # Default to CausalLM as common path; callers can override class via kwargs if needed
+    return AutoModelForCausalLM.from_pretrained(model_name_or_path, **load_kwargs)
+
+
+def bnb_save_stub(save_dir: str, info: Optional[Dict[str, Any]] = None) -> None:
+    """Best-effort stub to save metadata for a bnb-quantized model.
+
+    Actual state dict saving for 4-bit/8-bit is environment/format specific.
+    This stub records metadata so users can re-load via bnb_load_quantized.
+    """
+    import os
+    import json
+
+    os.makedirs(save_dir, exist_ok=True)
+    meta = {"note": "To reload, call bnb_load_quantized with model_name_or_path and method/bits."}
+    if info:
+        meta.update(info)
+    with open(os.path.join(save_dir, "bnb_meta.json"), "w") as f:
+        json.dump(meta, f, indent=2)
+
+
+def bnb_offline_hint() -> str:
+    return (
+        "Saving true 4/8-bit bnb weights offline is not standardized across models. "
+        "Prefer loading with from_pretrained(load_in_4bit/8bit) and using device_map='auto'."
+    )

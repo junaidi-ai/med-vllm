@@ -33,6 +33,19 @@ class Config:
     # CUDA optimization settings
     memory_efficient: bool = True
     enable_mixed_precision: bool = False
+    # FlashAttention / backend optimizations
+    enable_flash_attention: bool | None = None  # None = auto/disabled, True = prefer enable
+    flash_attention_config: dict | None = None  # passthrough to FlashAttentionConfig
+    grad_checkpointing: bool = False
+    allow_tf32: bool = False
+    cudnn_benchmark: bool | None = (
+        None  # None = leave as-is; bool to set torch.backends.cudnn.benchmark
+    )
+    torch_matmul_precision: str | None = None  # e.g., "high" | "medium" | "highest" (torch>=2)
+
+    # Quantization settings (optional)
+    quantization_bits: int | None = None  # e.g., 8 or 4; None disables
+    quantization_method: str | None = None  # e.g., 'dynamic' (CPU), 'bnb-8bit', 'bnb-nf4'
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> "Config":
@@ -70,6 +83,34 @@ class Config:
         )
         if isinstance(mpe, int) and mpe > 0:
             self.max_model_len = min(self.max_model_len, mpe)
+
+        # Light validation: align quantization bits and method
+        try:
+            if self.quantization_method is not None:
+                method = str(self.quantization_method).lower().strip()
+            else:
+                method = None
+            bits = self.quantization_bits
+
+            if method:
+                # Normalize common aliases
+                if method in {"dynamic", "torch", "cpu"}:
+                    # CPU dynamic quantization is int8-only
+                    if bits is not None and bits != 8:
+                        raise ValueError("CPU dynamic quantization requires quantization_bits=8")
+                if method == "bnb-8bit":
+                    if bits is not None and bits != 8:
+                        raise ValueError("bnb-8bit requires quantization_bits=8")
+                if method in {"bnb-nf4", "nf4"}:
+                    if bits is not None and bits != 4:
+                        raise ValueError("bnb-nf4 requires quantization_bits=4")
+            # If bits set without method, allow (handled by loader best-effort)
+            if bits is not None and bits not in (4, 8):
+                raise ValueError("quantization_bits must be 4 or 8 when set")
+        except Exception:
+            # Keep validation lightweight in environments without strict requirements
+            # Re-raise ValueError only to surface clear misconfiguration
+            raise
 
     # Helper: compute capped value based on current/self.hf_config
     def _cap_max_model_len(self, proposed_value: int | None) -> int | None:
