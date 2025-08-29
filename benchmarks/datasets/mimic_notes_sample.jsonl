@@ -1,0 +1,5 @@
+{"text": "Patient presents with chest pain radiating to the left arm. ECG shows ST elevation.", "label": "cardiology", "split": "test"}
+{"text": "History of hypertension and diabetes. Started on metformin and lisinopril.", "label": "internal_medicine", "split": "test"}
+{"text": "CT head without contrast reveals no acute intracranial hemorrhage.", "label": "radiology", "split": "test"}
+{"text": "The patient denies shortness of breath but reports mild dizziness.", "label": "general", "split": "test"}
+{"text": "Discharge summary: stable vitals, follow-up in cardiology clinic in 2 weeks.", "label": "cardiology", "split": "test"}

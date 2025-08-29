@@ -19,10 +19,10 @@ python3 benchmarks/benchmark_medical.py \
   --warmup-iterations 1 \
   --batch-sizes 1 \
   --seq-lengths 64 \
-  --output-dir benchmark_results_cpu_smoke
+  --output-dir benchmarks/results
 ```
 
-Output JSON files are written to the chosen `--output-dir`. Each file includes:
+Output JSON files are written to the chosen `--output-dir` (default now `benchmarks/results/`). Each file includes:
 - Performance: `avg_latency_ms`, `tokens_per_second`
 - Memory: `memory_usage_mb` (CPU always; GPU when `--device cuda`)
 - Run metadata: `model_type`, `batch_size`, `seq_length`, `precision`, `device`
@@ -41,7 +41,7 @@ python3 benchmarks/benchmark_medical.py \
   --warmup-iterations 2 \
   --batch-sizes 1 4 8 \
   --seq-lengths 128 256 512 \
-  --output-dir benchmark_results_gpu
+  --output-dir benchmarks/results
 ```
 
 If CUDA is requested but not available, the script automatically falls back to CPU and prints an informational message. To silence it, set `--device cpu` explicitly.

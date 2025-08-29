@@ -74,38 +74,64 @@ def _isolated_torch_and_transformers_mocks():
     sys.modules["torch.nn.parameter"] = Mock(Parameter=Mock())
     sys.modules["torch.distributed"] = Mock()
 
-    # Mock transformers
-    mock_transformers = types.ModuleType("transformers")
-    mock_tokenization_utils = types.ModuleType("transformers.tokenization_utils_base")
+    # Mock/Augment transformers without replacing existing global mock
+    t = sys.modules.get("transformers")
+    if t is None:
+        # Create a minimal transformers mock and mark as test env
+        t = types.ModuleType("transformers")
+        setattr(t, "MockTransformers", True)
+        sys.modules["transformers"] = t
 
-    class MockPreTrainedTokenizerBase: ...
+    # Ensure tokenization utils base with PreTrainedTokenizerBase exists
+    tok_utils_name = "transformers.tokenization_utils_base"
+    tok_utils = sys.modules.get(tok_utils_name)
+    if tok_utils is None:
+        tok_utils = types.ModuleType(tok_utils_name)
+        sys.modules[tok_utils_name] = tok_utils
+    if not hasattr(tok_utils, "PreTrainedTokenizerBase"):
 
-    class MockPreTrainedModel: ...
+        class MockPreTrainedTokenizerBase: ...
 
-    mock_tokenization_utils.PreTrainedTokenizerBase = MockPreTrainedTokenizerBase
-    mock_transformers.tokenization_utils_base = mock_tokenization_utils
-    mock_transformers.PreTrainedModel = MockPreTrainedModel
+        tok_utils.PreTrainedTokenizerBase = MockPreTrainedTokenizerBase
+    setattr(t, "tokenization_utils_base", tok_utils)
 
-    class MockAutoModel:
-        @classmethod
-        def from_pretrained(cls, *args, **kwargs):
-            return MagicMock()
+    # Provide PreTrainedModel for registry typing and adapters
+    if not hasattr(t, "PreTrainedModel"):
 
-    class MockAutoTokenizer:
-        @classmethod
-        def from_pretrained(cls, *args, **kwargs):
-            return MagicMock()
+        class MockPreTrainedModel: ...
 
-    class MockAutoConfig:
-        @classmethod
-        def from_pretrained(cls, *args, **kwargs):
-            return {}
+        setattr(t, "PreTrainedModel", MockPreTrainedModel)
 
-    mock_transformers.AutoModel = MockAutoModel
-    mock_transformers.AutoModelForCausalLM = MockAutoModel
-    mock_transformers.AutoTokenizer = MockAutoTokenizer
-    mock_transformers.AutoConfig = MockAutoConfig
-    sys.modules["transformers"] = mock_transformers
+    # Provide Auto* classes used by adapters
+    if not hasattr(t, "AutoModel"):
+
+        class _AutoModel:
+            @classmethod
+            def from_pretrained(cls, *args, **kwargs):
+                return MagicMock()
+
+        setattr(t, "AutoModel", _AutoModel)
+        setattr(t, "AutoModelForCausalLM", _AutoModel)
+
+    if not hasattr(t, "AutoTokenizer"):
+
+        class _AutoTokenizer:
+            @classmethod
+            def from_pretrained(cls, *args, **kwargs):
+                m = MagicMock()
+                setattr(m, "pad_token_id", 0)
+                return m
+
+        setattr(t, "AutoTokenizer", _AutoTokenizer)
+
+    if not hasattr(t, "AutoConfig"):
+
+        class _AutoConfig:
+            @classmethod
+            def from_pretrained(cls, *args, **kwargs):
+                return {}
+
+        setattr(t, "AutoConfig", _AutoConfig)
 
     try:
         yield

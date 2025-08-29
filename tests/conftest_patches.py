@@ -190,21 +190,22 @@ def patch_transformers():
 
     import types as _types
 
-    mock_transformers = _types.ModuleType("transformers")
-    mock_transformers.__file__ = "/mock/transformers/__init__.py"
-    mock_transformers.__spec__ = None
+    # Build a concrete module first so we have a complete spec of attributes
+    concrete_transformers = _types.ModuleType("transformers")
+    concrete_transformers.__file__ = "/mock/transformers/__init__.py"
+    concrete_transformers.__spec__ = None
     # Assign core classes
-    mock_transformers.AutoModel = AutoModel
-    mock_transformers.AutoModelForCausalLM = AutoModelForCausalLM
-    mock_transformers.AutoModelForSequenceClassification = AutoModelForSequenceClassification
-    mock_transformers.AutoModelForQuestionAnswering = AutoModelForQuestionAnswering
-    mock_transformers.AutoTokenizer = AutoTokenizer
-    mock_transformers.AutoConfig = AutoConfig
-    mock_transformers.PretrainedConfig = PretrainedConfig
-    mock_transformers.PreTrainedModel = PreTrainedModel
-    mock_transformers.BertConfig = BertConfig
-    mock_transformers.BertModel = BertModel
-    mock_transformers.Qwen3Config = Qwen3Config
+    concrete_transformers.AutoModel = AutoModel
+    concrete_transformers.AutoModelForCausalLM = AutoModelForCausalLM
+    concrete_transformers.AutoModelForSequenceClassification = AutoModelForSequenceClassification
+    concrete_transformers.AutoModelForQuestionAnswering = AutoModelForQuestionAnswering
+    concrete_transformers.AutoTokenizer = AutoTokenizer
+    concrete_transformers.AutoConfig = AutoConfig
+    concrete_transformers.PretrainedConfig = PretrainedConfig
+    concrete_transformers.PreTrainedModel = PreTrainedModel
+    concrete_transformers.BertConfig = BertConfig
+    concrete_transformers.BertModel = BertModel
+    concrete_transformers.Qwen3Config = Qwen3Config
 
     # Mapping
     class _Mapping:
@@ -214,7 +215,7 @@ def patch_transformers():
         def register(cls, k, v):
             cls._extra_content[k] = v
 
-    mock_transformers.MODEL_FOR_CAUSAL_LM_MAPPING = _Mapping
+    concrete_transformers.MODEL_FOR_CAUSAL_LM_MAPPING = _Mapping
 
     # Tokenizer types
     class _PreTrainedTokenizerBase:  # type: ignore
@@ -226,9 +227,9 @@ def patch_transformers():
     class _PreTrainedTokenizerFast(_PreTrainedTokenizerBase):  # type: ignore
         pass
 
-    mock_transformers.PreTrainedTokenizerBase = _PreTrainedTokenizerBase
-    mock_transformers.PreTrainedTokenizer = _PreTrainedTokenizer
-    mock_transformers.PreTrainedTokenizerFast = _PreTrainedTokenizerFast
+    concrete_transformers.PreTrainedTokenizerBase = _PreTrainedTokenizerBase
+    concrete_transformers.PreTrainedTokenizer = _PreTrainedTokenizer
+    concrete_transformers.PreTrainedTokenizerFast = _PreTrainedTokenizerFast
 
     # Submodules with expected classes (use real ModuleType to avoid class-scope name issues)
     import types as _types
@@ -248,8 +249,25 @@ def patch_transformers():
     _tokenization_utils_base.PreTrainedTokenizer = _PreTrainedTokenizer
     _tokenization_utils_base.PreTrainedTokenizerFast = _PreTrainedTokenizerFast
 
+    # Wrap the concrete module in a MagicMock to satisfy tests expecting MagicMock
+    transformers_mock = MagicMock(name="transformers", spec=concrete_transformers)
+    # Copy attributes from the concrete module onto the MagicMock so imports work
+    for _attr in dir(concrete_transformers):
+        try:
+            setattr(transformers_mock, _attr, getattr(concrete_transformers, _attr))
+        except Exception:
+            pass
+    # Ensure core dunder attributes exist
+    try:
+        transformers_mock.__file__ = concrete_transformers.__file__
+        transformers_mock.__spec__ = concrete_transformers.__spec__
+        transformers_mock.__name__ = "transformers"
+        transformers_mock.__package__ = "transformers"
+    except Exception:
+        pass
+
     # Update sys.modules to ensure all parts of the transformers library are mocked
-    sys.modules["transformers"] = mock_transformers
+    sys.modules["transformers"] = transformers_mock
     # Also provide common nested module paths used by some imports
     _models_pkg = _types.ModuleType("transformers.models")
     _auto_pkg = _types.ModuleType("transformers.models.auto")
@@ -264,9 +282,9 @@ def patch_transformers():
     sys.modules["transformers.tokenization_utils_base"] = _tokenization_utils_base
 
     # Register the 'medical_llm' model type
-    if hasattr(mock_transformers, "MODEL_FOR_CAUSAL_LM_MAPPING"):
-        mock_transformers.MODEL_FOR_CAUSAL_LM_MAPPING._extra_content = {}
-        mock_transformers.MODEL_FOR_CAUSAL_LM_MAPPING.register(MedicalLLMConfig, object())
+    if hasattr(concrete_transformers, "MODEL_FOR_CAUSAL_LM_MAPPING"):
+        concrete_transformers.MODEL_FOR_CAUSAL_LM_MAPPING._extra_content = {}
+        concrete_transformers.MODEL_FOR_CAUSAL_LM_MAPPING.register(MedicalLLMConfig, object())
 
     # Now patch the Config class's __post_init__ method to avoid the actual call to AutoConfig.from_pretrained
     from medvllm.config import Config as OriginalConfig
@@ -291,6 +309,9 @@ def patch_transformers():
 
     # Apply the patch
     OriginalConfig.__post_init__ = patched_post_init
+
+    # Return the MagicMock so callers (and potential debugging) can use it
+    return transformers_mock
 
 
 def patch_datasets():

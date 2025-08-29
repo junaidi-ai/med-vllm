@@ -768,11 +768,12 @@ sys.modules["torch.multiprocessing"] = mp_module
 # Now set up the rest of the mocks
 import sys
 
-if "transformers" not in sys.modules:
-    transformers = create_module("transformers")
-    sys.modules["transformers"] = transformers
-else:
-    transformers = sys.modules["transformers"]
+transformers = sys.modules.get("transformers")
+if transformers is None:
+    import types as _types
+
+    # Local placeholder to allow attribute assignments without touching sys.modules
+    transformers = _types.SimpleNamespace()
 
 transformers.__file__ = "/mock/transformers/__init__.py"
 transformers.__version__ = "4.30.0"
@@ -1000,6 +1001,40 @@ class MockPreTrainedModel:
 
 # Update the transformers mocks
 transformers.PreTrainedModel = MockPreTrainedModel
+
+
+@pytest.fixture(autouse=True)
+def _reset_model_registry_between_tests():
+    """Ensure the global ModelRegistry is cleared between tests.
+
+    This avoids singleton state leaking across tests which caused:
+    - Duplicate registration ValueError mismatches
+    - Missing metadata/ModelNotFoundError inconsistencies
+
+    After clearing, we re-register default models to satisfy tests that
+    assume defaults exist (e.g., generic BERT names).
+    """
+    try:
+        # Import locally to respect patched modules set up in pytest_configure
+        from medvllm.engine.model_runner.registry import get_registry
+
+        reg = get_registry()
+        # Clear all models and cache
+        reg.clear()
+
+        # Best-effort: restore defaults expected by some tests
+        try:
+            # Register standard defaults; method is resilient and logs on failure
+            reg._register_default_models(force=False)  # type: ignore[attr-defined]
+            # Also attempt to register medical defaults if available
+            reg._register_medical_models()  # type: ignore[attr-defined]
+        except Exception:
+            # Don't fail the test setup if defaults cannot be registered in a mocked env
+            pass
+    except Exception:
+        # If registry import fails for a subset of tests, just proceed
+        pass
+    yield
 
 
 def mock_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
@@ -1398,8 +1433,29 @@ mock_transformers.models.auto.configuration_auto = MockTransformers.Models.auto.
 mock_transformers.models.auto.modeling_auto = MockTransformers.Models.auto.modeling_auto()
 mock_transformers.models.gpt2 = MockTransformers.Models.gpt2()
 
-# Replace the transformers module with our mock
-transformers = sys.modules["transformers"] = mock_transformers
+# Replace hard reassignment with safe augmentation only if a transformers module already exists.
+# If it doesn't exist yet, defer to pytest_configure() which calls patch_transformers().
+t = sys.modules.get("transformers")
+if t is not None:
+    # Ensure registry can detect test environment reliably
+    try:
+        setattr(t, "MockTransformers", True)
+    except Exception:
+        pass
+    # Augment existing module with attributes from our mock without replacing identity
+    for _attr in dir(mock_transformers):
+        if _attr.startswith("__"):
+            continue
+        try:
+            setattr(t, _attr, getattr(mock_transformers, _attr))
+        except Exception:
+            pass
+    sys.modules["transformers"] = t
+    transformers = t
+else:
+    # No transformers present yet; do not create or register one here.
+    # pytest_configure will install the canonical MagicMock via patch_transformers().
+    transformers = mock_transformers
 
 # Re-export the mock classes for easier access
 transformers.AutoConfig = MockTransformers.AutoConfig

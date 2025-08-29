@@ -52,7 +52,7 @@ PY
 ## 5) Run a GPU smoke test
 - Once CUDA is available, run a minimal GPU benchmark:
 ```bash
-/home/kd/med-vllm/.venv/bin/python benchmarks/benchmark_medical.py \
+/.venv/bin/python benchmarks/benchmark_medical.py \
   --model biobert \
   --device cuda \
   --precision fp16 \
@@ -60,10 +60,10 @@ PY
   --warmup-iterations 1 \
   --batch-sizes 1 \
   --seq-lengths 16 \
-  --output-dir /home/kd/med-vllm/benchmark_results_gpu_smoke \
+  --output-dir benchmarks/results \
   --debug-io
 ```
-- Expect JSON files in `benchmark_results_gpu_smoke/` and GPU memory keys in results.
+- Expect JSON files in `benchmarks/results/` and GPU memory keys in results.
 - If CUDA is requested but unavailable, the script will automatically fall back to CPU and print an informational message. To avoid the message, set `--device cpu` explicitly.
 
 ## 6) Scale up benchmarks

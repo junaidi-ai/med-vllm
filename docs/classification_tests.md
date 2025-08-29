@@ -30,7 +30,7 @@ python3 benchmarks/benchmark_medical.py \
   --warmup-iterations 0 \
   --batch-sizes 1 \
   --seq-lengths 16 \
-  --output-dir benchmark_results_cpu_smoke \
+  --output-dir benchmarks/results \
   --test-accuracy
 ```
 
@@ -39,7 +39,7 @@ To explicitly specify a dataset CSV:
 python3 benchmarks/benchmark_medical.py \
   --model biobert \
   --device cpu \
-  --output-dir benchmark_results_cpu_smoke \
+  --output-dir benchmarks/results \
   --test-accuracy \
   --dataset-csv tests/fixtures/data/datasets/text_classification_dataset.csv
 ```

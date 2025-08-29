@@ -3,7 +3,12 @@
 from typing import Dict, List, Optional, Union
 
 import torch
-from transformers import AutoTokenizer
+
+# Optional transformers import; defer requirement until instantiation
+try:  # pragma: no cover
+    from transformers import AutoTokenizer  # type: ignore
+except Exception:  # pragma: no cover
+    AutoTokenizer = None  # type: ignore
 
 # Common medical abbreviations and terms to add to the tokenizer
 MEDICAL_TERMS = [
@@ -96,6 +101,10 @@ class MedicalTokenizer:
             add_medical_terms: Whether to add medical terms to the tokenizer
             **kwargs: Additional arguments to pass to the tokenizer
         """
+        if AutoTokenizer is None:
+            raise ImportError(
+                "transformers is required for MedicalTokenizer. Install with: pip install transformers"
+            )
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, **kwargs)
         self.medical_terms_added = False
 

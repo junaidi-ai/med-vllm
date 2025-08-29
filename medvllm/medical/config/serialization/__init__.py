@@ -6,6 +6,9 @@ medical model configurations to/from various formats like JSON and YAML.
 """
 
 import warnings
+
+# Fully-qualified module name for the submodule
+_YAML_SERIALIZER_FQMN = "medvllm.medical.config.serialization.yaml_serializer"
 from pathlib import Path
 from typing import Any, Dict, Optional, Type, TypeVar, Union
 
@@ -16,17 +19,55 @@ from .json_serializer import JSONSerializer
 # Type variable for generic configuration types
 T = TypeVar("T", bound=BaseMedicalConfig)
 
-# Import YAML serializer if PyYAML is available
-# Initialize YAML-related variables
+"""Expose yaml_serializer submodule consistently, even without PyYAML.
+
+When PyYAML (or the submodule) is unavailable, provide a stub module with a
+YAMLSerializer class whose methods raise ImportError. Tests expect the
+`yaml_serializer` attribute to always exist on this package.
+"""
+
 try:
+    # Expose real submodule if importable
+    from . import yaml_serializer as yaml_serializer  # type: ignore  # noqa: F401
     from .yaml_serializer import PYYAML_AVAILABLE
     from .yaml_serializer import YAMLSerializer as YAML
 
     YAML_AVAILABLE = PYYAML_AVAILABLE
     YAMLSerializer = YAML if YAML_AVAILABLE else None
+    # Ensure attribute exists on the package module object
+    import sys as _sys
+
+    globals()["yaml_serializer"] = yaml_serializer
+    # Ensure the submodule is registered in sys.modules under its FQMN
+    if _YAML_SERIALIZER_FQMN not in _sys.modules:
+        _sys.modules[_YAML_SERIALIZER_FQMN] = yaml_serializer
 except ImportError:
+    # Create a stub module with a guard-raising YAMLSerializer
+    import types as _types
+    import sys as _sys
+
+    yaml_serializer = _types.ModuleType(_YAML_SERIALIZER_FQMN)
+
+    class _StubYAMLSerializer:  # pragma: no cover - simple guard class
+        @classmethod
+        def to_yaml(cls, *args, **kwargs):
+            raise ImportError("PyYAML is required for YAML serialization")
+
+        @classmethod
+        def from_yaml(cls, *args, **kwargs):
+            raise ImportError("PyYAML is required for YAML deserialization")
+
+    # Public API surface on the stub
+    setattr(yaml_serializer, "YAMLSerializer", _StubYAMLSerializer)
+    setattr(yaml_serializer, "PYYAML_AVAILABLE", False)
+
+    # Register stub in sys.modules so `from ... import yaml_serializer` works
+    _sys.modules[_YAML_SERIALIZER_FQMN] = yaml_serializer
+    # Also attach attribute on the package module object for `from pkg import yaml_serializer`
+    globals()["yaml_serializer"] = yaml_serializer
+
     YAML_AVAILABLE = False
-    YAMLSerializer = None
+    YAMLSerializer = _StubYAMLSerializer
 
 yaml_warning = (
     "PyYAML is not installed. YAML serialization will not be available. "
@@ -35,6 +76,42 @@ yaml_warning = (
 
 if not YAML_AVAILABLE:
     warnings.warn(yaml_warning, ImportWarning, stacklevel=2)
+
+
+def __getattr__(name: str):  # PEP 562 dynamic attributes for robustness
+    if name == "yaml_serializer":
+        # Lazily ensure yaml_serializer attribute exists even if removed by tests
+        try:
+            from . import yaml_serializer as _ys  # type: ignore
+
+            globals()["yaml_serializer"] = _ys
+            import sys as _sys
+
+            if _YAML_SERIALIZER_FQMN not in _sys.modules:
+                _sys.modules[_YAML_SERIALIZER_FQMN] = _ys
+            return _ys
+        except Exception:
+            # Fallback to stub
+            import types as _types
+            import sys as _sys
+
+            _ys = _types.ModuleType(_YAML_SERIALIZER_FQMN)
+
+            class _StubYAMLSerializer:  # pragma: no cover
+                @classmethod
+                def to_yaml(cls, *args, **kwargs):
+                    raise ImportError("PyYAML is required for YAML serialization")
+
+                @classmethod
+                def from_yaml(cls, *args, **kwargs):
+                    raise ImportError("PyYAML is required for YAML deserialization")
+
+            setattr(_ys, "YAMLSerializer", _StubYAMLSerializer)
+            setattr(_ys, "PYYAML_AVAILABLE", False)
+            _sys.modules[_YAML_SERIALIZER_FQMN] = _ys
+            globals()["yaml_serializer"] = _ys
+            return _ys
+    raise AttributeError(name)
 
 
 def save_config(
@@ -190,6 +267,7 @@ __all__ = [
     "ConfigSerializer",
     "JSONSerializer",
     "YAMLSerializer",
+    "yaml_serializer",
     "save_config",
     "load_config",
 ]

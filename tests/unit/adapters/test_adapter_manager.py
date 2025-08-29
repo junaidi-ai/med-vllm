@@ -1,16 +1,38 @@
 """Tests for the AdapterManager."""
 
-# Mock transformers to avoid import issues
+# Mock transformers to avoid import issues without clobbering the global mock
 import sys
 import types
 from unittest.mock import MagicMock, patch
 
 
-mock_transformers = types.ModuleType("transformers")
-mock_config = types.ModuleType("transformers.configuration_utils")
-mock_transformers.AutoConfig = MagicMock()
-sys.modules["transformers"] = mock_transformers
-sys.modules["transformers.configuration_utils"] = mock_config
+# If a transformers module is already present (installed by global patch), augment it.
+_t = sys.modules.get("transformers")
+if _t is not None:
+    try:
+        # Provide AutoConfig expected by adapter_manager internals
+        if not hasattr(_t, "AutoConfig"):
+            _t.AutoConfig = MagicMock()
+    except Exception:
+        pass
+
+    # Ensure configuration_utils submodule path exists for imports that rely on it
+    if "transformers.configuration_utils" not in sys.modules:
+        _cfg = types.ModuleType("transformers.configuration_utils")
+        # Mirror PretrainedConfig if available; otherwise provide a stub
+        setattr(
+            _cfg,
+            "PretrainedConfig",
+            getattr(_t, "PretrainedConfig", type("PretrainedConfig", (), {})),
+        )
+        sys.modules["transformers.configuration_utils"] = _cfg
+else:
+    # If not yet present, do not register a new transformers module here; the global
+    # test patch will install it. Create only the submodule placeholder to avoid import errors.
+    if "transformers.configuration_utils" not in sys.modules:
+        sys.modules["transformers.configuration_utils"] = types.ModuleType(
+            "transformers.configuration_utils"
+        )
 
 from medvllm.models.adapter_manager import AdapterManager
 

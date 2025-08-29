@@ -229,3 +229,11 @@ tiny_trained_model/
 toy_run_tmp/
 toy_seg_run/
 local_runs/
+
+# Benchmark artifacts (generated)
+# Consolidated location for all benchmark outputs
+benchmarks/results/
+
+# Legacy/scattered benchmark dirs to ignore
+.benchmarks/
+.benchmarks_train_tmp/

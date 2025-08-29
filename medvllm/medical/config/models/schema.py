@@ -190,6 +190,7 @@ class MedicalModelConfigSchema(BaseModel):
         use_enum_values=True,
         extra="allow",  # Allow extra fields to support dynamic attributes
         arbitrary_types_allowed=True,
+        protected_namespaces=(),
         json_schema_extra={
             "example": {
                 "model": "medical-bert-base",

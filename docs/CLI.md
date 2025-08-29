@@ -235,6 +235,8 @@ File: `medvllm/cli/training_commands.py`
 - Commands:
   - `training train` — run a simple training job.
 
+See also: the full trainer guide in `docs/TRAINER.md` for configuration options, checkpointing, AMP, logging, and export.
+
 Options (subset):
 - `--epochs`, `--batch-size`, `--lr`, `--amp/--no-amp`, `--device {auto|cpu|cuda|xla}`, `--output`
 - Modes:
@@ -265,6 +267,8 @@ python -m medvllm.cli training train \
 
 Notes:
 - Minimal TPU support via torch_xla: use `--device xla`. Requires `torch-xla` installed and environment configured. AMP uses XLA autocast (bfloat16 recommended).
+
+Further reading: `docs/TRAINER.md`.
 
 ## Return Codes
 - `0` on success

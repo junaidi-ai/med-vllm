@@ -1,10 +1,20 @@
 """Medical dataset implementations and utilities."""
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
 import datasets
 import torch
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
+# Optional transformers import: only required when using text datasets with tokenization
+try:  # pragma: no cover - exercised via integration
+    from transformers import AutoTokenizer  # type: ignore
+except Exception:  # pragma: no cover
+    AutoTokenizer = None  # type: ignore
+
+if TYPE_CHECKING:  # for type checkers only
+    from transformers import PreTrainedTokenizerBase  # noqa: F401
+else:
+    PreTrainedTokenizerBase = Any  # runtime fallback to avoid hard dependency
 
 # Import the config class
 from medvllm.data.config import MedicalDatasetConfig
@@ -22,10 +32,18 @@ class MedicalDataset:
     ) -> None:
         self.config = config
         if isinstance(tokenizer, str):
+            if AutoTokenizer is None:
+                raise ImportError(
+                    "transformers is required to load tokenizer by name. Install with: pip install transformers"
+                )
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer, **(tokenizer_kwargs or {}))
         elif tokenizer is not None:
             self.tokenizer = tokenizer
         else:
+            if AutoTokenizer is None:
+                raise ImportError(
+                    "transformers is required for MedicalDataset tokenization. Install with: pip install transformers"
+                )
             self.tokenizer = AutoTokenizer.from_pretrained(
                 tokenizer_name, **(tokenizer_kwargs or {})
             )

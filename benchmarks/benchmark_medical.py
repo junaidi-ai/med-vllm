@@ -83,7 +83,7 @@ class BenchmarkConfig:
     use_kv_cache: bool = True
     precision: str = "fp16"  # "fp32" or "fp16"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    output_dir: str = "benchmark_results"
+    output_dir: str = "benchmarks/results"
     test_accuracy: bool = False
     dataset_csv: Optional[str] = None
     memory_profile: bool = True
@@ -732,7 +732,7 @@ def parse_args():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="benchmark_results",
+        default="benchmarks/results",
         help="Directory to save benchmark results",
     )
     parser.add_argument(

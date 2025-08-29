@@ -11,12 +11,21 @@ from unittest.mock import MagicMock, patch
 
 import torch
 
-mock_transformers = types.ModuleType("transformers")
-mock_config_utils = types.ModuleType("transformers.configuration_utils")
-mock_transformers.AutoConfig = MagicMock()
-mock_transformers.AutoModel = MagicMock()
-sys.modules["transformers"] = mock_transformers
-sys.modules["transformers.configuration_utils"] = mock_config_utils
+# Reuse the transformers module prepared by test harness if present
+mock_transformers = sys.modules.get("transformers")
+if mock_transformers is None:
+    mock_transformers = types.ModuleType("transformers")
+    sys.modules["transformers"] = mock_transformers
+
+# Ensure configuration_utils submodule exists without clobbering
+mock_config_utils = sys.modules.get("transformers.configuration_utils")
+if mock_config_utils is None:
+    mock_config_utils = types.ModuleType("transformers.configuration_utils")
+    sys.modules["transformers.configuration_utils"] = mock_config_utils
+
+# Provide attributes used by the tests
+setattr(mock_transformers, "AutoConfig", getattr(mock_transformers, "AutoConfig", MagicMock()))
+setattr(mock_transformers, "AutoModel", getattr(mock_transformers, "AutoModel", MagicMock()))
 
 
 class TestAdapterIntegration:

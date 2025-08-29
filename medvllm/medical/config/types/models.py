@@ -5,7 +5,7 @@ Data models for configuration types.
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 @dataclass
@@ -43,6 +43,8 @@ class DomainConfig(BaseModel):
     domain_adaptation: bool = False
     domain_adaptation_lambda: float = 0.1
     domain_specific_vocab: Optional[Dict[str, List[str]]] = None
+    # Allow model_* field names without protected namespace warnings
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class EntityLinkingConfig(BaseModel):
@@ -51,6 +53,7 @@ class EntityLinkingConfig(BaseModel):
     enabled: bool = False
     knowledge_bases: List[str] = []
     confidence_threshold: float = 0.8
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class ModelConfig(BaseModel):
@@ -68,3 +71,5 @@ class ModelConfig(BaseModel):
     add_prefix_space: bool = Field(
         default=False, description="Whether to add a leading space to the first word"
     )
+    # Suppress protected namespace warnings for fields like model_name/model_type
+    model_config = ConfigDict(protected_namespaces=())

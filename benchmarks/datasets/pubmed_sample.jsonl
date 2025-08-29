@@ -1,0 +1,5 @@
+{"text": "Novel biomarkers for early detection of pancreatic cancer are discussed in recent PubMed studies.", "label": "oncology", "split": "test"}
+{"text": "Deep learning approaches have achieved state-of-the-art performance in medical image segmentation.", "label": "radiology", "split": "test"}
+{"text": "Inflammatory pathways are central to the pathogenesis of atherosclerosis.", "label": "cardiology", "split": "test"}
+{"text": "Meta-analysis indicates vitamin D supplementation has limited effect on fracture risk.", "label": "endocrinology", "split": "test"}
+{"text": "Randomized controlled trial demonstrates efficacy of new antihypertensive agent.", "label": "internal_medicine", "split": "test"}

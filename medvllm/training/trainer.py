@@ -38,7 +38,17 @@ class TrainerConfig:
     betas: tuple[float, float] = (0.9, 0.999)
     eps: float = 1e-8
     max_grad_norm: Optional[float] = 1.0
+    grad_clip_mode: str = "norm"  # "norm" or "value" or "none"
+    grad_clip_value: float = 0.5  # used when grad_clip_mode == "value"
     gradient_accumulation_steps: int = 1
+
+    # optimizer selection
+    optimizer: str = "adamw"  # one of: "adamw", "adam", "sgd"
+    sgd_momentum: float = 0.9
+
+    # layer-wise LR: list of (name_substring, lr_multiplier)
+    # e.g., [("encoder", 0.5), ("classifier", 2.0)]
+    layer_wise_lrs: Optional[list[tuple[str, float]]] = None
 
     # training loop
     num_epochs: int = 1
@@ -78,9 +88,23 @@ class TrainerConfig:
     use_amp: bool = False
     amp_dtype: torch.dtype = torch.float16  # torch.float16 or torch.bfloat16
 
-    # scheduler (linear warmup decay minimal)
+    # scheduler
+    scheduler: str = (
+        "linear_warmup"  # one of: "none", "linear_warmup", "step", "cosine", "one_cycle"
+    )
     warmup_steps: int = 0
     total_steps: Optional[int] = None  # if None, computed from dataset
+    # step scheduler
+    step_size: int = 1000
+    gamma: float = 0.1
+    # cosine annealing
+    t_max: Optional[int] = None  # if None, will use total_steps
+    eta_min: float = 0.0
+    # one-cycle
+    pct_start: float = 0.3
+    anneal_strategy: str = "cos"  # or "linear"
+    div_factor: float = 25.0
+    final_div_factor: float = 1e4
 
     # device
     device: Optional[str] = None  # "cuda", "cpu", "xla"; if None auto
@@ -211,13 +235,8 @@ class MedicalModelTrainer:
         # Distributed wrapping priority: DeepSpeed > FSDP > DDP
         if self._should_use_deepspeed():
             # Optimizer must exist for deepspeed.initialize
-            self.optimizer = torch.optim.AdamW(
-                self.model.parameters(),
-                lr=self.config.learning_rate,
-                weight_decay=self.config.weight_decay,
-                betas=self.config.betas,
-                eps=self.config.eps,
-            )
+            param_groups = self._build_param_groups(self.model)
+            self.optimizer = self._optimizer_factory(param_groups)
             self._init_deepspeed()
         else:
             # Initialize process group if DDP or FSDP is requested
@@ -227,46 +246,161 @@ class MedicalModelTrainer:
                 # Wrap model with FSDP
                 self._wrap_model_fsdp()
                 # Build optimizer on sharded parameters
-                self.optimizer = torch.optim.AdamW(
-                    self.model.parameters(),
-                    lr=self.config.learning_rate,
-                    weight_decay=self.config.weight_decay,
-                    betas=self.config.betas,
-                    eps=self.config.eps,
-                )
+                param_groups = self._build_param_groups(self.model)
+                self.optimizer = self._optimizer_factory(param_groups)
             else:
                 # Possibly wrap with DDP
                 if self._should_use_ddp():
                     self._wrap_model_ddp()
                 # Build optimizer on (wrapped or bare) model
-                self.optimizer = torch.optim.AdamW(
-                    self.model.parameters(),
-                    lr=self.config.learning_rate,
-                    weight_decay=self.config.weight_decay,
-                    betas=self.config.betas,
-                    eps=self.config.eps,
-                )
+                param_groups = self._build_param_groups(self.model)
+                self.optimizer = self._optimizer_factory(param_groups)
+
+        # Optionally override dropout probability across the model
+        self._apply_dropout_override(self.model)
+
+        # Build scheduler
+        self._maybe_build_scheduler(self.config.total_steps or 1000)
 
     def _maybe_build_scheduler(self, total_steps: int) -> None:
-        if self.config.warmup_steps == 0 and not self.config.total_steps:
-            self.scheduler = None
-            return
-        # simple linear warmup, then constant; minimal and dependency-free
-        warmup = max(0, self.config.warmup_steps)
-        t_total = self.config.total_steps or total_steps
+        # Delegate to scheduler factory. If "none", keep as None.
+        self.scheduler = self._scheduler_factory(total_steps)
 
-        def lr_lambda(step: int) -> float:
-            if step < warmup:
-                return float(step) / float(max(1, warmup))
+    def _build_param_groups(self, model: torch.nn.Module) -> list[dict[str, Any]]:
+        """Create optimizer param groups with layer-wise LR multipliers and
+        weight-decay exclusions for norm/bias.
+
+        Returns a list of dicts suitable for torch.optim with keys:
+        params, lr, weight_decay.
+        """
+        no_decay = ["bias", "LayerNorm.weight", "LayerNorm.bias", "ln", "norm"]
+
+        # Helper to get lr multiplier by name
+        def lr_mult_for(name: str) -> float:
+            rules = getattr(self.config, "layer_wise_lrs", None)
+            if not rules:
+                return 1.0
+            for substr, mult in rules:
+                try:
+                    if substr in name:
+                        return float(mult)
+                except Exception:
+                    continue
             return 1.0
 
-        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)  # type: ignore[arg-type]
+        grouped: Dict[Tuple[float, float], Dict[str, Any]] = {}
+        base_lr = float(self.config.learning_rate)
+        base_wd = float(self.config.weight_decay)
 
-    # ---------------- Distributed / DeepSpeed / FSDP helpers (moved onto trainer) ----------------
-    def _is_distributed(self) -> bool:
-        if self.config.use_ddp:
-            return True
-        return int(os.environ.get("WORLD_SIZE", "1")) > 1
+        for name, p in model.named_parameters():
+            if not p.requires_grad:
+                continue
+            # decide weight decay
+            wd = 0.0 if any(nd in name for nd in no_decay) else base_wd
+            # decide lr with optional multiplier
+            lr = base_lr * lr_mult_for(name)
+            key = (lr, wd)
+            if key not in grouped:
+                grouped[key] = {"params": [], "lr": lr, "weight_decay": wd}
+            grouped[key]["params"].append(p)
+
+        # filter out any empty groups just in case
+        return [g for g in grouped.values() if g["params"]]
+
+    def _optimizer_factory(self, param_groups: list[dict[str, Any]]) -> torch.optim.Optimizer:
+        opt = (self.config.optimizer or "adamw").lower()
+        if opt == "adamw":
+            return torch.optim.AdamW(
+                param_groups,
+                lr=float(self.config.learning_rate),
+                betas=tuple(self.config.betas),
+                eps=float(self.config.eps),
+            )
+        if opt == "adam":
+            return torch.optim.Adam(
+                param_groups,
+                lr=float(self.config.learning_rate),
+                betas=tuple(self.config.betas),
+                eps=float(self.config.eps),
+            )
+        if opt == "sgd":
+            return torch.optim.SGD(
+                param_groups,
+                lr=float(self.config.learning_rate),
+                momentum=float(self.config.sgd_momentum),
+                weight_decay=float(self.config.weight_decay),
+            )
+        raise ValueError(f"Unsupported optimizer: {self.config.optimizer}")
+
+    def _scheduler_factory(self, total_steps: int):
+        sched = (self.config.scheduler or "none").lower()
+        if sched == "none":
+            return None
+
+        # warmup wrapper when using LambdaLR linear warmup/decay
+        if sched == "linear_warmup":
+            warmup = int(self.config.warmup_steps or 0)
+            total = int(total_steps)
+
+            def lr_lambda(step: int):
+                if warmup > 0 and step < warmup:
+                    return float(step) / float(max(1, warmup))
+                # linear decay from 1.0 to 0.0
+                return max(0.0, float(total - step) / float(max(1, total - warmup)))
+
+            return torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
+
+        if sched == "step":
+            step_size = int(self.config.step_size)
+            gamma = float(self.config.gamma)
+            return torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=step_size, gamma=gamma)
+
+        if sched == "cosine":
+            t_max = int(self.config.t_max or total_steps)
+            eta_min = float(self.config.eta_min)
+            return torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=t_max, eta_min=eta_min
+            )
+
+        if sched == "one_cycle":
+            # OneCycle needs steps_per_epoch or total_steps
+            max_lr = float(self.config.learning_rate)
+            pct_start = float(self.config.pct_start)
+            anneal = (self.config.anneal_strategy or "cos").lower()
+            div_factor = float(self.config.div_factor)
+            final_div_factor = float(self.config.final_div_factor)
+            return torch.optim.lr_scheduler.OneCycleLR(
+                self.optimizer,
+                max_lr=max_lr,
+                total_steps=int(total_steps),
+                pct_start=pct_start,
+                anneal_strategy=anneal,
+                div_factor=div_factor,
+                final_div_factor=final_div_factor,
+            )
+
+        raise ValueError(f"Unsupported scheduler: {self.config.scheduler}")
+
+    def _apply_dropout_override(self, module: torch.nn.Module) -> None:
+        """Optionally override dropout probability across the model.
+
+        No-op unless config has attribute `dropout_prob` set to a float in [0,1].
+        """
+        p = getattr(self.config, "dropout_prob", None)
+        if p is None:
+            return
+        try:
+            p = float(p)
+        except Exception:
+            return
+        if not (0.0 <= p <= 1.0):
+            return
+        for m in module.modules():
+            if isinstance(m, (torch.nn.Dropout, torch.nn.Dropout2d, torch.nn.Dropout3d)):
+                try:
+                    m.p = p
+                except Exception:
+                    pass
 
     def _local_rank(self) -> int:
         return int(os.environ.get("LOCAL_RANK", os.environ.get("RANK", "0")))
@@ -281,6 +415,13 @@ class MedicalModelTrainer:
 
     def _is_distributed_initialized(self) -> bool:
         return dist.is_available() and dist.is_initialized()
+
+    def _is_distributed(self) -> bool:
+        # WORLD_SIZE is set by torchrun/torch.distributed
+        try:
+            return int(os.environ.get("WORLD_SIZE", "1")) > 1
+        except Exception:
+            return False
 
     def _should_use_ddp(self) -> bool:
         return self._is_distributed()
@@ -559,12 +700,21 @@ class MedicalModelTrainer:
                             loss.backward()
 
                         if step % accum_steps == 0:
-                            if self._ds_engine is None and self.config.max_grad_norm is not None:
+                            # Gradient clipping/normalization
+                            if self._ds_engine is None and (self.config.grad_clip_mode != "none"):
                                 if self.scaler is not None:
                                     self.scaler.unscale_(self.optimizer)  # type: ignore[arg-type]
-                                torch.nn.utils.clip_grad_norm_(
-                                    self.model.parameters(), self.config.max_grad_norm
-                                )
+                                if (
+                                    self.config.grad_clip_mode == "norm"
+                                    and self.config.max_grad_norm is not None
+                                ):
+                                    torch.nn.utils.clip_grad_norm_(
+                                        self.model.parameters(), float(self.config.max_grad_norm)
+                                    )
+                                elif self.config.grad_clip_mode == "value":
+                                    torch.nn.utils.clip_grad_value_(
+                                        self.model.parameters(), float(self.config.grad_clip_value)
+                                    )
 
                             if self._ds_engine is not None:
                                 # DeepSpeed engine performs step and zero grad
@@ -1062,6 +1212,54 @@ class MedicalModelTrainer:
             version = self._next_version(output_dir)
             payload["version"] = version
         torch.save(payload, ckpt_path)
+
+    def _load_checkpoint(self, path: str) -> Dict[str, Any]:
+        """Load a checkpoint file produced by ``_save_checkpoint``.
+
+        Restores model/optimizer/scheduler/scaler states when present.
+        Returns the saved ``trainer_state`` (may contain keys like
+        ``epoch`` and ``global_step``). Missing components are ignored.
+        """
+        try:
+            ckpt = torch.load(path, map_location="cpu")
+        except Exception as e:  # pragma: no cover - I/O error paths
+            warnings.warn(f"Failed to load checkpoint '{path}': {e}")
+            return {}
+
+        # Model state
+        state_dict = ckpt.get("model_state")
+        if isinstance(state_dict, dict):
+            try:
+                self.model.load_state_dict(state_dict)
+            except Exception as e:  # pragma: no cover
+                warnings.warn(f"Failed to load model state_dict: {e}")
+
+        # Optimizer
+        opt_state = ckpt.get("optimizer_state")
+        if opt_state is not None and self.optimizer is not None:
+            try:
+                self.optimizer.load_state_dict(opt_state)
+            except Exception as e:  # pragma: no cover
+                warnings.warn(f"Failed to load optimizer state: {e}")
+
+        # Scheduler
+        sch_state = ckpt.get("scheduler_state")
+        if sch_state is not None and self.scheduler is not None:
+            try:
+                self.scheduler.load_state_dict(sch_state)  # type: ignore[attr-defined]
+            except Exception as e:  # pragma: no cover
+                warnings.warn(f"Failed to load scheduler state: {e}")
+
+        # AMP GradScaler
+        sc_state = ckpt.get("scaler_state")
+        if sc_state is not None and self.scaler is not None:
+            try:
+                self.scaler.load_state_dict(sc_state)
+            except Exception as e:  # pragma: no cover
+                warnings.warn(f"Failed to load AMP scaler state: {e}")
+
+        trainer_state = ckpt.get("trainer_state")
+        return trainer_state if isinstance(trainer_state, dict) else {}
 
     def _save_model(self, output_dir: str) -> None:
         import os

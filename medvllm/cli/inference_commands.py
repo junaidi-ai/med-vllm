@@ -224,10 +224,21 @@ def cmd_ner(
         _validate_model_task(model, task="ner")
         try:
             from transformers import pipeline as hf_pipeline  # type: ignore
-        except Exception as e:  # pragma: no cover
-            raise click.ClickException(
-                "Model-backed NER requires 'transformers'. Install it: pip install transformers"
-            ) from e
+        except Exception:
+            # Fallbacks: try transformers.module attribute or module-level pipeline (monkeypatched in tests)
+            hf_pipeline = None
+            try:  # best-effort: transformers is present but import style failed
+                import transformers as _t  # type: ignore
+
+                hf_pipeline = getattr(_t, "pipeline", None)
+            except Exception:
+                hf_pipeline = None
+            if hf_pipeline is None:
+                hf_pipeline = globals().get("pipeline")
+            if hf_pipeline is None:
+                raise click.ClickException(
+                    "Model-backed NER requires 'transformers'. Install it: pip install transformers"
+                )
 
         try:
             with spinner("Loading NER pipeline..."):
@@ -524,16 +535,19 @@ def cmd_classification(
     dedicated classifier exists in medvllm/tasks.
     """
     text = _read_input(text_, input_file, input_format)
+    # Try to import HF pipeline; if unavailable, allow a module-level fallback
     try:
-        from transformers import pipeline  # type: ignore
-    except Exception as e:
-        raise click.ClickException(
-            "Classification requires 'transformers'. Install it: pip install transformers"
-        ) from e
+        from transformers import pipeline as hf_pipeline  # type: ignore
+    except Exception:
+        hf_pipeline = globals().get("pipeline")  # may be monkeypatched in tests
+        if hf_pipeline is None:
+            raise click.ClickException(
+                "Classification requires 'transformers'. Install it: pip install transformers"
+            )
 
     try:
         with spinner("Loading classification pipeline..."):
-            clf = pipeline("text-classification", model=model, return_all_scores=False)
+            clf = hf_pipeline("text-classification", model=model, return_all_scores=False)
         with timed("Classification inference"):
             result = clf(text)
     except Exception as e:  # pragma: no cover - depends on env

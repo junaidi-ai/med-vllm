@@ -22,14 +22,8 @@ import sys
 import unittest
 from pathlib import Path
 from typing import Any, Dict, Union
-from unittest.mock import MagicMock
 
 import pytest
-
-# Mock the entire medvllm package
-sys.modules["medvllm"] = MagicMock()
-sys.modules["medvllm.medical"] = MagicMock()
-sys.modules["medvllm.medical.config"] = MagicMock()
 
 
 # Mock the base config
@@ -37,12 +31,15 @@ class MockBaseConfig:
     pass
 
 
-sys.modules["medvllm.medical.config.base"] = MagicMock()
-sys.modules["medvllm.medical.config.base"].BaseMedicalConfig = MockBaseConfig
+try:
+    # Provide a minimal stub for base config path expected by some tests
+    import types as _types
 
-# Mock transformers and other dependencies
-sys.modules["transformers"] = MagicMock()
-sys.modules["torch"] = MagicMock()
+    _base_mod = _types.ModuleType("medvllm.medical.config.base")
+    _base_mod.BaseMedicalConfig = MockBaseConfig
+    sys.modules["medvllm.medical.config.base"] = _base_mod
+except Exception:
+    pass
 
 
 # Define a mock MedicalModelConfig class
@@ -148,9 +145,15 @@ class MedicalModelConfig:
         cls._model_exists = exists
 
 
-# Patch the actual import
-sys.modules["medvllm.medical.config.medical_config"] = MagicMock()
-sys.modules["medvllm.medical.config.medical_config"].MedicalModelConfig = MedicalModelConfig
+# Avoid overriding real medvllm; expose our mock under a dedicated test-only name if needed
+try:
+    import types as _types
+
+    _mock_med_cfg_mod = _types.ModuleType("tests.unit.config._mock_medical_config")
+    _mock_med_cfg_mod.MedicalModelConfig = MedicalModelConfig
+    sys.modules["tests.unit.config._mock_medical_config"] = _mock_med_cfg_mod
+except Exception:
+    pass
 
 
 # Mock the serialization module
@@ -160,8 +163,32 @@ class MockConfigSerializer:
         return config_dict
 
 
-sys.modules["medvllm.medical.config.serialization"] = MagicMock()
-sys.modules["medvllm.medical.config.serialization"].ConfigSerializer = MockConfigSerializer
+try:
+    # Augment the real serialization package instead of replacing it
+    import medvllm.medical.config.serialization as _ser_mod  # type: ignore
+
+    _ser_mod.ConfigSerializer = MockConfigSerializer  # type: ignore[attr-defined]
+except Exception:
+    # If import truly fails (shouldn't in normal runs), fall back to a stub that
+    # still preserves expected attributes to avoid breaking other tests.
+    _ser_mod = _types.ModuleType("medvllm.medical.config.serialization")
+    _ser_mod.ConfigSerializer = MockConfigSerializer  # type: ignore[attr-defined]
+    # Provide a minimal yaml_serializer stub so attribute access doesn't break
+    _ys = _types.ModuleType("medvllm.medical.config.serialization.yaml_serializer")
+
+    class _StubYAMLSerializer:
+        @classmethod
+        def to_yaml(cls, *args, **kwargs):
+            raise ImportError("PyYAML is required for YAML serialization")
+
+        @classmethod
+        def from_yaml(cls, *args, **kwargs):
+            raise ImportError("PyYAML is required for YAML deserialization")
+
+    _ys.YAMLSerializer = _StubYAMLSerializer  # type: ignore[attr-defined]
+    _ys.PYYAML_AVAILABLE = False  # type: ignore[attr-defined]
+    _ser_mod.yaml_serializer = _ys  # type: ignore[attr-defined]
+    sys.modules["medvllm.medical.config.serialization"] = _ser_mod
 
 
 # Mock the schema module
@@ -171,8 +198,12 @@ class MockSchema:
         return data
 
 
-sys.modules["medvllm.medical.config.schema"] = MagicMock()
-sys.modules["medvllm.medical.config.schema"].MedicalModelConfigSchema = MockSchema
+try:
+    _schema_mod = _types.ModuleType("medvllm.medical.config.schema")
+    _schema_mod.MedicalModelConfigSchema = MockSchema
+    sys.modules["medvllm.medical.config.schema"] = _schema_mod
+except Exception:
+    pass
 
 # Mark all tests in this module as unit tests
 pytestmark = pytest.mark.unit

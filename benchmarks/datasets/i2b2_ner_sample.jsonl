@@ -1,0 +1,5 @@
+{"text": "The patient was prescribed aspirin 81 mg daily.", "entities": [{"start": 26, "end": 33, "type": "medication"}, {"start": 34, "end": 39, "type": "dosage"}], "split": "test"}
+{"text": "Patient reports allergy to penicillin.", "entities": [{"start": 27, "end": 37, "type": "allergy"}], "split": "test"}
+{"text": "Diagnosis: Type 2 diabetes mellitus without complications.", "entities": [{"start": 11, "end": 30, "type": "problem"}], "split": "test"}
+{"text": "Start metformin 500 mg BID and check HbA1c in 3 months.", "entities": [{"start": 6, "end": 15, "type": "medication"}, {"start": 16, "end": 23, "type": "dosage"}], "split": "test"}
+{"text": "No evidence of pneumonia on chest X-ray.", "entities": [{"start": 16, "end": 25, "type": "problem"}], "split": "test"}

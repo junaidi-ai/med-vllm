@@ -711,7 +711,7 @@
               3
             ],
             "details": "Add support for multiple optimizers (SGD, Adam, AdamW, etc.). Implement learning rate schedulers (step, cosine, one-cycle, etc.). Add regularization techniques (weight decay, dropout, etc.). Support layer-wise learning rates for transfer learning. Implement gradient clipping and normalization.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -727,7 +727,7 @@
               6
             ],
             "details": "Create unit tests for all components of the Trainer class. Implement integration tests for the full fine-tuning pipeline. Develop benchmarking tools to measure training speed, memory usage, and model performance. Test with various medical datasets and model architectures. Create documentation and examples showcasing the fine-tuning capabilities.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           }
         ]

@@ -1,0 +1,86 @@
+name: CUDA Nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  cuda-tests-bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyTorch (prefer CUDA if available)
+        run: |
+          python -m pip install --upgrade pip wheel
+          # Try CUDA 12.1 wheels; falls back to CPU-only if CUDA not present
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 || pip install torch torchvision
+
+      - name: Install project dependencies
+        run: |
+          pip install -e .[test] || true
+          if [ -f requirements/requirements-medical.txt ]; then pip install -r requirements/requirements-medical.txt; fi
+          if [ -f requirements/requirements-test.txt ]; then pip install -r requirements/requirements-test.txt; fi
+
+      - name: Show CUDA availability
+        run: |
+          python - <<'PY'
+          import torch
+          print("torch:", torch.__version__)
+          print("cuda_available:", torch.cuda.is_available())
+          print("cuda_device_count:", torch.cuda.device_count())
+          PY
+
+      - name: Run test suite
+        run: pytest -q
+
+      - name: Run quick benchmarks sweep
+        run: |
+          mkdir -p benchmark_results
+          python benchmarks/run_benchmarks.py \
+            --models biobert,clinicalbert \
+            --datasets benchmarks/datasets/mimic_notes_sample.jsonl,benchmarks/datasets/pubmed_sample.jsonl \
+            --batch-sizes 1 4 \
+            --seq-lengths 128 \
+            --iterations 10 \
+            --device cuda \
+            --output benchmark_results/ci_quick.json || true
+
+      - name: Run training performance benchmark
+        run: |
+          python benchmarks/benchmark_training.py \
+            --epochs 1 \
+            --batch-size 4 \
+            --seq-length 64 \
+            --dataset-size 32 \
+            --hidden-dim 64 \
+            --vocab-size 1024 \
+            --num-classes 8 \
+            --device cuda \
+            --use-real-adapter \
+            --adapter biobert \
+            --dataset-file benchmarks/datasets/mimic_notes_sample.jsonl \
+            --output benchmark_results/train_ci_quick.json || true
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark_results/*.json
+
+      - name: Generate Markdown benchmark report
+        run: |
+          mkdir -p reports
+          python benchmarks/generate_report.py --results-dir benchmark_results --output reports/benchmark_summary_ci.md || true
+
+      - name: Upload benchmark report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: reports/*.md

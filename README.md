@@ -1,3 +1,7 @@
+For benchmark quick starts (CPU/GPU adapter smokes, training smokes, report generation), see:
+
+- `benchmarks/README.md`
+
 # Med vLLM
 
 Med vLLM is a project aimed at creating a specialized language model for medical applications. By leveraging the efficient [Nano vLLM](https://github.com/GeeeekExplorer/nano-vllm) and the domain knowledge of [BioBERT](https://github.com/monologg/BioBERT) and [ClinicalBERT](https://github.com/monologg/ClinicalBERT), we provide a tool that's both powerful and resource-friendly.
@@ -101,7 +105,7 @@ The HTML report will be available in the `htmlcov` directory.
 - A/B smoke for text generation strategies (offline echo engine):
 
   ```bash
-  python scripts/ab_test_textgen.py --dataset benchmarks/datasets/textgen_small.jsonl --output benchmark_results_cpu_smoke/textgen_ab_results.json
+  python scripts/ab_test_textgen.py --dataset benchmarks/datasets/textgen_small.jsonl --output benchmarks/results/textgen_ab_results.json
   ```
 
 - Domain expert evaluation protocol and template: see `docs/expert_eval_protocol.md` and `docs/expert_eval_template.csv`.
