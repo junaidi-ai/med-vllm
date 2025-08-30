@@ -6,7 +6,8 @@ from medvllm.cli import cli
 
 
 def test_cli_conflict_flash_disabled_warning(monkeypatch):
-    runner = CliRunner(mix_stderr=False)
+    # Some Click versions do not support mix_stderr; use default constructor
+    runner = CliRunner()
     env = {"MEDVLLM_TEST_FAKE_ENGINE": "1"}
     # Invoke generate with conflicting flags
     result = runner.invoke(

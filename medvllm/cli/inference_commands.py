@@ -458,6 +458,25 @@ def cmd_ner(
     help="Control torch.backends.cudnn.benchmark (default: leave as-is).",
 )
 @click.option(
+    "--memory-pooling/--no-memory-pooling",
+    "enable_memory_pooling",
+    is_flag=True,
+    default=None,
+    help="Enable/disable tensor memory pooling for intermediate tensors (experimental).",
+)
+@click.option(
+    "--pool-max-bytes",
+    type=int,
+    default=None,
+    help="Optional upper bound (in bytes) for pooled tensor memory. Default: unlimited.",
+)
+@click.option(
+    "--pool-device",
+    type=click.Choice(["auto", "cpu", "cuda"], case_sensitive=False),
+    default=None,
+    help="Device to keep the memory pool on (auto|cpu|cuda). Default: auto.",
+)
+@click.option(
     "--strategy",
     type=click.Choice(["greedy", "sampling", "beam"], case_sensitive=False),
     default="beam",
@@ -516,6 +535,9 @@ def cmd_generate(
     tf32: bool,
     matmul_precision: Optional[str],
     cudnn_benchmark: Optional[bool],
+    enable_memory_pooling: Optional[bool],
+    pool_max_bytes: Optional[int],
+    pool_device: Optional[str],
     strategy: str,
     max_length: int,
     temperature: float,
@@ -607,6 +629,20 @@ def cmd_generate(
             engine_kwargs["torch_matmul_precision"] = matmul_precision
         if cudnn_benchmark is not None:
             engine_kwargs["cudnn_benchmark"] = cudnn_benchmark
+        # Memory pooling controls
+        if enable_memory_pooling is not None:
+            engine_kwargs["enable_memory_pooling"] = enable_memory_pooling
+        if pool_max_bytes is not None:
+            engine_kwargs["pool_max_bytes"] = int(pool_max_bytes)
+        if pool_device is not None:
+            engine_kwargs["pool_device"] = pool_device
+        # Early UX warnings
+        if (enable_memory_pooling is False) and (
+            (pool_max_bytes is not None) or (pool_device is not None)
+        ):
+            warn(
+                "Memory pooling options (--pool-*) were provided but pooling was disabled; options will be ignored."
+            )
 
         # Use a lightweight fake engine for tests when env flag is set
         if os.environ.get("MEDVLLM_TEST_FAKE_ENGINE", "0") == "1":

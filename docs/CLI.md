@@ -177,6 +177,35 @@ File: `medvllm/cli/inference_commands.py` → `cmd_generate`
   - Fallbacks are best-effort and non-fatal to preserve UX. Warnings explain what happened.
   - The `--flash-attention` flag is a hint; actual selection depends on runtime availability of CUDA and the `flash-attn` package.
 
+#### Memory pooling (experimental)
+- Flags (Generate):
+  - `--memory-pooling/--no-memory-pooling` — enable/disable tensor memory pooling for intermediate tensors.
+  - `--pool-max-bytes N` — optional cap (in bytes) for the memory pool. Default: unlimited.
+  - `--pool-device {auto|cpu|cuda}` — device that backs the memory pool. Default: `auto`.
+
+- Behavior:
+  - When enabled, the engine attempts to reuse allocated buffers for intermediate tensors, reducing allocator churn and fragmentation.
+  - Pool device defaults to `auto` and will pick CUDA when available for GPU models, else CPU.
+  - Max bytes is a soft upper bound; exact enforcement is implementation-dependent.
+
+- Conflicts and warnings:
+  - Supplying `--pool-*` while using `--no-memory-pooling` prints a CLI warning and ignores pool options.
+
+Examples:
+```bash
+# Enable pooling with a 2GB cap on CUDA
+python -m medvllm.cli inference generate \
+  --text "Explain HTN." \
+  --model your-hf-model \
+  --memory-pooling --pool-max-bytes $((2*1024*1024*1024)) --pool-device cuda
+
+# Disable pooling explicitly (pool options ignored with a warning)
+python -m medvllm.cli inference generate \
+  --text "Explain HTN." \
+  --model your-hf-model \
+  --no-memory-pooling --pool-max-bytes 1048576
+```
+
 Examples:
 ```bash
 # Patient-friendly summary with beam strategy and metadata JSON

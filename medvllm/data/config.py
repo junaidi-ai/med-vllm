@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import json
 
 
@@ -55,9 +55,35 @@ class MedicalDatasetConfig:
     normalization: Optional[str] = None
     augment: bool = False
     # Optional: Triton kernel prototyping flags
+    # Optional: Triton kernel prototyping flags
     enable_triton_ops: bool = False
     triton_op: Optional[str] = None  # e.g., 'median2d', 'boxblur2d'
     triton_window: int = 3
+
+    # Large imaging handling (tiling / sliding window)
+    # 2D tiling (for slices or 2D images)
+    enable_tiling_2d: bool = False
+    tile_size_2d: Optional[tuple[int, int]] = None  # (H, W)
+    tile_stride_2d: Optional[tuple[int, int]] = None  # (H, W)
+    # 3D tiling (for volumes)
+    enable_tiling_3d: bool = False
+    tile_size_3d: Optional[tuple[int, int, int]] = None  # (D, H, W)
+    tile_stride_3d: Optional[tuple[int, int, int]] = None  # (D, H, W)
+
+    # Time-series datasets (CSV files or directories of CSV)
+    timeseries_path: Optional[str] = None  # single CSV file
+    timeseries_dir: Optional[str] = None  # directory of CSV files
+    file_pattern: Optional[str] = None  # glob within timeseries_dir, e.g., "*.csv"
+    index_col: Optional[str] = None  # optional index column name
+    time_col: Optional[str] = None  # timestamp column (optional)
+    series_id_col: Optional[str] = None  # series/group id column (optional)
+    feature_cols: Optional[List[str]] = None  # feature column names; if None, infer numeric
+    target_col: Optional[str] = None  # optional target column name
+    window: int = 128  # sliding window length
+    stride: int = 64  # sliding stride
+    horizon: int = 0  # prediction horizon (steps ahead)
+    padding_value: float = 0.0  # padding value for short sequences
+    drop_last_incomplete: bool = True  # drop windows shorter than "window" if True
 
     # Allow for additional dataset-specific parameters
     def __post_init__(self) -> None:
@@ -68,6 +94,10 @@ class MedicalDatasetConfig:
             self.annotation_path = None
         if isinstance(self.data_dir, str) and self.data_dir.lower() == "none":
             self.data_dir = None
+        if isinstance(self.timeseries_path, str) and self.timeseries_path.lower() == "none":
+            self.timeseries_path = None
+        if isinstance(self.timeseries_dir, str) and self.timeseries_dir.lower() == "none":
+            self.timeseries_dir = None
         # Normalize imaging options
         if isinstance(self.normalization, str):
             self.normalization = self.normalization.lower()
@@ -82,6 +112,16 @@ class MedicalDatasetConfig:
             self.triton_window = 3
         if self.triton_window < 1:
             self.triton_window = 1
+        # Normalize tiling tuples if provided as lists
+        # Keep as-is if None
+        if self.tile_size_2d is not None:
+            self.tile_size_2d = tuple(int(x) for x in self.tile_size_2d)  # type: ignore
+        if self.tile_stride_2d is not None:
+            self.tile_stride_2d = tuple(int(x) for x in self.tile_stride_2d)  # type: ignore
+        if self.tile_size_3d is not None:
+            self.tile_size_3d = tuple(int(x) for x in self.tile_size_3d)  # type: ignore
+        if self.tile_stride_3d is not None:
+            self.tile_stride_3d = tuple(int(x) for x in self.tile_stride_3d)  # type: ignore
 
     @classmethod
     def from_json_file(cls, config_path: str) -> "MedicalDatasetConfig":

@@ -6,6 +6,7 @@ import torch
 import torch.distributed as dist
 
 from .model import ModelManager
+from .memory import MemoryManager
 from .sampling import SamplingManager
 from .types import *
 
@@ -54,9 +55,7 @@ class ModelRunner:
             distributed_init_method: URL specifying how to initialize the process group.
             device: Device to run the model on. If None, will use CUDA if available.
         """
-        # Initialize model components
-        self.model_manager = ModelManager(self)
-        self.sampling_manager = SamplingManager(self)
+        # Store basic run configuration first so managers can safely access them
         self.config = config
         self.world_size = world_size
         self.rank = rank
@@ -86,6 +85,11 @@ class ModelRunner:
             # Set device for distributed training
             if torch.cuda.is_available():
                 torch.cuda.set_device(rank % torch.cuda.device_count())
+
+        # Initialize model components AFTER config/device are ready
+        self.model_manager = ModelManager(self)
+        self.memory_manager = MemoryManager(self)
+        self.sampling_manager = SamplingManager(self)
 
         # Initialize model and other components
         self._initialize_model()

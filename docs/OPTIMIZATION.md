@@ -90,6 +90,44 @@ Examples:
   - Track top kernels via unified profiler traces.
   - If speedups >10-15% are consistently achievable with custom Triton on target hardware, implement optional fused kernels behind flags, with correctness/unit tests.
 
+## Memory Management Flags
+
+This project provides multiple knobs to reduce memory footprint and allocation overhead.
+
+- **Gradient checkpointing** (model-native):
+  - Config: set `gradient_checkpointing=True` (see `medvllm/training/trainer.py`), best-effort enables `module.gradient_checkpointing_enable()` or sets `m.gradient_checkpointing=True` on submodules.
+  - Use when training large transformers/adapters to trade compute for memory.
+
+- **Activation recomputation (explicit)**:
+  - Config: `activation_recompute=True`, optional `activation_recompute_patterns=["attention", "conv3d", ...]` to select submodules by qualified name.
+  - Implementation wraps matched submodules with `torch.utils.checkpoint.checkpoint(...)` during `Trainer.prepare_for_training()`.
+  - Complements model-native gradient checkpointing by forcing recomputation of selected blocks.
+
+- **Memory pooling / recycling**:
+  - Flags (runner/config): `enable_memory_pooling`, `pool_max_bytes` (cap), `pool_device` (e.g., `"auto"`, `"cuda:0"`).
+  - Implementation: `medvllm/engine/model_runner/memory.py` pools tensors by bucket and tracks stats (`pool_stats`), with eviction when over budget.
+  - Profiling: pool stats are attached to run profiles and consumable by benchmarks.
+
+Example (pseudo-config):
+
+```python
+trainer_cfg = {
+    "gradient_checkpointing": True,
+    "activation_recompute": True,
+    "activation_recompute_patterns": ["attention", "conv3d"],
+}
+
+runner_cfg = {
+    "enable_memory_pooling": True,
+    "pool_max_bytes": 2 * 1024 * 1024 * 1024,  # 2GB cap
+    "pool_device": "auto",
+}
+```
+
+Notes:
+- Activation recomputation requires `torch.utils.checkpoint` availability; if not present, it is skipped gracefully.
+- Pattern matching is substring-based on module qualified names; tune patterns to your model hierarchy.
+
 ### Softmax×V (Triton placeholder)
 
 - File: `medvllm/kernels/triton_softmaxv.py`

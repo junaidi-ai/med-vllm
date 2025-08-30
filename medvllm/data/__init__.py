@@ -2,6 +2,7 @@
 
 from .medical_datasets import MedicalDataset, get_medical_dataset
 from .imaging_datasets import ImagingDataset, get_imaging_dataset
+from .timeseries_datasets import TimeSeriesDataset, get_timeseries_dataset
 from .tokenization.medical_tokenizer import MedicalTokenizer
 from .config import MedicalDatasetConfig
 
@@ -17,6 +18,9 @@ def get_dataset(config: MedicalDatasetConfig | dict):
     else:
         cfg = config
 
+    # Route: time-series > imaging > text
+    if cfg.timeseries_path or cfg.timeseries_dir:
+        return TimeSeriesDataset(cfg)
     if cfg.data_dir or cfg.image_format:
         return ImagingDataset(cfg)
     return MedicalDataset(cfg)
@@ -27,6 +31,8 @@ __all__ = [
     "get_medical_dataset",
     "ImagingDataset",
     "get_imaging_dataset",
+    "TimeSeriesDataset",
+    "get_timeseries_dataset",
     "get_dataset",
     "MedicalTokenizer",
 ]

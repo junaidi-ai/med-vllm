@@ -34,6 +34,7 @@ except Exception:  # pragma: no cover - optional dep
     nib = None  # type: ignore
 
 from medvllm.data.config import MedicalDatasetConfig
+from medvllm.data.tiling import tile_2d, tile_3d
 
 
 class ImagingDataset:
@@ -95,6 +96,9 @@ class ImagingDataset:
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         path = self.files[idx]
         cache_key = self._cache_key(path)
+        tensor = None
+        meta: Dict[str, Any]
+        # Try cache first
         if self.cache_dir is not None:
             cached = self.cache_dir / f"{cache_key}.pt"
             meta_p = self.cache_dir / f"{cache_key}.meta.json"
@@ -102,49 +106,68 @@ class ImagingDataset:
                 tensor = torch.load(cached)
                 with meta_p.open("r", encoding="utf-8") as f:
                     meta = json.load(f)
-                return self._build_item(tensor, meta, path)
+        # Load image (if not cached)
+        if tensor is None:
+            # Load image
+            if self.image_format in {"dicom", "dcm"}:
+                image, meta = self._load_dicom(path)
+            elif self.image_format in {"nifti", "nii", "nii.gz"}:
+                image, meta = self._load_nifti(path)
+            else:
+                image, meta = self._load_generic(path)
 
-        # Load image
-        if self.image_format in {"dicom", "dcm"}:
-            image, meta = self._load_dicom(path)
-        elif self.image_format in {"nifti", "nii", "nii.gz"}:
-            image, meta = self._load_nifti(path)
-        else:
-            image, meta = self._load_generic(path)
+            # Normalize
+            image = self._normalize(image)
 
-        # Normalize
-        image = self._normalize(image)
+            # Augment (very light)
+            if self.augment:
+                image = self._augment(image)
 
-        # Augment (very light)
-        if self.augment:
-            image = self._augment(image)
+            # Optional Triton/torch op (prototype)
+            if bool(self.config.enable_triton_ops):
+                op = (self.config.triton_op or "").lower()
+                win = int(getattr(self.config, "triton_window", 3) or 3)
+                if op in {"median2d", "boxblur2d"} and win >= 1:
+                    try:
+                        image = self._apply_2d_op(image, op, win)
+                    except Exception:
+                        # Best-effort: ignore failures
+                        pass
 
-        # Optional Triton/torch op (prototype)
-        if bool(self.config.enable_triton_ops):
-            op = (self.config.triton_op or "").lower()
-            win = int(getattr(self.config, "triton_window", 3) or 3)
-            if op in {"median2d", "boxblur2d"} and win >= 1:
+            # Convert to tensor with channel-first
+            tensor = self._to_tensor(image)
+
+            # Cache
+            if self.cache_dir is not None:
+                cached = self.cache_dir / f"{cache_key}.pt"
+                meta_p = self.cache_dir / f"{cache_key}.meta.json"
                 try:
-                    image = self._apply_2d_op(image, op, win)
+                    torch.save(tensor, cached)
+                    with meta_p.open("w", encoding="utf-8") as f:
+                        json.dump(meta, f)
                 except Exception:
-                    # Best-effort: ignore failures
-                    pass
+                    pass  # cache best-effort
 
-        # Convert to tensor with channel-first
-        tensor = self._to_tensor(image)
+        item = self._build_item(tensor, meta, path)
+        # Optional tiling (adds keys only when enabled)
+        try:
+            if self.is_3d and bool(getattr(self.config, "enable_tiling_3d", False)):
+                tsz3 = getattr(self.config, "tile_size_3d", None) or (32, 128, 128)
+                tstr3 = getattr(self.config, "tile_stride_3d", None) or tsz3
+                tiles, locs = tile_3d(tensor, tsz3, tstr3)
+                item["tiles"] = tiles
+                item["tile_locs"] = locs
+            elif (not self.is_3d) and bool(getattr(self.config, "enable_tiling_2d", False)):
+                tsz2 = getattr(self.config, "tile_size_2d", None) or (256, 256)
+                tstr2 = getattr(self.config, "tile_stride_2d", None) or tsz2
+                tiles, locs = tile_2d(tensor, tsz2, tstr2)
+                item["tiles"] = tiles
+                item["tile_locs"] = locs
+        except Exception:
+            # Best-effort: if tiling fails, just return the base item
+            pass
 
-        # Cache
-        if self.cache_dir is not None:
-            cached = self.cache_dir / f"{cache_key}.pt"
-            meta_p = self.cache_dir / f"{cache_key}.meta.json"
-            try:
-                torch.save(tensor, cached)
-                with meta_p.open("w", encoding="utf-8") as f:
-                    json.dump(meta, f)
-            except Exception:
-                pass  # cache best-effort
-
-        return self._build_item(tensor, meta, path)
+        return item
 
     def _build_item(self, tensor: torch.Tensor, meta: Dict[str, Any], path: Path) -> Dict[str, Any]:
         # Attach label if available via annotations

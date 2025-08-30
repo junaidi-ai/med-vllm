@@ -280,6 +280,10 @@ class ModelManager:
                 "mixed_precision_dtype",
                 "enable_profiling",
                 "profiler_device",
+                # Memory pooling flags for adapter awareness
+                "enable_memory_pooling",
+                "pool_max_bytes",
+                "pool_device",
             ):
                 val = getattr(config, key, None)
                 if val is not None:
@@ -438,11 +442,26 @@ class ModelManager:
                 except Exception:
                     pass
             # Attach profiling results for downstream consumers if needed
+            # Start with profiler results if available; otherwise create a fresh dict
+            profile_dict: Dict[str, Any] = {}
             if profiler is not None and hasattr(profiler, "results"):
                 try:
-                    setattr(self.runner, "last_profile", profiler.results)
+                    profile_dict = dict(getattr(profiler, "results", {}) or {})
                 except Exception:
-                    pass
+                    profile_dict = {}
+            # Attach a snapshot of memory pool stats
+            try:
+                mm = getattr(self.runner, "memory_manager", None)
+                if mm is not None and hasattr(mm, "pool_stats"):
+                    # Shallow copy to avoid external mutation
+                    profile_dict["memory_pool"] = dict(mm.pool_stats)
+            except Exception:
+                pass
+            # Persist
+            try:
+                setattr(self.runner, "last_profile", profile_dict)
+            except Exception:
+                pass
 
         return logits, past_key_values
 

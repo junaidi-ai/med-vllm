@@ -135,6 +135,10 @@ class TrainerConfig:
     # gradient checkpointing
     gradient_checkpointing: bool = False
 
+    # activation recomputation (explicit torch.utils.checkpoint wrapping)
+    activation_recompute: bool = False
+    activation_recompute_patterns: Optional[List[str]] = None  # substrings to match module names
+
     # FSDP
     fsdp: bool = False  # enable PyTorch FSDP wrapping
 
@@ -217,6 +221,17 @@ class MedicalModelTrainer:
         # gradient checkpointing best-effort enable
         if self.config.gradient_checkpointing:
             self._maybe_enable_gradient_checkpointing(self.model)
+
+        # explicit activation recomputation via checkpoint wrappers
+        if getattr(self.config, "activation_recompute", False):
+            self._maybe_enable_activation_recompute(
+                self.model,
+                patterns=(
+                    self.config.activation_recompute_patterns
+                    if self.config.activation_recompute_patterns is not None
+                    else ["attention", "conv3d"]
+                ),
+            )
 
         # channels last for conv-heavy models
         if (
@@ -498,6 +513,47 @@ class MedicalModelTrainer:
                 dist.destroy_process_group()
         except Exception:
             pass
+
+    def _maybe_enable_activation_recompute(
+        self, module: torch.nn.Module, patterns: List[str]
+    ) -> None:
+        """Wrap submodules whose qualified name contains any of the given patterns
+        with a small CheckpointWrapper that recomputes activations during backward.
+
+        This is a best-effort, opt-in optimization. If wrapping fails, we skip that module.
+        """
+        try:
+            import torch.utils.checkpoint as _ckpt
+        except Exception:
+            return  # checkpoint not available
+
+        class CheckpointWrapper(torch.nn.Module):
+            def __init__(self, inner: torch.nn.Module):
+                super().__init__()
+                self.inner = inner
+
+            def forward(self, *args, **kwargs):  # type: ignore[override]
+                def _fn(*a, **kw):
+                    return self.inner(*a, **kw)
+
+                return _ckpt.checkpoint(_fn, *args, **kwargs)
+
+        # Walk modules and wrap matches by name (non-recursively replacing in parent)
+        for name, child in list(module.named_modules()):
+            # Skip the root module itself
+            if name == "":
+                continue
+            try:
+                if any(pat.lower() in name.lower() for pat in patterns):
+                    # Find parent and attribute name
+                    parent_name = name.rsplit(".", 1)[0]
+                    attr_name = name.split(".")[-1]
+                    parent = module.get_submodule(parent_name) if parent_name else module
+                    if isinstance(getattr(parent, attr_name, None), torch.nn.Module):
+                        setattr(parent, attr_name, CheckpointWrapper(child))
+            except Exception:
+                # best effort: skip if we cannot wrap
+                continue
 
     def _build_dataloader(
         self,

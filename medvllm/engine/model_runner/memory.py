@@ -42,6 +42,131 @@ class MemoryManager:
         self.medical_entities_cache: Dict[str, Any] = {}
         self.distributed_enabled = False
 
+        # --- Tensor pooling (optional) ---
+        self.pool_enabled: bool = bool(getattr(self.runner.config, "enable_memory_pooling", False))
+        # Pool keyed by (device:str, dtype:str, bucket:int). Values are LIFO lists of tensors.
+        self._pool: Dict[tuple[str, str, int], List[torch.Tensor]] = {}
+        self._pool_bytes: int = 0
+        self._pool_max_bytes: Optional[int] = getattr(self.runner.config, "pool_max_bytes", None)
+        # auto device -> follow runner.device
+        pool_dev_pref = getattr(self.runner.config, "pool_device", "auto")
+        self._pool_device_str: str = (
+            str(self.runner.device) if pool_dev_pref in (None, "auto") else str(pool_dev_pref)
+        )
+        # Pool stats
+        self.pool_stats: Dict[str, int] = {
+            "acquire_requests": 0,
+            "acquire_hits": 0,
+            "acquire_misses": 0,
+            "released": 0,
+            "reused": 0,
+            "evicted": 0,
+            "bytes": 0,
+        }
+
+    # -------- Tensor pooling helpers --------
+    @staticmethod
+    def _dtype_nbytes(dtype: torch.dtype) -> int:
+        return (
+            torch.finfo(dtype).bits // 8
+            if dtype.is_floating_point
+            else torch.iinfo(dtype).bits // 8
+        )
+
+    @staticmethod
+    def _bucket_for(numel: int) -> int:
+        # round up to next power-of-two bucket to improve reuse
+        if numel <= 1:
+            return 1
+        b = 1
+        while b < numel:
+            b <<= 1
+        return b
+
+    def _key(self, device: torch.device, dtype: torch.dtype, bucket: int) -> tuple[str, str, int]:
+        return (str(device), str(dtype), bucket)
+
+    def _maybe_evict_until_under_limit(self) -> None:
+        if self._pool_max_bytes is None:
+            return
+        while self._pool_bytes > self._pool_max_bytes and self._pool:
+            # Evict from the largest bucket/device arbitrarily (simple heuristic)
+            key = next(iter(self._pool))
+            lst = self._pool[key]
+            if not lst:
+                del self._pool[key]
+                continue
+            t = lst.pop()
+            try:
+                self._pool_bytes -= t.numel() * self._dtype_nbytes(t.dtype)
+            except Exception:
+                pass
+            self.pool_stats["evicted"] += 1
+            if not lst:
+                del self._pool[key]
+
+    def acquire(
+        self,
+        shape: List[int] | tuple[int, ...],
+        dtype: torch.dtype,
+        device: Optional[torch.device] = None,
+        requires_grad: bool = False,
+        init: str = "empty",  # "empty" | "zeros"
+    ) -> torch.Tensor:
+        """Acquire a tensor from the pool or allocate a new one.
+
+        Pooling is enabled only when Config.enable_memory_pooling=True.
+        """
+        self.pool_stats["acquire_requests"] += 1
+        device = device or self.runner.device
+        dev_str = str(device)
+        if self.pool_enabled and dev_str == self._pool_device_str:
+            numel = 1
+            for d in shape:
+                numel *= int(d)
+            bucket = self._bucket_for(numel)
+            key = self._key(device, dtype, bucket)
+            lst = self._pool.get(key, [])
+            if lst:
+                t = lst.pop()
+                self.pool_stats["acquire_hits"] += 1
+                self.pool_stats["reused"] += 1
+                return t.view(*shape)
+            else:
+                self.pool_stats["acquire_misses"] += 1
+        # Fallback: allocate new
+        if init == "zeros":
+            t = torch.zeros(shape, dtype=dtype, device=device, requires_grad=requires_grad)
+        else:
+            t = torch.empty(shape, dtype=dtype, device=device, requires_grad=requires_grad)
+        return t
+
+    def release(self, tensor: torch.Tensor) -> None:
+        """Return a tensor to the pool for potential reuse."""
+        if not isinstance(tensor, torch.Tensor):
+            return
+        self.pool_stats["released"] += 1
+        if not self.pool_enabled:
+            return
+        # Only pool contiguous tensors on the configured pool device
+        if str(tensor.device) != self._pool_device_str:
+            return
+        try:
+            t = tensor.detach()
+            if not t.is_contiguous():
+                t = t.contiguous()
+            numel = t.numel()
+            bucket = self._bucket_for(numel)
+            key = self._key(t.device, t.dtype, bucket)
+            lst = self._pool.setdefault(key, [])
+            lst.append(t)
+            self._pool_bytes += numel * self._dtype_nbytes(t.dtype)
+            self.pool_stats["bytes"] = self._pool_bytes
+            self._maybe_evict_until_under_limit()
+        except Exception:
+            # Best-effort pooling
+            pass
+
     def allocate_kv_cache(self, gpu_memory_utilization: float = 0.9) -> None:
         """Allocate GPU memory for the key-value cache with medical optimizations.
 
@@ -232,6 +357,21 @@ class MemoryManager:
 
         # Clean up medical entities cache
         self.medical_entities_cache.clear()
+
+        # Clear pool
+        self._pool.clear()
+        self._pool_bytes = 0
+        self.pool_stats.update(
+            {
+                "acquire_requests": 0,
+                "acquire_hits": 0,
+                "acquire_misses": 0,
+                "released": 0,
+                "reused": 0,
+                "evicted": 0,
+                "bytes": 0,
+            }
+        )
 
         # Reset statistics
         self.cache_stats = {

@@ -58,6 +58,19 @@ class Config:
     # Lightweight runtime profiling (best-effort, no external deps required)
     enable_profiling: bool = False
     profiler_device: str | None = "auto"  # "cpu" | "cuda" | "auto"
+    # Optional trace emission for profilers that support it
+    emit_trace: bool = False
+    trace_dir: str | None = "profiles"
+
+    # Memory management toggles (inference/training)
+    enable_memory_pooling: bool = False
+    pool_max_bytes: int | None = None  # cap for pooled memory, None = auto
+    pool_device: str | None = "auto"  # "cpu" | "cuda" | "auto"
+
+    # Activation recomputation (beyond generic gradient checkpointing)
+    activation_recompute: bool = False
+    # e.g., "block", "layer", "attention-only"; semantics up to model/adapter
+    recompute_granularity: str | None = None
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> "Config":
