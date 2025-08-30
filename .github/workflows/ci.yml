@@ -25,11 +25,12 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements/requirements-dev.txt
+        # Ensure test dependencies (incl. pytest-benchmark) are installed
+        if [ -f requirements/requirements-test.txt ]; then pip install -r requirements/requirements-test.txt; fi
         pip install -e .
     
     - name: Run tests with coverage
       run: |
-        pip install pytest pytest-cov
         # Use pytest.ini's configuration (testpaths=tests)
         python -m pytest -v --cov=medvllm --cov-report=xml
     
@@ -43,6 +44,45 @@ jobs:
       run: |
         bash scripts/uat/run_uat.sh
     
+    - name: Segmentation dataset regression (CPU)
+      env:
+        MEDVLLM_SEG_MIN_DICE: "0.70"
+        MEDVLLM_SEG_MIN_IOU: "0.55"
+        MEDVLLM_SEG2D_URL: ${{ env.MEDVLLM_SEG2D_URL }}
+      run: |
+        python benchmarks/benchmark_imaging.py \
+          --conv-type 2d --in-ch 1 --height 128 --width 128 \
+          --device cpu --dtype fp32 --batch 1 --batches 1 \
+          --seg-dataset seg2d_small --seg-threshold 0.5 \
+          --out benchmarks/benchmark_results_cpu_smoke/ci_seg2d.json
+        python - << 'PY'
+import json, os, sys
+p = 'benchmarks/benchmark_results_cpu_smoke/ci_seg2d.json'
+with open(p, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+seg = data.get('seg_dataset') or {}
+err = seg.get('error')
+count = int(seg.get('count', 0))
+dice = float(seg.get('dice', 0.0))
+iou = float(seg.get('iou', 0.0))
+min_dice = float(os.getenv('MEDVLLM_SEG_MIN_DICE', '0.70'))
+min_iou = float(os.getenv('MEDVLLM_SEG_MIN_IOU', '0.55'))
+url = os.getenv('MEDVLLM_SEG2D_URL')
+enforce = bool(url) and not err and count > 0
+ok = (dice >= min_dice) and (iou >= min_iou) if enforce else True
+print({'dice': dice, 'iou': iou, 'min_dice': min_dice, 'min_iou': min_iou, 'count': count, 'error': err, 'dataset_url_set': bool(url), 'enforce': enforce, 'ok': ok})
+sys.exit(0 if ok else 1)
+PY
+    
+    - name: Depthwise perf smoke (CPU, non-blocking)
+      run: |
+        python benchmarks/benchmark_imaging.py \
+          --conv-type 2d --in-ch 8 --height 128 --width 128 \
+          --device cpu --dtype fp32 --batch 4 --batches 3 \
+          --depthwise-bench --depthwise-bench-iters 10 \
+          --depthwise-bench-sizes 8x128x128,32x256x256 \
+          --out benchmarks/benchmark_results_cpu_smoke/conv_bench_depthwise_ci.json || true
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:

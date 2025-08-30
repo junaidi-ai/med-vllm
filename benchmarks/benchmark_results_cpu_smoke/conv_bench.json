@@ -1,0 +1,76 @@
+{
+  "device": "cuda",
+  "dtype": "fp16",
+  "channels_last": false,
+  "amp": true,
+  "cudnn_benchmark": false,
+  "compiled": false,
+  "input_shape": [
+    8,
+    32,
+    256,
+    256
+  ],
+  "batches": 50,
+  "batch_time_ms": 35.844902459939476,
+  "imgs_per_sec": 223.18375699141205,
+  "cpu_max_rss_mb": 1430.6171875,
+  "cuda_max_mem_mb": 168.30908203125,
+  "acc_check_enabled": false,
+  "has_nan": null,
+  "has_inf": null,
+  "repeatability_pass": null,
+  "max_abs_diff": null,
+  "mean_abs_diff": null,
+  "depthwise_bench": {
+    "K": 3,
+    "stride": 1,
+    "padding": 1,
+    "dilation": 1,
+    "iters": 50,
+    "cases": [
+      {
+        "C": 8,
+        "H": 128,
+        "W": 128,
+        "eager": {
+          "elapsed_s": 0.0038121880061225966,
+          "imgs_per_s": 104926.61940008642
+        },
+        "fused": {
+          "elapsed_s": 0.004400475008878857,
+          "imgs_per_s": 90899.27773545317,
+          "available": true
+        }
+      },
+      {
+        "C": 32,
+        "H": 256,
+        "W": 256,
+        "eager": {
+          "elapsed_s": 0.05439999100053683,
+          "imgs_per_s": 7352.942392877468
+        },
+        "fused": {
+          "elapsed_s": 0.025272122002206743,
+          "imgs_per_s": 15827.717196247799,
+          "available": true
+        }
+      },
+      {
+        "C": 64,
+        "H": 512,
+        "W": 512,
+        "eager": {
+          "elapsed_s": 0.46683659999689553,
+          "imgs_per_s": 856.8308483153635
+        },
+        "fused": {
+          "elapsed_s": 0.24924791800731327,
+          "imgs_per_s": 1604.8278485048909,
+          "available": true
+        }
+      }
+    ]
+  }
+}

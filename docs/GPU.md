@@ -66,6 +66,8 @@ PY
 - Expect JSON files in `benchmarks/results/` and GPU memory keys in results.
 - If CUDA is requested but unavailable, the script will automatically fall back to CPU and print an informational message. To avoid the message, set `--device cpu` explicitly.
 
+> See also: Imaging Convolution Benchmark for CNN perf checks — docs/benchmarks.md#imaging-convolution-benchmark
+
 ## 6) Scale up benchmarks
 - Increase `--batch-sizes` (e.g., `1 4 8`) and `--seq-lengths` (e.g., `128 256 512`).
 - Keep `--precision fp16` for better throughput, or compare against `fp32`.

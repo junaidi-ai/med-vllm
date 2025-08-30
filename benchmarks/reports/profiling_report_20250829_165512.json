@@ -1,0 +1,130 @@
+{
+  "attention": {
+    "error": "/home/kd/med-vllm/medvllm/layers/attention.py:40: UserWarning: Flash Attention is not installed. Falling back to a simpler attention implementation. For better performance, install flash_attn with: pip install flash-attn --no-build-isolation\n  warnings.warn(\n2025-08-29 16:55:18 - medvllm.engine.model_runner.registry - INFO - Registered default model: biobert-base-cased-v1.2\n2025-08-29 16:55:18 - medvllm.engine.model_runner.registry - INFO - Registered default model: clinical-bert-base-uncased\nusage: benchmark_attention.py [-h] [--seq SEQ] [--heads HEADS] [--dim DIM]\n                              [--batch BATCH] [--iters ITERS]\n                              [--device {auto,cpu,cuda}]\n                              [--dtype {fp32,fp16,bf16}]\n                              [--suite {basic,extended}] [--save [SAVE]]\n                              [--emit-trace] [--trace-dir TRACE_DIR]\n                              [--fusion-compile] [--ffn-bench]\n                              [--ffn-intermediate FFN_INTERMEDIATE]\n                              [--attn-softmaxv-bench]\nbenchmark_attention.py: error: unrecognized arguments: --out /home/kd/med-vllm/benchmarks/benchmark_results_cpu_smoke/attn_cpu_20250829_165512.json --warmup 1"
+  },
+  "imaging": {
+    "device": "cpu",
+    "dtype": "fp32",
+    "channels_last": false,
+    "amp": false,
+    "cudnn_benchmark": false,
+    "compiled": false,
+    "input_shape": [
+      2,
+      8,
+      256,
+      256
+    ],
+    "batches": 2,
+    "batch_time_ms": 26.989823498297483,
+    "imgs_per_sec": 74.10200367283468,
+    "cpu_max_rss_mb": 802.4921875,
+    "cuda_max_mem_mb": null,
+    "acc_check_enabled": false,
+    "has_nan": null,
+    "has_inf": null,
+    "repeatability_pass": null,
+    "max_abs_diff": null,
+    "mean_abs_diff": null,
+    "depthwise_bench": {
+      "K": 3,
+      "stride": 1,
+      "padding": 1,
+      "dilation": 1,
+      "iters": 20,
+      "cases": [
+        {
+          "C": 8,
+          "H": 128,
+          "W": 128,
+          "eager": {
+            "elapsed_s": 0.0033304649987258017,
+            "imgs_per_s": 12010.334897770595
+          },
+          "fused": {
+            "available": false
+          }
+        },
+        {
+          "C": 32,
+          "H": 256,
+          "W": 256,
+          "eager": {
+            "elapsed_s": 0.3051320930098882,
+            "imgs_per_s": 131.09076664283802
+          },
+          "fused": {
+            "available": false
+          }
+        }
+      ]
+    }
+  },
+  "op_summary_us_top15": [
+    {
+      "op": "PyTorch Profiler (0)",
+      "total_us": 130484
+    },
+    {
+      "op": "aten::conv2d",
+      "total_us": 78909
+    },
+    {
+      "op": "aten::convolution",
+      "total_us": 78687
+    },
+    {
+      "op": "aten::_convolution",
+      "total_us": 78245
+    },
+    {
+      "op": "aten::mkldnn_convolution",
+      "total_us": 77788
+    },
+    {
+      "op": "aten::max_pool2d",
+      "total_us": 29660
+    },
+    {
+      "op": "aten::max_pool2d_with_indices",
+      "total_us": 29251
+    },
+    {
+      "op": "aten::silu",
+      "total_us": 10021
+    },
+    {
+      "op": "aten::empty",
+      "total_us": 1347
+    },
+    {
+      "op": "aten::linear",
+      "total_us": 943
+    },
+    {
+      "op": "aten::addmm",
+      "total_us": 600
+    },
+    {
+      "op": "aten::adaptive_avg_pool2d",
+      "total_us": 487
+    },
+    {
+      "op": "aten::_adaptive_avg_pool2d",
+      "total_us": 442
+    },
+    {
+      "op": "aten::as_strided_",
+      "total_us": 314
+    },
+    {
+      "op": "aten::t",
+      "total_us": 229
+    }
+  ],
+  "meta": {
+    "device": "cpu",
+    "trace_dir": "/home/kd/med-vllm/benchmarks/profiles",
+    "timestamp": "2025-08-29T16:55:31.111874"
+  }
+}

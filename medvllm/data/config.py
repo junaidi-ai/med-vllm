@@ -54,6 +54,10 @@ class MedicalDatasetConfig:
     is_3d: Optional[bool] = None
     normalization: Optional[str] = None
     augment: bool = False
+    # Optional: Triton kernel prototyping flags
+    enable_triton_ops: bool = False
+    triton_op: Optional[str] = None  # e.g., 'median2d', 'boxblur2d'
+    triton_window: int = 3
 
     # Allow for additional dataset-specific parameters
     def __post_init__(self) -> None:
@@ -64,6 +68,20 @@ class MedicalDatasetConfig:
             self.annotation_path = None
         if isinstance(self.data_dir, str) and self.data_dir.lower() == "none":
             self.data_dir = None
+        # Normalize imaging options
+        if isinstance(self.normalization, str):
+            self.normalization = self.normalization.lower()
+        if isinstance(self.image_format, str):
+            self.image_format = self.image_format.lower()
+        if isinstance(self.triton_op, str):
+            self.triton_op = self.triton_op.lower().strip()
+        # Clamp window
+        try:
+            self.triton_window = int(self.triton_window)
+        except Exception:
+            self.triton_window = 3
+        if self.triton_window < 1:
+            self.triton_window = 1
 
     @classmethod
     def from_json_file(cls, config_path: str) -> "MedicalDatasetConfig":

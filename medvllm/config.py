@@ -43,9 +43,21 @@ class Config:
     )
     torch_matmul_precision: str | None = None  # e.g., "high" | "medium" | "highest" (torch>=2)
 
+    # Attention implementation selection
+    # None = default behavior (FlashAttention if enabled, else SDPA when available, else manual)
+    # Options: "flash", "sdpa", "manual"
+    attention_impl: str | None = None
+
+    # Mixed precision dtype when enable_mixed_precision=True: "fp16" or "bf16"
+    mixed_precision_dtype: str = "fp16"
+
     # Quantization settings (optional)
     quantization_bits: int | None = None  # e.g., 8 or 4; None disables
     quantization_method: str | None = None  # e.g., 'dynamic' (CPU), 'bnb-8bit', 'bnb-nf4'
+
+    # Lightweight runtime profiling (best-effort, no external deps required)
+    enable_profiling: bool = False
+    profiler_device: str | None = "auto"  # "cpu" | "cuda" | "auto"
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> "Config":

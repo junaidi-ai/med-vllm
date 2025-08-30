@@ -1,0 +1,31 @@
+{
+  "device": "cpu",
+  "dtype": "fp32",
+  "channels_last": false,
+  "amp": false,
+  "cudnn_benchmark": false,
+  "compiled": false,
+  "input_shape": [
+    1,
+    1,
+    128,
+    128
+  ],
+  "batches": 1,
+  "batch_time_ms": 17.597010999452323,
+  "imgs_per_sec": 56.827832864974816,
+  "cpu_max_rss_mb": 797.765625,
+  "cuda_max_mem_mb": null,
+  "acc_check_enabled": false,
+  "has_nan": null,
+  "has_inf": null,
+  "repeatability_pass": null,
+  "max_abs_diff": null,
+  "mean_abs_diff": null,
+  "seg_dataset": {
+    "name": "seg2d_small",
+    "count": 6,
+    "dice": 0.0766241978853941,
+    "iou": 0.04010009765625
+  }
+}

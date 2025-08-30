@@ -52,6 +52,32 @@ jobs:
             --device cuda \
             --output benchmark_results/ci_quick.json || true
 
+      - name: Depthwise CUDA microbench (non-blocking)
+        run: |
+          # Run Triton depthwise vs eager microbenchmarks on CUDA (if available). Non-fatal.
+          python benchmarks/benchmark_imaging.py \
+            --device cuda --conv-type 2d --in-ch 32 --batch 8 \
+            --depthwise-bench --depthwise-bench-iters 30 \
+            --depthwise-bench-sizes 8x128x128,32x256x256,64x512x512 || true
+
+      - name: Softmax×V CUDA microbench (non-blocking)
+        run: |
+          # Run gated Triton softmax×V vs eager benchmark on CUDA (if available). Non-fatal.
+          mkdir -p benchmark_results
+          MEDVLLM_ENABLE_TRITON_SOFTMAXV=1 \
+          python benchmarks/benchmark_attention.py \
+            --device cuda --dtype bf16 \
+            --seq 512 --heads 8 --dim 64 --iters 30 \
+            --attn-softmaxv-bench --enable-triton-softmaxv \
+            --save benchmark_results/attn_softmaxv_ci.json || true
+
+      - name: Separable 3D CUDA microbench (non-blocking)
+        run: |
+          # Run depthwise separable 3D Triton vs eager microbenchmark on CUDA (if available). Non-fatal.
+          mkdir -p benchmark_results
+          MEDVLLM_ENABLE_TRITON_SEP3D=1 \
+          python benchmarks/benchmark_separable_conv3d.py || true
+
       - name: Run training performance benchmark
         run: |
           python benchmarks/benchmark_training.py \

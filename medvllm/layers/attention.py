@@ -9,6 +9,7 @@ FLASH_ATTN_AVAILABLE = False
 try:
     import torch
     from torch import nn
+    import torch.nn.functional as F
 
     HAS_TORCH = True
 except ImportError:
@@ -143,6 +144,8 @@ if HAS_TORCH:
             self.num_kv_heads = num_kv_heads
             self.max_sequence_length = max_sequence_length
             self.use_medical_attention = use_medical_attention
+            # Allow caller to hint the implementation: None | 'flash' | 'sdpa' | 'manual'
+            self.attention_impl = kwargs.get("attention_impl", None)
 
             # Initialize KV cache
             self.k_cache = None
@@ -214,8 +217,59 @@ if HAS_TORCH:
                 self.v_cache[:, :, :seq_len, :] = v
                 k, v = self.k_cache[:, :, :seq_len, :], self.v_cache[:, :, :seq_len, :]
 
-            if FLASH_ATTN_AVAILABLE and not self.use_medical_attention:
-                # Use flash attention for non-medical attention patterns
+            # Determine availability
+            sdpa_available = hasattr(F, "scaled_dot_product_attention")
+            using_cuda = q.is_cuda and (torch.cuda.is_available())
+            flash_available_rt = FLASH_ATTN_AVAILABLE and using_cuda
+
+            # Decide implementation with validation and warnings
+            requested = (self.attention_impl or "auto").lower()
+            chosen = None  # type: Optional[str]
+
+            if requested == "flash":
+                if flash_available_rt:
+                    chosen = "flash"
+                else:
+                    warnings.warn(
+                        "Attention requested 'flash' but Flash Attention is unavailable (missing package or CUDA/device). "
+                        "Falling back to SDPA/manual."
+                    )
+                    chosen = "sdpa" if sdpa_available else "manual"
+            elif requested == "sdpa":
+                if sdpa_available:
+                    chosen = "sdpa"
+                else:
+                    warnings.warn(
+                        "Attention requested 'sdpa' but PyTorch SDPA is unavailable on this runtime. Falling back to manual/flash."
+                    )
+                    chosen = "flash" if flash_available_rt else "manual"
+            elif requested == "manual":
+                chosen = "manual"
+            else:  # auto
+                if flash_available_rt:
+                    chosen = "flash"
+                elif sdpa_available:
+                    chosen = "sdpa"
+                else:
+                    chosen = "manual"
+
+            # Execute chosen implementation
+            output = None
+            if not self.use_medical_attention and chosen == "sdpa":
+                try:
+                    output = F.scaled_dot_product_attention(
+                        q,
+                        k,
+                        v,
+                        attn_mask=None,
+                        dropout_p=0.0,
+                        is_causal=True,
+                        scale=self.scale,
+                    )
+                except Exception:
+                    output = None
+                    warnings.warn("SDPA execution failed; falling back to manual.")
+            elif not self.use_medical_attention and chosen == "flash" and flash_available_rt:
                 if self.context.is_prefill:
                     output = flash_attn_varlen_func(
                         q,
@@ -238,7 +292,7 @@ if HAS_TORCH:
                         softmax_scale=self.scale,
                         causal=True,
                     )
-            else:
+            if 'output' not in locals() or output is None:
                 # Use manual attention with medical optimizations
                 # Calculate attention scores with medical scaling
                 attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale

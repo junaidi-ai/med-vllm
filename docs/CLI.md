@@ -154,6 +154,28 @@ File: `medvllm/cli/inference_commands.py` → `cmd_generate`
   - Length targets: `--target-words`, `--target-chars`
   - Misc: `--no-disclaimer` (skip automatic disclaimer), `--json-meta` (print metadata JSON)
   - `--output FILE` — write generated text to FILE. If `--json-meta` is used, metadata is also written to `FILE.meta.json`.
+  - Profiling: `--profile`, `--profiler-device {auto|cpu|cuda}`, `--emit-trace`, `--trace-dir DIR`
+    - `--emit-trace` enables exporting a Chrome trace via torch.profiler.
+    - `--trace-dir` selects the directory for trace files (default: `./profiles/`).
+  - Compilation (op fusion): `--compile/--no-compile`, `--compile-mode {default|reduce-overhead|max-autotune}`
+    - Enables `torch.compile` to allow inductor-based fusion on supported setups.
+
+#### Attention backends and flags
+- Flags:
+  - `--attention-impl {auto|flash|sdpa|manual}` — select backend. `auto` (default) prefers Flash → SDPA → manual based on availability.
+  - `--flash-attention/--no-flash-attention` — user preference to enable/disable FlashAttention when available.
+
+- Conflicts and warnings:
+  - Using `--attention-impl flash` together with `--no-flash-attention` emits a CLI warning and disables Flash at runtime.
+
+- Runtime fallback behavior (in `medvllm/layers/attention.py` → `Attention.forward()`):
+  - If `flash` requested but FlashAttention is unavailable (package/CUDA), a warning is emitted, then fallback to SDPA if available, else manual.
+  - If `sdpa` requested but PyTorch SDPA is unavailable, a warning is emitted, then fallback to Flash (if available), else manual.
+  - With `auto`, the backend is chosen in order: Flash (if available) → SDPA → manual.
+
+- Notes:
+  - Fallbacks are best-effort and non-fatal to preserve UX. Warnings explain what happened.
+  - The `--flash-attention` flag is a hint; actual selection depends on runtime availability of CUDA and the `flash-attn` package.
 
 Examples:
 ```bash
@@ -164,6 +186,18 @@ python -m medvllm.cli inference generate \
   --strategy beam --beam-width 3 \
   --purpose patient --readability general --tone informal \
   --target-words 120 --json-meta
+
+# With profiling trace exported to ./profiles
+python -m medvllm.cli inference generate \
+  --text "Explain HTN." \
+  --model your-hf-model \
+  --profile --emit-trace --trace-dir ./profiles
+
+# Enable inductor compile with max-autotune
+python -m medvllm.cli inference generate \
+  --text "Explain HTN." \
+  --model your-hf-model \
+  --compile --compile-mode max-autotune
 
 # Save generated text and metadata
 python -m medvllm.cli inference generate \
@@ -277,3 +311,57 @@ Further reading: `docs/TRAINER.md`.
 ## Tips
 - Use `--json-out`/`--json-meta` for machine-readable outputs in pipelines.
 - You can pipe input from other tools, e.g. `cat note.txt | python -m medvllm.cli inference ner --json-out`.
+
+## Imaging and Perf Utilities (benchmarks)
+
+Although not part of `medvllm.cli`, the repository provides imaging and attention benchmarking CLIs under `benchmarks/` that are useful during development and CI:
+
+- `benchmarks/benchmark_imaging.py`
+  - Depthwise Conv2D microbenchmark flags:
+    - `--depthwise-bench` — run eager vs fused depthwise microbench.
+    - `--depthwise-bench-iters N` — iterations per case (default 50).
+    - `--depthwise-bench-sizes CxHxW[,CxHxW...]` — run multiple cases, e.g. `8x128x128,32x256x256`. Empty uses `--in-ch/--height/--width`.
+  - Segmentation dataset regression:
+    - `--seg-dataset seg2d_small` — evaluate Dice/IoU on a tiny 2D dataset (downloaded or synthetic fallback).
+    - Env for CI enforcement (optional):
+      - `MEDVLLM_SEG2D_URL` — dataset URL (enables enforcement when set)
+      - `MEDVLLM_SEG2D_SHA256` — dataset checksum
+      - `MEDVLLM_SEG_MIN_DICE` (default 0.70), `MEDVLLM_SEG_MIN_IOU` (default 0.55)
+  - Profiling:
+    - `--emit-trace` and `--trace-dir DIR` export Chrome traces via torch.profiler when available.
+
+- `benchmarks/benchmark_attention.py`
+  - Softmax×V microbenchmark flags:
+    - `--attn-softmaxv-bench` — compare eager softmax×V vs fused Triton softmax×V (if available).
+    - `--enable-triton-softmaxv` — sets `MEDVLLM_ENABLE_TRITON_SOFTMAXV=1` for this run to opt into the gated Triton path.
+  - Common options:
+    - `--seq`, `--heads`, `--dim`, `--batch`, `--iters`, `--device {auto|cpu|cuda}`, `--dtype {fp32,fp16,bf16}`
+    - `--emit-trace`, `--trace-dir DIR` for profiler traces.
+  - Example (CUDA):
+    ```bash
+    python benchmarks/benchmark_attention.py \
+      --seq 512 --heads 8 --dim 64 --iters 50 \
+      --device cuda --dtype bf16 \
+      --attn-softmaxv-bench --enable-triton-softmaxv
+    ```
+
+See `docs/OPTIMIZATION.md` for more on fused kernels, profiling, and CI integration.
+
+### Environment toggles (performance kernels)
+
+- `MEDVLLM_DISABLE_TRITON=1` — force-disable Triton fused kernels (depthwise, etc.).
+- `MEDVLLM_ENABLE_TRITON_SOFTMAXV=1` — opt-in to the Triton softmax×V placeholder path (disabled by default; may be slower than eager/SDPA).
+- `MEDVLLM_ENABLE_TRITON_SEP3D=1` — opt-in to Triton depthwise 3D kernel (disabled by default).
+- Tuning overrides for separable 3D (useful for sweeps):
+  - `MEDVLLM_SEP3D_BLOCK_W` in {64,128,256}
+  - `MEDVLLM_SEP3D_WARPS` in {2,4,8}
+  - `MEDVLLM_SEP3D_STAGES` in {2,3,4}
+- Fused options for separable 3D:
+  - `MEDVLLM_SEP3D_FUSE_BIAS=1` — fuse bias add in-kernel
+  - `MEDVLLM_SEP3D_FUSE_RELU=1` — fuse ReLU in-kernel
+
+Example (CUDA):
+```bash
+MEDVLLM_ENABLE_TRITON_SEP3D=1 \
+python benchmarks/benchmark_separable_conv3d.py
+```

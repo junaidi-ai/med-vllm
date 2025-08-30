@@ -1,0 +1,82 @@
+{
+  "device": "cpu",
+  "dtype": "bfloat16",
+  "suite": null,
+  "cases": [
+    {
+      "B": 1,
+      "S": 256,
+      "H": 4,
+      "D": 256,
+      "iters": 20,
+      "results": [
+        {
+          "backend": "manual",
+          "available": true,
+          "elapsed_s": 1.8669910909957252,
+          "tokens": 5120,
+          "tokens_per_s": 2742.380520556926,
+          "B": 1,
+          "S": 256,
+          "H": 4,
+          "D": 256,
+          "device": "cpu",
+          "dtype": "bfloat16",
+          "profiler": {
+            "device": "cpu",
+            "cpu_time_total_ms": 1779.1902419994585,
+            "gpu_time_total_ms": 0.0,
+            "cpu_max_rss_mb": 787.26171875,
+            "cuda_max_mem_mb": null,
+            "trace_path": null
+          }
+        },
+        {
+          "backend": "sdpa",
+          "available": true,
+          "elapsed_s": 0.04967665999720339,
+          "tokens": 5120,
+          "tokens_per_s": 103066.5105159694,
+          "B": 1,
+          "S": 256,
+          "H": 4,
+          "D": 256,
+          "device": "cpu",
+          "dtype": "bfloat16",
+          "profiler": {
+            "device": "cpu",
+            "cpu_time_total_ms": 31.69748499931302,
+            "gpu_time_total_ms": 0.0,
+            "cpu_max_rss_mb": 799.95703125,
+            "cuda_max_mem_mb": null,
+            "trace_path": null
+          }
+        },
+        {
+          "backend": "flash",
+          "available": false
+        }
+      ]
+    }
+  ],
+  "attn_softmaxv_bench": {
+    "hidden": 256,
+    "heads": 4,
+    "seq": 256,
+    "iters": 20,
+    "results": [
+      {
+        "elapsed_s": 1.6672744709940162,
+        "tokens_per_s": 3070.8801034706034,
+        "impl": "eager",
+        "available": true
+      },
+      {
+        "elapsed_s": 1.6630849669891177,
+        "tokens_per_s": 3078.6160067752585,
+        "impl": "triton_softmaxv",
+        "available": true
+      }
+    ]
+  }
+}

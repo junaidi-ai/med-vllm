@@ -1,0 +1,26 @@
+{
+  "device": "cuda",
+  "dtype": "fp16",
+  "channels_last": false,
+  "amp": true,
+  "cudnn_benchmark": false,
+  "compiled": false,
+  "input_shape": [
+    4,
+    32,
+    32,
+    128,
+    128
+  ],
+  "batches": 50,
+  "batch_time_ms": 272.67239806009457,
+  "imgs_per_sec": 14.669618298213065,
+  "cpu_max_rss_mb": 1508.34375,
+  "cuda_max_mem_mb": 776.20361328125,
+  "acc_check_enabled": false,
+  "has_nan": null,
+  "has_inf": null,
+  "repeatability_pass": null,
+  "max_abs_diff": null,
+  "mean_abs_diff": null
+}

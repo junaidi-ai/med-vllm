@@ -1,0 +1,41 @@
+{
+  "device": "cpu",
+  "dtype": "fp32",
+  "channels_last": false,
+  "amp": false,
+  "cudnn_benchmark": false,
+  "compiled": false,
+  "input_shape": [
+    4,
+    8,
+    128,
+    128
+  ],
+  "batches": 5,
+  "batch_time_ms": 11.590774601791054,
+  "imgs_per_sec": 345.10204342873715,
+  "cpu_max_rss_mb": 801.40234375,
+  "cuda_max_mem_mb": null,
+  "acc_check_enabled": false,
+  "has_nan": null,
+  "has_inf": null,
+  "repeatability_pass": null,
+  "max_abs_diff": null,
+  "mean_abs_diff": null,
+  "depthwise_bench": {
+    "C": 8,
+    "K": 3,
+    "stride": 1,
+    "padding": 1,
+    "dilation": 1,
+    "eager": {
+      "elapsed_s": 0.017182779003633186,
+      "imgs_per_s": 11639.560746123274
+    },
+    "fused": {
+      "elapsed_s": 0.01571497599070426,
+      "imgs_per_s": 12726.713684978215,
+      "available": true
+    }
+  }
+}

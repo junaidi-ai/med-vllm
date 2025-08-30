@@ -334,16 +334,22 @@ class MedicalModelBenchmark:
         entities and computes strict/overlap metrics.
         """
         if not dataset_jsonl:
-            # default to project fixture if present
-            default_path = (
+            # Prefer tests fixture if present, else fall back to benchmarks sample
+            default_tests = (
                 Path(__file__).parent.parent / "tests/fixtures/data/datasets/ner_dataset.jsonl"
             )
-            dataset_jsonl = str(default_path)
+            default_bench = Path(__file__).parent / "datasets/i2b2_ner_sample.jsonl"
+            dataset_jsonl = str(default_tests if default_tests.exists() else default_bench)
 
         path = Path(dataset_jsonl)
         if not path.exists():
-            print(f"[ner] Skipping: dataset JSONL not found at {path}")
-            return None
+            # Try fallback to benchmarks sample explicitly
+            fallback = Path(__file__).parent / "datasets/i2b2_ner_sample.jsonl"
+            if fallback.exists():
+                path = fallback
+            else:
+                print(f"[ner] Skipping: dataset JSONL not found at {path}")
+                return None
 
         # Load data
         rows: List[Dict[str, Any]] = []
@@ -403,6 +409,88 @@ class MedicalModelBenchmark:
 
         self._save_ner_result(result)
         self._print_ner_result(result)
+        return result
+
+    # --- Classification accuracy on JSONL fixtures (PubMed/MIMIC samples) ---
+    def evaluate_jsonl_classification(self, dataset_jsonl: str) -> Optional[Dict[str, Any]]:
+        """Evaluate majority baseline on a JSONL classification sample.
+
+        Expects fields: text, label, split (train/test). Computes macro metrics and
+        attempts AUC (ovr) using degenerate one-hot scores for the predicted label.
+        """
+        path = Path(dataset_jsonl)
+        if not path.exists():
+            print(f"[classification][jsonl] Skipping: dataset not found at {path}")
+            return None
+
+        # Load
+        rows: List[Dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    rows.append(json.loads(line))
+        except Exception as e:
+            print(f"[classification][jsonl] Failed to read: {e}")
+            return None
+
+        train_labels, test_labels = [], []
+        for r in rows:
+            split = str(r.get("split", "")).strip().lower()
+            label = r.get("label")
+            if label is None:
+                continue
+            if split == "train":
+                train_labels.append(label)
+            elif split == "test":
+                test_labels.append(label)
+        if not test_labels:
+            print(f"[classification][jsonl] Skipping: no test labels in {path}")
+            return None
+
+        # Majority baseline
+        source_for_majority = train_labels if train_labels else (train_labels + test_labels)
+        majority_label = Counter(source_for_majority).most_common(1)[0][0]
+        y_true = test_labels
+        y_pred = [majority_label] * len(test_labels)
+
+        # Build degenerate one-hot scores for AUC calculation where feasible
+        try:
+            classes = sorted(set(train_labels + test_labels))
+            class_to_idx = {c: i for i, c in enumerate(classes)}
+            y_score = []
+            for _ in y_pred:
+                row = [0.0] * len(classes)
+                row[class_to_idx[majority_label]] = 1.0
+                y_score.append(row)
+        except Exception:
+            y_score = None
+
+        try:
+            from medvllm.utils.metrics import compute_classification_metrics
+
+            metrics = compute_classification_metrics(
+                y_true, y_pred, average="macro", y_score=y_score
+            )
+        except Exception as e:
+            print(f"[classification][jsonl] Skipping metrics (dependency missing or error): {e}")
+            return None
+
+        result = {
+            "model_type": self.config.model_type,
+            "dataset_jsonl": str(path),
+            "baseline": "majority_class",
+            "majority_label": majority_label,
+            "num_test": len(test_labels),
+            "metrics": metrics,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # Save alongside other classification outputs
+        self._save_classification_result(result)
+        self._print_classification_result(result)
         return result
 
     # --- Classification accuracy on fixtures (majority baseline) ---
@@ -846,3 +934,12 @@ if __name__ == "__main__":
             match=args.ner_match,
             iou_threshold=args.ner_iou_threshold,
         )
+    # Always attempt small-sample JSONL classification on included benchmarks data
+    try:
+        bench_dir = Path(__file__).parent / "datasets"
+        pubmed = bench_dir / "pubmed_sample.jsonl"
+        mimic = bench_dir / "mimic_notes_sample.jsonl"
+        benchmark.evaluate_jsonl_classification(str(pubmed))
+        benchmark.evaluate_jsonl_classification(str(mimic))
+    except Exception:
+        pass

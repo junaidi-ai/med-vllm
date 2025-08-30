@@ -54,6 +54,62 @@ If CUDA is requested but not available, the script automatically falls back to C
 - For offline runs (after models are cached):
   - `export TRANSFORMERS_OFFLINE=1`
 
+## Imaging Convolution Benchmark
+
+File: `benchmarks/benchmark_imaging.py`
+
+- Purpose: quick performance and memory benchmark of a tiny CNN (conv/pool stacked with adaptive pool + FC), useful for testing AMP, channels-last, cuDNN autotuning, and optional `torch.compile` fusion.
+- Device: auto-detects CUDA; use `--device {cpu|cuda}` to force.
+- Precision: `--dtype {fp16|bf16|fp32}` with optional `--no-amp` to disable autocast on CUDA.
+- Memory format: `--channels-last` to use NHWC on CUDA.
+- cuDNN autotune: `--cudnn-benchmark` to enable autotuner.
+- Compile: `--compile` to enable `torch.compile` (Inductor) when available.
+- Accuracy check: `--acc-check` runs two forward passes on the same input and reports numerical stats.
+
+Examples:
+
+```bash
+# CPU smoke
+python benchmarks/benchmark_imaging.py \
+  --device cpu --batches 2 --batch 1 --width 64 --height 64 \
+  --no-amp --acc-check --out benchmark_results_cpu_smoke/conv_smoke_acc.json
+
+# CUDA with AMP, channels-last, cuDNN autotuner, torch.compile
+python benchmarks/benchmark_imaging.py \
+  --device cuda --dtype fp16 --batch 16 --batches 50 \
+  --channels-last --cudnn-benchmark --compile --acc-check \
+  --out benchmarks/results/conv_cuda.json
+```
+
+Output JSON (subset of keys):
+
+```json
+{
+  "device": "cuda",
+  "dtype": "fp16",
+  "channels_last": true,
+  "amp": true,
+  "cudnn_benchmark": true,
+  "compiled": true,
+  "input_shape": [16, 1, 256, 256],
+  "batches": 50,
+  "batch_time_ms": 3.21,
+  "imgs_per_sec": 4985.4,
+  "cpu_max_rss_mb": 512.3,
+  "cuda_max_mem_mb": 824.6,
+  "acc_check_enabled": true,
+  "has_nan": false,
+  "has_inf": false,
+  "repeatability_pass": true,
+  "max_abs_diff": 0.012,
+  "mean_abs_diff": 0.0001
+}
+```
+
+Notes:
+- When AMP is enabled on CUDA, small differences between repeated runs are expected; thresholding is handled internally for the pass/fail flag.
+- CPU runs report only CPU memory keys; `cuda_max_mem_mb` is null.
+
 ## Classification Testing (optional)
 See `docs/classification_tests.md` for majority-class baseline evaluation on a small fixture dataset. Enable via `--test-accuracy` and optionally `--dataset-csv`.
 

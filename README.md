@@ -218,10 +218,71 @@ Med vLLM builds upon:
 
 Thanks to their creators for their open-source contributions.
 
+## Triton Softmax×V (Development Mode)
+
+The Triton streaming softmax×V kernel is experimental and gated by default. Use it only for development and benchmarking.
+
+- __Gating (default off)__: The Triton path is disabled unless explicitly enabled via env vars.
+- __Fallbacks__: If disabled, we use a safe row-softmax + matmul path; Flash Attention is optional and not required.
+
+### Enable (dev only)
+
+Set these environment variables to route the attention softmax×V through the Triton streaming kernel:
+
+```bash
+export MEDVLLM_ENABLE_TRITON_SOFTMAXV=1
+export MEDVLLM_ENABLE_TRITON_SOFTMAXV_STREAMING=1
+export MEDVLLM_FORCE_STREAMING_SOFTMAXV=1   # force use during dev
+```
+
+### Autotune control
+
+Autotune may cause long JIT times. Use these to constrain it:
+
+- __Fast compile (single tiny config)__: `MEDVLLM_SOFTMAXV_COMPILE_FAST=1`
+- __Narrow preset (few configs)__: `MEDVLLM_SOFTMAXV_COMPILE_NARROW=1`
+- __Force single config by index__: `MEDVLLM_SOFTMAXV_FORCE_CONFIG=<int>`
+
+### No-autotune path (safest for JIT)
+
+Bypass autotune entirely by compiling exactly one configuration (recommended during early bring-up):
+
+```bash
+export MEDVLLM_SOFTMAXV_NO_AUTOTUNE=1
+export MEDVLLM_SOFTMAXV_BLOCK_N=128     # seq tile
+export MEDVLLM_SOFTMAXV_BLOCK_D=64      # feature tile
+export MEDVLLM_SOFTMAXV_K=4             # inner unroll
+export MEDVLLM_SOFTMAXV_NUM_WARPS=4
+export MEDVLLM_SOFTMAXV_NUM_STAGES=2
+export MEDVLLM_SOFTMAXV_MAX_TILES_CAP=32  # cap compile-time loop bound
+```
+
+### Safe run guide
+
+1) __Warm-up compile__ on a smaller shape to prime the JIT cache:
+
+```bash
+python benchmarks/benchmark_attention.py \
+  --device cuda --seq 256 --heads 8 --dim 512 --iters 1 \
+  --attn-softmaxv-bench --enable-triton-softmaxv
+```
+
+2) __Target run__ on your actual shape (consider a shell timeout on first build):
+
+```bash
+python benchmarks/benchmark_attention.py \
+  --device cuda --seq 512 --heads 8 --dim 512 --iters 3 \
+  --attn-softmaxv-bench --enable-triton-softmaxv
+```
+
+Notes:
+
+- __If compile stalls__: prefer the no-autotune path; reduce `NUM_STAGES` to 1; increase `BLOCK_N` to shrink `MAX_TILES`.
+- __Performance tuning ideas__: switch to block pointers for `V`, experiment with small-width dot patterns inside the K-unroll, and re-expand autotune once compile is reliable.
+
 ## Citation
 
 If you use Med vLLM in your research or application, please cite it as:
 
 ```
 [SHA888](https://github.com/SHA888). (2025). Med vLLM: A Medical Language Model. GitHub repository, https://github.com/SHA888/med-vllm
-```

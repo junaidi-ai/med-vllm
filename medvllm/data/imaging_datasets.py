@@ -119,6 +119,17 @@ class ImagingDataset:
         if self.augment:
             image = self._augment(image)
 
+        # Optional Triton/torch op (prototype)
+        if bool(self.config.enable_triton_ops):
+            op = (self.config.triton_op or "").lower()
+            win = int(getattr(self.config, "triton_window", 3) or 3)
+            if op in {"median2d", "boxblur2d"} and win >= 1:
+                try:
+                    image = self._apply_2d_op(image, op, win)
+                except Exception:
+                    # Best-effort: ignore failures
+                    pass
+
         # Convert to tensor with channel-first
         tensor = self._to_tensor(image)
 
@@ -266,6 +277,63 @@ class ImagingDataset:
                 if arr.ndim == 2:
                     arr = arr[None, ...]
         return torch.from_numpy(arr.astype(np.float32))
+
+    # --- Experimental: 2D ops using Triton if available, else torch ---
+    def _apply_2d_op(self, arr: np.ndarray, op: str, window: int) -> np.ndarray:
+        # Work on last two dims as HxW; support 2D or 3D/4D by applying per-slice
+        arr_np = np.asarray(arr, dtype=np.float32)
+        if arr_np.ndim == 2:
+            return self._apply_2d_op_single(arr_np, op, window)
+        elif arr_np.ndim == 3:
+            # (C,H,W) or (D,H,W) -> map over first dim
+            out = [self._apply_2d_op_single(arr_np[i], op, window) for i in range(arr_np.shape[0])]
+            return np.stack(out, axis=0)
+        elif arr_np.ndim == 4:
+            # (N,C,H,W) -> map over N,C
+            out = []
+            for n in range(arr_np.shape[0]):
+                out.append(
+                    [
+                        self._apply_2d_op_single(arr_np[n, c], op, window)
+                        for c in range(arr_np.shape[1])
+                    ]
+                )
+            return np.stack([np.stack(x, axis=0) for x in out], axis=0)
+        else:
+            return arr_np
+
+    def _apply_2d_op_single(self, img: np.ndarray, op: str, window: int) -> np.ndarray:
+        k = max(1, int(window))
+        k = k if k % 2 == 1 else k + 1  # force odd
+        pad = k // 2
+        # Try Triton path (optional), otherwise torch
+        use_triton = False
+        try:  # detect triton import presence
+            import triton  # type: ignore
+
+            _ = triton.runtime
+            use_triton = True
+        except Exception:
+            use_triton = False
+
+        if op == "boxblur2d":
+            # Torch avgpool as fallback, with replication padding
+            t = torch.from_numpy(img[None, None, ...].astype(np.float32))
+            t = torch.nn.functional.pad(t, (pad, pad, pad, pad), mode="replicate")
+            out = torch.nn.functional.avg_pool2d(t, kernel_size=k, stride=1)
+            return out[0, 0].numpy()
+        elif op == "median2d":
+            # Torch unfold-based median filter
+            t = torch.from_numpy(img[None, None, ...].astype(np.float32))
+            t = torch.nn.functional.pad(t, (pad, pad, pad, pad), mode="replicate")
+            patches = torch.nn.functional.unfold(t, kernel_size=k, stride=1)  # (N*K*K, L)
+            patches = patches.transpose(1, 2)  # (L, K*K)
+            med = patches.median(dim=-1).values  # (L,)
+            H, W = img.shape
+            out = med.view(1, 1, H, W)
+            return out[0, 0].numpy()
+        else:
+            return img.astype(np.float32)
 
 
 def get_imaging_dataset(config: MedicalDatasetConfig | Dict[str, Any]) -> ImagingDataset:

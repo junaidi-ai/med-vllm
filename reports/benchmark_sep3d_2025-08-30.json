@@ -1,0 +1,57 @@
+{
+  "suite": "separable_conv3d",
+  "cases": [
+    {
+      "case": {
+        "B": 1,
+        "C": 16,
+        "D": 32,
+        "H": 64,
+        "W": 64,
+        "iters": 50
+      },
+      "device": "cuda",
+      "dtype": "float16",
+      "results": [
+        {
+          "impl": "eager_dwconv3d",
+          "elapsed_s": 0.011521100997924805,
+          "voxels": 2097152,
+          "voxels_per_s": 9101352381.069056
+        },
+        {
+          "impl": "triton_dwconv3d",
+          "elapsed_s": 0.034049272537231445,
+          "voxels": 2097152,
+          "voxels_per_s": 3079584149.274926
+        }
+      ]
+    },
+    {
+      "case": {
+        "B": 1,
+        "C": 32,
+        "D": 32,
+        "H": 128,
+        "W": 128,
+        "iters": 30
+      },
+      "device": "cuda",
+      "dtype": "float16",
+      "results": [
+        {
+          "impl": "eager_dwconv3d",
+          "elapsed_s": 0.06587934494018555,
+          "voxels": 16777216,
+          "voxels_per_s": 7639973962.354678
+        },
+        {
+          "impl": "triton_dwconv3d",
+          "elapsed_s": 0.07858729362487793,
+          "voxels": 16777216,
+          "voxels_per_s": 6404552909.055364
+        }
+      ]
+    }
+  ]
+}

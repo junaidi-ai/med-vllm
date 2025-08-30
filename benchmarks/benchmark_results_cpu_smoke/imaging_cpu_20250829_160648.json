@@ -1,0 +1,25 @@
+{
+  "device": "cpu",
+  "dtype": "fp32",
+  "channels_last": false,
+  "amp": false,
+  "cudnn_benchmark": false,
+  "compiled": false,
+  "input_shape": [
+    2,
+    8,
+    256,
+    256
+  ],
+  "batches": 2,
+  "batch_time_ms": 32.67408700048691,
+  "imgs_per_sec": 61.210585623102375,
+  "cpu_max_rss_mb": 800.9296875,
+  "cuda_max_mem_mb": null,
+  "acc_check_enabled": false,
+  "has_nan": null,
+  "has_inf": null,
+  "repeatability_pass": null,
+  "max_abs_diff": null,
+  "mean_abs_diff": null
+}

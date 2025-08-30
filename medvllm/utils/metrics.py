@@ -21,6 +21,7 @@ def compute_classification_metrics(
     labels: Optional[List] = None,
     average: str = "macro",
     zero_division: int | float = 0,
+    y_score: Optional[Iterable] = None,
 ) -> dict:
     """Compute standard classification metrics.
 
@@ -39,7 +40,8 @@ def compute_classification_metrics(
         dict with keys: accuracy, precision, recall, f1 (floats in [0, 1]).
     """
     # Lazy import to avoid hard dependency at module import time
-    from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+    from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
+    from sklearn.preprocessing import label_binarize
 
     acc = float(accuracy_score(y_true, y_pred))
 
@@ -51,9 +53,34 @@ def compute_classification_metrics(
         zero_division=zero_division,
     )
 
-    return {
+    result = {
         "accuracy": float(acc),
         "precision": float(precision),
         "recall": float(recall),
         "f1": float(f1),
     }
+
+    # Optional ROC-AUC (multi-class one-vs-rest)
+    if y_score is not None:
+        try:
+            # Determine unique classes from y_true (or provided labels)
+            if labels is None:
+                classes = sorted(set(list(y_true)))
+            else:
+                classes = list(labels)
+            # Binarize ground truth
+            y_true_bin = label_binarize(list(y_true), classes=classes)
+            # Convert y_score to 2D array-like (n_samples, n_classes)
+            # Accepts an iterable of per-sample sequences
+            y_score_arr = list(y_score)
+            # Compute macro-average one-vs-rest AUC if feasible
+            auc_macro = roc_auc_score(y_true_bin, y_score_arr, average="macro", multi_class="ovr")
+            auc_micro = roc_auc_score(y_true_bin, y_score_arr, average="micro", multi_class="ovr")
+            result["auc_macro_ovr"] = float(auc_macro)
+            result["auc_micro_ovr"] = float(auc_micro)
+        except Exception:
+            # Not computable (e.g., single class, degenerate scores). Leave AUC absent.
+            result.setdefault("auc_macro_ovr", None)
+            result.setdefault("auc_micro_ovr", None)
+
+    return result

@@ -368,10 +368,70 @@ def cmd_ner(
     help="Quantization method: dynamic|torch|cpu (int8 CPU) or bnb-8bit|bnb-nf4 (GPU).",
 )
 @click.option(
-    "--flash-attention/--no-flash-attention",
-    "flash_attention",
+    "--mixed-precision/--no-mixed-precision",
+    "enable_mixed_precision",
+    is_flag=True,
     default=None,
-    help="Enable FlashAttention if available (default: leave as-is).",
+    help="Enable/disable mixed precision autocast (default: disabled).",
+)
+@click.option(
+    "--mp-dtype",
+    type=click.Choice(["fp16", "bf16"], case_sensitive=False),
+    default=None,
+    help="Mixed precision dtype when enabled: fp16 or bf16.",
+)
+@click.option(
+    "--profile/--no-profile",
+    "enable_profiling",
+    is_flag=True,
+    default=None,
+    help="Enable lightweight runtime memory profiling (best-effort).",
+)
+@click.option(
+    "--profiler-device",
+    type=click.Choice(["auto", "cpu", "cuda"], case_sensitive=False),
+    default=None,
+    help="Profiler device when profiling is enabled.",
+)
+@click.option(
+    "--emit-trace/--no-emit-trace",
+    "emit_trace",
+    is_flag=True,
+    default=None,
+    help="When profiling, export a Chrome trace (torch.profiler) to --trace-dir.",
+)
+@click.option(
+    "--trace-dir",
+    type=click.Path(file_okay=False, dir_okay=True),
+    default=None,
+    help="Output directory for profiler traces (default: ./profiles).",
+)
+@click.option(
+    "--compile/--no-compile",
+    "enable_torch_compile",
+    is_flag=True,
+    default=None,
+    help="Enable torch.compile (Inductor) for op fusion where supported.",
+)
+@click.option(
+    "--compile-mode",
+    "torch_compile_mode",
+    type=click.Choice(["default", "reduce-overhead", "max-autotune"], case_sensitive=False),
+    default=None,
+    help="torch.compile mode (default, reduce-overhead, max-autotune).",
+)
+@click.option(
+    "--attention-impl",
+    type=click.Choice(["auto", "flash", "sdpa", "manual"], case_sensitive=False),
+    default=None,
+    help="Attention backend selection: auto|flash|sdpa|manual.",
+)
+@click.option(
+    "--flash-attention/--no-flash-attention",
+    "enable_flash_attention",
+    is_flag=True,
+    default=None,
+    help="Prefer enabling FlashAttention when available (best-effort).",
 )
 @click.option(
     "--grad-checkpointing",
@@ -442,7 +502,16 @@ def cmd_generate(
     model: str,
     quantization_bits: Optional[int],
     quantization_method: Optional[str],
-    flash_attention: Optional[bool],
+    enable_flash_attention: Optional[bool],
+    enable_mixed_precision: Optional[bool],
+    mp_dtype: Optional[str],
+    enable_profiling: Optional[bool],
+    profiler_device: Optional[str],
+    emit_trace: Optional[bool],
+    trace_dir: Optional[str],
+    enable_torch_compile: Optional[bool],
+    torch_compile_mode: Optional[str],
+    attention_impl: Optional[str],
     grad_checkpointing: bool,
     tf32: bool,
     matmul_precision: Optional[str],
@@ -494,9 +563,42 @@ def cmd_generate(
             engine_kwargs["quantization_bits"] = quantization_bits
         if quantization_method is not None:
             engine_kwargs["quantization_method"] = quantization_method
-        # Optimization flags
-        if flash_attention is not None:
-            engine_kwargs["enable_flash_attention"] = flash_attention
+        # (attention options handled below in a normalized block)
+        # Mixed precision controls
+        if enable_mixed_precision is not None:
+            engine_kwargs["enable_mixed_precision"] = enable_mixed_precision
+        if mp_dtype is not None:
+            engine_kwargs["mixed_precision_dtype"] = mp_dtype
+        # Lightweight profiling toggles
+        if enable_profiling is not None:
+            engine_kwargs["enable_profiling"] = enable_profiling
+        if profiler_device is not None:
+            engine_kwargs["profiler_device"] = profiler_device
+        if emit_trace is not None:
+            engine_kwargs["emit_trace"] = emit_trace
+        if trace_dir is not None:
+            engine_kwargs["trace_dir"] = trace_dir
+        # torch.compile controls
+        if enable_torch_compile is not None:
+            engine_kwargs["enable_torch_compile"] = enable_torch_compile
+        if torch_compile_mode is not None:
+            engine_kwargs["torch_compile_mode"] = torch_compile_mode
+        # Attention backend controls (single source of truth)
+        if attention_impl is not None:
+            # Normalize 'auto' to None for engine defaults
+            if attention_impl.lower() == "auto":
+                engine_kwargs["attention_impl"] = None
+            else:
+                engine_kwargs["attention_impl"] = attention_impl.lower()
+        if enable_flash_attention is not None:
+            engine_kwargs["enable_flash_attention"] = enable_flash_attention
+        # Early UX warning on conflicting flags
+        if (attention_impl is not None and attention_impl.lower() == "flash") and (
+            enable_flash_attention is False
+        ):
+            warn(
+                "--attention-impl flash requested but --no-flash-attention was set. Flash Attention will be disabled; runtime will fall back accordingly."
+            )
         if grad_checkpointing:
             engine_kwargs["grad_checkpointing"] = True
         if tf32:
