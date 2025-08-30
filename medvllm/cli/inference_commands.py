@@ -21,6 +21,7 @@ from medvllm.cli.utils import warn, debug, spinner, timed
 
 from medvllm.tasks import NERProcessor, TextGenerator, MedicalConstraints
 from medvllm.engine.model_runner.registry import get_registry, ModelNotFoundError
+from medvllm.configs.profiles import resolve_profile_engine_kwargs
 
 console = Console()
 
@@ -132,6 +133,121 @@ def _read_input(text: Optional[str], input_file: Optional[str], input_format: st
         "Examples:\n  python -m medvllm.cli inference ner --text 'HTN and DM'\n"
         "  cat note.txt | python -m medvllm.cli inference ner --json-out"
     )
+
+
+# -----------------------------
+# Engine kwargs builder (testable)
+# -----------------------------
+
+
+def _build_engine_kwargs(
+    *,
+    deployment_profile: Optional[str] = None,
+    optimize_for: Optional[str] = None,
+    quantization_bits: Optional[int] = None,
+    quantization_method: Optional[str] = None,
+    enable_mixed_precision: Optional[bool] = None,
+    mp_dtype: Optional[str] = None,
+    enable_profiling: Optional[bool] = None,
+    profiler_device: Optional[str] = None,
+    emit_trace: Optional[bool] = None,
+    trace_dir: Optional[str] = None,
+    enable_torch_compile: Optional[bool] = None,
+    torch_compile_mode: Optional[str] = None,
+    attention_impl: Optional[str] = None,
+    enable_flash_attention: Optional[bool] = None,
+    grad_checkpointing: bool = False,
+    tf32: bool = False,
+    matmul_precision: Optional[str] = None,
+    cudnn_benchmark: Optional[bool] = None,
+    enable_memory_pooling: Optional[bool] = None,
+    pool_max_bytes: Optional[int] = None,
+    pool_device: Optional[str] = None,
+) -> dict[str, Any]:
+    """Merge deployment profile settings with explicit CLI overrides.
+
+    Precedence: profile provides defaults; explicit args override.
+    """
+    engine_kwargs: dict[str, Any] = {}
+    # Profile first
+    try:
+        profile_kwargs = resolve_profile_engine_kwargs(
+            deployment_profile, optimize_for=optimize_for
+        )
+        if profile_kwargs:
+            engine_kwargs.update(profile_kwargs)
+    except (FileNotFoundError, ValueError) as e:
+        warn(str(e))
+
+    # Quantization
+    if quantization_bits is not None:
+        engine_kwargs["quantization_bits"] = quantization_bits
+    if quantization_method is not None:
+        engine_kwargs["quantization_method"] = quantization_method
+
+    # Mixed precision
+    if enable_mixed_precision is not None:
+        engine_kwargs["enable_mixed_precision"] = enable_mixed_precision
+    if mp_dtype is not None:
+        engine_kwargs["mixed_precision_dtype"] = mp_dtype
+
+    # Profiling
+    if enable_profiling is not None:
+        engine_kwargs["enable_profiling"] = enable_profiling
+    if profiler_device is not None:
+        engine_kwargs["profiler_device"] = profiler_device
+    if emit_trace is not None:
+        engine_kwargs["emit_trace"] = emit_trace
+    if trace_dir is not None:
+        engine_kwargs["trace_dir"] = trace_dir
+
+    # torch.compile
+    if enable_torch_compile is not None:
+        engine_kwargs["enable_torch_compile"] = enable_torch_compile
+    if torch_compile_mode is not None:
+        engine_kwargs["torch_compile_mode"] = torch_compile_mode
+
+    # Attention
+    if attention_impl is not None:
+        engine_kwargs["attention_impl"] = (
+            None if attention_impl.lower() == "auto" else attention_impl.lower()
+        )
+    if enable_flash_attention is not None:
+        engine_kwargs["enable_flash_attention"] = enable_flash_attention
+
+    # Misc
+    if grad_checkpointing:
+        engine_kwargs["grad_checkpointing"] = True
+    if tf32:
+        engine_kwargs["allow_tf32"] = True
+    if matmul_precision is not None:
+        engine_kwargs["torch_matmul_precision"] = matmul_precision
+    if cudnn_benchmark is not None:
+        engine_kwargs["cudnn_benchmark"] = cudnn_benchmark
+
+    # Memory pool
+    if enable_memory_pooling is not None:
+        engine_kwargs["enable_memory_pooling"] = enable_memory_pooling
+    if pool_max_bytes is not None:
+        engine_kwargs["pool_max_bytes"] = int(pool_max_bytes)
+    if pool_device is not None:
+        engine_kwargs["pool_device"] = pool_device
+
+    # UX warnings
+    if (attention_impl is not None and attention_impl.lower() == "flash") and (
+        enable_flash_attention is False
+    ):
+        warn(
+            "--attention-impl flash requested but --no-flash-attention was set. Flash Attention will be disabled; runtime will fall back accordingly."
+        )
+    if (enable_memory_pooling is False) and (
+        (pool_max_bytes is not None) or (pool_device is not None)
+    ):
+        warn(
+            "Memory pooling options (--pool-*) were provided but pooling was disabled; options will be ignored."
+        )
+
+    return engine_kwargs
 
 
 # -----------------------------
@@ -345,6 +461,18 @@ def cmd_ner(
 @inference_group.command(name="generate", context_settings=CONTEXT_SETTINGS)
 @click.option("--text", "text_", type=str, help="Prompt text.")
 @click.option(
+    "--deployment-profile",
+    type=str,
+    default=None,
+    help="Deployment profile name or path to JSON under configs/deployment/. If omitted, uses MEDVLLM_DEPLOYMENT_PROFILE env when set.",
+)
+@click.option(
+    "--optimize-for",
+    type=click.Choice(["latency", "throughput", "memory"], case_sensitive=False),
+    default=None,
+    help="Bias auto-selection towards latency, throughput, or memory when no profile is specified.",
+)
+@click.option(
     "--input", "input_file", type=click.Path(exists=True, dir_okay=False), help="Prompt file path."
 )
 @click.option(
@@ -519,6 +647,8 @@ def cmd_generate(
     input_file: Optional[str],
     input_format: str,
     model: str,
+    deployment_profile: Optional[str],
+    optimize_for: Optional[str],
     quantization_bits: Optional[int],
     quantization_method: Optional[str],
     enable_flash_attention: Optional[bool],
@@ -578,71 +708,29 @@ def cmd_generate(
         constraints.target_word_count = target_words
 
     with timed("Initialize generator"):
-        # Build engine kwargs (quantization + optimization flags) regardless of engine type
-        engine_kwargs: dict[str, Any] = {}
-        # Quantization
-        if quantization_bits is not None:
-            engine_kwargs["quantization_bits"] = quantization_bits
-        if quantization_method is not None:
-            engine_kwargs["quantization_method"] = quantization_method
-        # (attention options handled below in a normalized block)
-        # Mixed precision controls
-        if enable_mixed_precision is not None:
-            engine_kwargs["enable_mixed_precision"] = enable_mixed_precision
-        if mp_dtype is not None:
-            engine_kwargs["mixed_precision_dtype"] = mp_dtype
-        # Lightweight profiling toggles
-        if enable_profiling is not None:
-            engine_kwargs["enable_profiling"] = enable_profiling
-        if profiler_device is not None:
-            engine_kwargs["profiler_device"] = profiler_device
-        if emit_trace is not None:
-            engine_kwargs["emit_trace"] = emit_trace
-        if trace_dir is not None:
-            engine_kwargs["trace_dir"] = trace_dir
-        # torch.compile controls
-        if enable_torch_compile is not None:
-            engine_kwargs["enable_torch_compile"] = enable_torch_compile
-        if torch_compile_mode is not None:
-            engine_kwargs["torch_compile_mode"] = torch_compile_mode
-        # Attention backend controls (single source of truth)
-        if attention_impl is not None:
-            # Normalize 'auto' to None for engine defaults
-            if attention_impl.lower() == "auto":
-                engine_kwargs["attention_impl"] = None
-            else:
-                engine_kwargs["attention_impl"] = attention_impl.lower()
-        if enable_flash_attention is not None:
-            engine_kwargs["enable_flash_attention"] = enable_flash_attention
-        # Early UX warning on conflicting flags
-        if (attention_impl is not None and attention_impl.lower() == "flash") and (
-            enable_flash_attention is False
-        ):
-            warn(
-                "--attention-impl flash requested but --no-flash-attention was set. Flash Attention will be disabled; runtime will fall back accordingly."
-            )
-        if grad_checkpointing:
-            engine_kwargs["grad_checkpointing"] = True
-        if tf32:
-            engine_kwargs["allow_tf32"] = True
-        if matmul_precision is not None:
-            engine_kwargs["torch_matmul_precision"] = matmul_precision
-        if cudnn_benchmark is not None:
-            engine_kwargs["cudnn_benchmark"] = cudnn_benchmark
-        # Memory pooling controls
-        if enable_memory_pooling is not None:
-            engine_kwargs["enable_memory_pooling"] = enable_memory_pooling
-        if pool_max_bytes is not None:
-            engine_kwargs["pool_max_bytes"] = int(pool_max_bytes)
-        if pool_device is not None:
-            engine_kwargs["pool_device"] = pool_device
-        # Early UX warnings
-        if (enable_memory_pooling is False) and (
-            (pool_max_bytes is not None) or (pool_device is not None)
-        ):
-            warn(
-                "Memory pooling options (--pool-*) were provided but pooling was disabled; options will be ignored."
-            )
+        engine_kwargs = _build_engine_kwargs(
+            deployment_profile=deployment_profile,
+            optimize_for=optimize_for,
+            quantization_bits=quantization_bits,
+            quantization_method=quantization_method,
+            enable_mixed_precision=enable_mixed_precision,
+            mp_dtype=mp_dtype,
+            enable_profiling=enable_profiling,
+            profiler_device=profiler_device,
+            emit_trace=emit_trace,
+            trace_dir=trace_dir,
+            enable_torch_compile=enable_torch_compile,
+            torch_compile_mode=torch_compile_mode,
+            attention_impl=attention_impl,
+            enable_flash_attention=enable_flash_attention,
+            grad_checkpointing=grad_checkpointing,
+            tf32=tf32,
+            matmul_precision=matmul_precision,
+            cudnn_benchmark=cudnn_benchmark,
+            enable_memory_pooling=enable_memory_pooling,
+            pool_max_bytes=pool_max_bytes,
+            pool_device=pool_device,
+        )
 
         # Use a lightweight fake engine for tests when env flag is set
         if os.environ.get("MEDVLLM_TEST_FAKE_ENGINE", "0") == "1":

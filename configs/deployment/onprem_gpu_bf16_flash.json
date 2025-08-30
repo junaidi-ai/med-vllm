@@ -1,0 +1,14 @@
+{
+  "profile": "onprem_gpu_bf16_flash",
+  "category": "onprem",
+  "description": "On-prem single-GPU with BF16 mixed precision and Flash Attention when available",
+  "engine": {
+    "tensor_parallel_size": 1,
+    "enable_mixed_precision": true,
+    "mixed_precision_dtype": "bf16",
+    "enable_flash_attention": true,
+    "attention_impl": "flash",
+    "allow_tf32": true,
+    "cudnn_benchmark": true
+  }
+}

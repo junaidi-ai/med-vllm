@@ -1,0 +1,12 @@
+{
+  "profile": "cloud_gpu_tp4_fp16",
+  "category": "cloud",
+  "description": "Cloud multi-GPU (TP=4) with FP16 mixed precision and memory pooling",
+  "engine": {
+    "tensor_parallel_size": 4,
+    "enable_mixed_precision": true,
+    "mixed_precision_dtype": "fp16",
+    "enable_memory_pooling": true,
+    "pool_device": "cuda"
+  }
+}

@@ -787,7 +787,7 @@
               3
             ],
             "details": "Develop tools to measure inference time, memory usage, power consumption, and throughput. Create standardized medical AI benchmarks using representative datasets. Implement automated regression testing to catch performance degradations. Design visualization tools to compare performance metrics before and after optimizations.",
-            "status": "pending",
+            "status": "deferred",
             "testStrategy": ""
           },
           {
@@ -798,7 +798,7 @@
               4
             ],
             "details": "Create optimization profiles for edge devices (mobile, embedded), on-premise servers, and cloud deployments. Develop configuration systems that can automatically select the best optimization strategy based on hardware capabilities and requirements. Document deployment recommendations for different clinical settings and use cases.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {

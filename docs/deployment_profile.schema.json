@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://medvllm.org/schemas/deployment_profile.schema.json",
+  "title": "Med vLLM Deployment Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["engine"],
+  "properties": {
+    "profile": {
+      "type": "string",
+      "description": "Profile name identifier"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["edge", "onprem", "cloud"],
+      "description": "Deployment environment classification"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description"
+    },
+    "engine": {
+      "type": "object",
+      "description": "Engine configuration defaults to merge into Config",
+      "additionalProperties": true
+    }
+  }
+}

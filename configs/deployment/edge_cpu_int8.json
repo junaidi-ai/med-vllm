@@ -1,0 +1,13 @@
+{
+  "profile": "edge_cpu_int8",
+  "category": "edge",
+  "description": "Edge deployment optimized for CPU with dynamic int8 quantization and memory efficiency",
+  "engine": {
+    "tensor_parallel_size": 1,
+    "quantization_bits": 8,
+    "quantization_method": "dynamic",
+    "memory_efficient": true,
+    "enable_memory_pooling": true,
+    "pool_device": "auto"
+  }
+}
