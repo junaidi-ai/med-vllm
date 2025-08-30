@@ -1,7 +1,3 @@
-For benchmark quick starts (CPU/GPU adapter smokes, training smokes, report generation), see:
-
-- `benchmarks/README.md`
-
 # Med vLLM
 
 Med vLLM is a project aimed at creating a specialized language model for medical applications. By leveraging the efficient [Nano vLLM](https://github.com/GeeeekExplorer/nano-vllm) and the domain knowledge of [BioBERT](https://github.com/monologg/BioBERT) and [ClinicalBERT](https://github.com/monologg/ClinicalBERT), we provide a tool that's both powerful and resource-friendly.
@@ -123,6 +119,12 @@ The test suite is organized as follows:
   - `TestBaseAdapter`: Tests for the base adapter functionality
   - `TestBioBERTAdapter`: Tests specific to BioBERT adapter
   - `TestClinicalBERTAdapter`: Tests specific to ClinicalBERT adapter
+
+## Benchmarks
+
+For benchmark quick starts (CPU/GPU adapter smokes, training smokes, report generation), see:
+
+- `benchmarks/README.md`
 
 ## Usage
 
