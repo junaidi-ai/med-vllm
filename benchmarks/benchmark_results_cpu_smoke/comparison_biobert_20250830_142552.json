@@ -1,0 +1,78 @@
+{
+  "system_info": {
+    "timestamp": "2025-08-30T14:25:52.582786",
+    "system": {
+      "platform": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+      "processor": "x86_64",
+      "python_version": "3.12.3",
+      "pytorch_version": "2.7.1+cu126"
+    },
+    "cpu": {
+      "physical_cores": 8,
+      "logical_cores": 16,
+      "cpu_percent": 17.2,
+      "cpu_freq": {
+        "current": 3193.927000000001,
+        "min": 0.0,
+        "max": 0.0
+      }
+    },
+    "memory": {
+      "total": 14659436544,
+      "available": 2673315840,
+      "percent": 81.8,
+      "used": 11644248064,
+      "free": 1158168576,
+      "active": 5960826880,
+      "inactive": 6592864256,
+      "buffers": 85782528,
+      "cached": 1771237376,
+      "shared": 9248768,
+      "slab": 335319040
+    },
+    "gpu": {
+      "cuda:0": {
+        "name": "NVIDIA GeForce RTX 3060 Laptop GPU",
+        "capability": "8.6",
+        "memory_allocated": 0.0,
+        "memory_reserved": 0.0,
+        "memory_cached": 0.0
+      }
+    }
+  },
+  "model": "biobert",
+  "device": "cuda",
+  "results": [
+    {
+      "batch_size": 1,
+      "medvllm_avg_time": 0.0,
+      "original_avg_time": 7.152557373046875e-07,
+      "speedup": 0,
+      "memory_usage": {
+        "rss_mb": 774.11328125,
+        "vms_mb": 38290.1640625,
+        "cuda_allocated_mb": 0.0,
+        "cuda_reserved_mb": 0.0,
+        "cuda_max_allocated_mb": 0.0,
+        "cuda_max_reserved_mb": 0.0
+      },
+      "notes": "medvllm_model.predict not available"
+    },
+    {
+      "batch_size": 2,
+      "medvllm_avg_time": 0.0,
+      "original_avg_time": 2.384185791015625e-07,
+      "speedup": 0,
+      "memory_usage": {
+        "rss_mb": 774.11328125,
+        "vms_mb": 38290.1640625,
+        "cuda_allocated_mb": 0.0,
+        "cuda_reserved_mb": 0.0,
+        "cuda_max_allocated_mb": 0.0,
+        "cuda_max_reserved_mb": 0.0
+      },
+      "notes": "medvllm_model.predict not available"
+    }
+  ],
+  "timestamp": 1756535152.656515
+}

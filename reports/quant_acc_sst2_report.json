@@ -1,0 +1,147 @@
+{
+  "model": "distilbert-base-uncased-finetuned-sst-2-english",
+  "dataset_csv": "tests/fixtures/data/datasets/text_classification_dataset.csv",
+  "limit": 256,
+  "comparisons": [
+    {
+      "pair": "baseline_vs_dynamic8",
+      "baseline_metrics": {
+        "accuracy": 0.5,
+        "precision_macro": 0.25,
+        "recall_macro": 0.5,
+        "f1_macro": 0.3333333333333333,
+        "precision_micro": 0.5,
+        "recall_micro": 0.5,
+        "f1_micro": 0.5,
+        "confusion_matrix": [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "labels": [
+          "0",
+          "1"
+        ]
+      },
+      "optimized_metrics": {
+        "accuracy": 0.5,
+        "precision_macro": 0.25,
+        "recall_macro": 0.5,
+        "f1_macro": 0.3333333333333333,
+        "precision_micro": 0.5,
+        "recall_micro": 0.5,
+        "f1_micro": 0.5,
+        "confusion_matrix": [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "labels": [
+          "0",
+          "1"
+        ]
+      },
+      "mcnemar": {
+        "b": 0,
+        "c": 0,
+        "statistic": 0.0,
+        "pvalue": 1.0,
+        "exact": false
+      },
+      "thresholds": {
+        "accuracy": 0.85,
+        "f1_macro": 0.8
+      },
+      "threshold_results": {
+        "baseline": {
+          "accuracy": false,
+          "f1_macro": false
+        },
+        "optimized": {
+          "accuracy": false,
+          "f1_macro": false
+        }
+      }
+    },
+    {
+      "pair": "baseline_vs_bnb8",
+      "baseline_metrics": {
+        "accuracy": 0.5,
+        "precision_macro": 0.25,
+        "recall_macro": 0.5,
+        "f1_macro": 0.3333333333333333,
+        "precision_micro": 0.5,
+        "recall_micro": 0.5,
+        "f1_micro": 0.5,
+        "confusion_matrix": [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "labels": [
+          "0",
+          "1"
+        ]
+      },
+      "optimized_metrics": {
+        "accuracy": 0.5,
+        "precision_macro": 0.25,
+        "recall_macro": 0.5,
+        "f1_macro": 0.3333333333333333,
+        "precision_micro": 0.5,
+        "recall_micro": 0.5,
+        "f1_micro": 0.5,
+        "confusion_matrix": [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "labels": [
+          "0",
+          "1"
+        ]
+      },
+      "mcnemar": {
+        "b": 0,
+        "c": 0,
+        "statistic": 0.0,
+        "pvalue": 1.0,
+        "exact": false
+      },
+      "thresholds": {
+        "accuracy": 0.85,
+        "f1_macro": 0.8
+      },
+      "threshold_results": {
+        "baseline": {
+          "accuracy": false,
+          "f1_macro": false
+        },
+        "optimized": {
+          "accuracy": false,
+          "f1_macro": false
+        }
+      }
+    }
+  ]
+}
