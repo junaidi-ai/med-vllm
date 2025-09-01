@@ -14,7 +14,10 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "xxhash>=3.4.1",
     "pydantic>=2.0.0",
-    "typing-extensions>=4.0.0"
+    "typing-extensions>=4.0.0",
+    # CLI runtime deps
+    "click>=8.1.0",
+    "rich>=13.0.0"
 ]
 
 [project.optional-dependencies]

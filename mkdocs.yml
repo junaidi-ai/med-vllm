@@ -1,0 +1,35 @@
+site_name: Med vLLM Documentation
+repo_url: https://github.com/junaidi-ai/med-vllm
+repo_name: junaidi-ai/med-vllm
+site_url: https://junaidi-ai.github.io/med-vllm/
+docs_dir: docs
+nav:
+  - Home: index.md
+  - Getting Started: README-Nano-vLLM.md
+  - Benchmarks: benchmarks.md
+  - CLI: CLI.md
+  - GPU: GPU.md
+  - NER Processor: ner_processor.md
+  - Text Generator: text_generator.md
+  - Deployment Profiles: DEPLOYMENT_PROFILES.md
+  - Testing: TESTING.md
+  - Validation Workflow: VALIDATION_WORKFLOW.md
+  - Optimization: OPTIMIZATION.md
+  - Medical Models: medical_models.md
+  - UAT: UAT.md
+  - Versions: VERSIONS.md
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - codehilite
+  - footnotes
+  - tables
+plugins:
+  - search
