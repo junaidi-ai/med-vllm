@@ -237,3 +237,6 @@ benchmarks/results/
 # Legacy/scattered benchmark dirs to ignore
 .benchmarks/
 .benchmarks_train_tmp/
+
+# Generated benchmark reports
+reports/

@@ -116,3 +116,94 @@ See `docs/classification_tests.md` for majority-class baseline evaluation on a s
 ## Troubleshooting
 - CUDA driver warnings: update the system NVIDIA driver or run on CPU.
 - No GPU memory keys in results: expected when `--device cpu` or CUDA unavailable.
+
+## Hardware Matrix (multi-backend)
+
+File: `benchmarks/benchmark_hardware_matrix.py`
+
+- Purpose: run small, comparable forward passes across backends and devices and write a per-run JSON plus a consolidated CSV and `summary.md`.
+- Backends: `--backend {auto|torch|onnxruntime|openvino|tensorrt|tpu}`
+  - Implemented minimal paths: `torch` (covers `cpu`, `cuda`, `mps`, `xpu`), `onnxruntime`, `openvino`, `tensorrt` (via ONNX Runtime TensorRT EP), and `tpu` (torch_xla).
+- Edge INT8: pass `--int8` to enable dynamic INT8 quantization on CPU. If present, `configs/deployment/edge_cpu_int8.json` is read for advisory knobs.
+- Accuracy parity: pass `--acc-check` to compute accuracy parity vs a torch CPU fp32 reference on shared inputs. Metrics recorded per backend: `acc_mse`, `acc_cosine`, `acc_top1_match`, `acc_kl` and `acc_error` when checks cannot be computed.
+
+Examples:
+
+```bash
+# CPU torch baseline
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models biobert clinicalbert \
+  --backend torch --batch-size 4 --seq-length 256
+
+# ONNX Runtime on CPU (uses onnx export internally)
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models biobert --backend onnxruntime --batch-size 4 --seq-length 256
+
+# OpenVINO CPU path
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models clinicalbert --backend openvino --batch-size 4 --seq-length 256
+
+# TensorRT (via ONNX Runtime TensorRT EP; requires TensorRT + ORT build with TRT EP)
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models biobert --backend tensorrt --batch-size 4 --seq-length 256
+
+# INT8 dynamic quant on CPU
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models biobert --backend torch --int8 --batch-size 4 --seq-length 256
+
+# TPU (torch_xla) with conservative defaults applied internally
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models biobert --backend tpu
+
+# With accuracy parity checks (adds metrics to summaries)
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models biobert clinicalbert --backend auto --acc-check --batch-size 4 --seq-length 128
+```
+
+Outputs:
+
+- Directory: `reports/<YYYY-MM-DD>/hardware_matrix/`
+- Files per run: `*.json` entries with latency, tokens/sec, memory from `tests/medical/memory_profiler.py`, and accuracy metrics when `--acc-check` is used.
+- Consolidated: `summary.csv`, `summary.json`, and `summary.md` (table for quick viewing) include accuracy columns: `acc_mse`, `acc_cosine`, `acc_top1_match`, `acc_kl` (and `acc_error` if applicable) plus a `status` column indicating `ok` or `acc_error`.
+
+Notes:
+
+- If a backend package is unavailable (e.g., OpenVINO not installed), the script records a `load_error` row instead of crashing.
+- `--precision fp16` is coerced to `fp32` on devices that do not support half precision.
+ - TensorRT path uses ONNX export and ONNX Runtime TensorRT Execution Provider. Ensure your environment has a TRT-enabled ORT build and NVIDIA drivers.
+ - Torch backend automatically targets available devices: CPU, CUDA, Apple MPS, or Intel XPU when present.
+
+### Native TensorRT path
+
+When `--backend tensorrt` is selected, the benchmark attempts a native TensorRT build and run first, and falls back to ONNX Runtime's TensorRT EP if unavailable.
+
+- Engine caching: serialized engines are cached under `reports/<date>/hardware_matrix/trt_cache/` keyed by ONNX hash, TRT version, precision flags, and optimization profile.
+  - Default: cache enabled. Disable with `--no-trt-cache`.
+- Precision flags:
+  - `--trt-bf16`: sets BF16 flag when supported by your TRT build and GPU.
+  - `--trt-fp8`: sets FP8 flag when supported (newer H100-class).
+- Optimization profile ranges for dynamic shapes:
+  - `--trt-min-batch/--trt-opt-batch/--trt-max-batch`
+  - `--trt-min-seq/--trt-opt-seq/--trt-max-seq`
+  - If omitted, the profile is fixed to the requested `--batch-size` and `--seq-length`.
+
+Examples:
+
+```bash
+# Build and cache a TRT engine for a range of batch/seq sizes (with BF16 if supported)
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models biobert --backend tensorrt --batch-size 8 --seq-length 256 \
+  --trt-bf16 \
+  --trt-min-batch 1 --trt-opt-batch 8 --trt-max-batch 16 \
+  --trt-min-seq 64 --trt-opt-seq 256 --trt-max-seq 512
+
+# Disable caching and attempt FP8 build (requires compatible TRT/GPU)
+python3 benchmarks/benchmark_hardware_matrix.py \
+  --models clinicalbert --backend tensorrt --batch-size 4 --seq-length 128 \
+  --no-trt-cache --trt-fp8
+```
+
+## Remaining items on TODO
+
+- **TPU validation**: Must run on a real TPU VM.
+- **Specialized medical hardware**: Needs the actual device (cannot be simulated meaningfully).

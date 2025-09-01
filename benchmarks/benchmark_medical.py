@@ -29,6 +29,7 @@ from rich.progress import (
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
 from medvllm.models.adapters import BioBERTAdapter, ClinicalBERTAdapter
+from medvllm.hardware.detect import get_hardware_profile
 from tests.medical.memory_profiler import MemoryProfiler
 from medvllm.utils.ner_metrics import compute_ner_metrics
 from medvllm.tasks import NERProcessor
@@ -728,8 +729,14 @@ class MedicalModelBenchmark:
         if self.config.debug_io:
             print(f"[debug] Writing benchmark JSON to: {filepath}")
         try:
+            payload = result.to_dict()
+            # Attach a small hardware profile snapshot for reproducibility
+            try:
+                payload["hardware_profile"] = get_hardware_profile()
+            except Exception:
+                pass
             with open(filepath, "w") as f:
-                json.dump(result.to_dict(), f, indent=2)
+                json.dump(payload, f, indent=2)
         except Exception as e:
             # Always surface failures
             print(f"[debug] Failed to write benchmark JSON: {e}")

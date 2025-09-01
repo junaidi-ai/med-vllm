@@ -572,7 +572,7 @@
           6,
           7
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -645,7 +645,7 @@
           3,
           4
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -743,7 +743,7 @@
           3,
           4
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -824,7 +824,7 @@
               6
             ],
             "details": "Test optimized models on CPUs, GPUs, TPUs, and specialized medical hardware. Validate performance on edge devices commonly used in clinical settings. Measure and document performance characteristics across hardware types. Create hardware-specific optimization paths where necessary. Develop compatibility layers for hardware-specific acceleration libraries.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           }
         ]
