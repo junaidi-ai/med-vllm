@@ -2,6 +2,15 @@
 
 Med vLLM is a project aimed at creating a specialized language model for medical applications. By leveraging the efficient [Nano vLLM](https://github.com/GeeeekExplorer/nano-vllm) and the domain knowledge of [BioBERT](https://github.com/monologg/BioBERT) and [ClinicalBERT](https://github.com/monologg/ClinicalBERT), we provide a tool that's both powerful and resource-friendly.
 
+> Hugging Face Hub: https://huggingface.co/Junaidi-AI/med-vllm
+
+You can load the config directly from the Hub via:
+
+```python
+from medvllm.medical.config.models.medical_config import MedicalModelConfig
+cfg = MedicalModelConfig.from_pretrained("Junaidi-AI/med-vllm")
+```
+
 ## Motivation
 
 Large language models have shown great promise in various fields, but their size and resource requirements can be prohibitive, especially in resource-constrained environments like hospitals or research labs. Med vLLM addresses this by using a lightweight inference engine while maintaining high performance on medical tasks such as analyzing clinical notes or assisting with medical research.

@@ -7,6 +7,8 @@ for all medical model configurations in the medvllm library.
 
 import logging
 import warnings
+import os
+import builtins as _builtins
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Type, TypeVar
 
@@ -18,6 +20,27 @@ CONFIG_VERSION = "1.0.0"
 T = TypeVar("T", bound="BaseMedicalConfig")
 
 logger = logging.getLogger(__name__)
+
+# Silence verbose debug prints in this module unless explicitly enabled.
+# Set MEDVLLM_CONFIG_DEBUG=1 (or true/yes/on) to re-enable prints for debugging.
+_MEDVLLM_CONFIG_DEBUG = str(os.getenv("MEDVLLM_CONFIG_DEBUG", "")).lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+
+def _debug_print(*args, **kwargs):
+    if _MEDVLLM_CONFIG_DEBUG:
+        return _builtins.print(*args, **kwargs)
+    # No-op when debug is disabled
+    return None
+
+
+# Redirect all print() calls in this module to the gated debug printer.
+# This keeps existing debug print statements intact while making them opt-in.
+print = _debug_print  # type: ignore
 
 
 @dataclass

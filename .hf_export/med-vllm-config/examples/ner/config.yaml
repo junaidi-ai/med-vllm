@@ -1,0 +1,90 @@
+_serializing: true
+activation_recompute: false
+adapter_config: null
+adapter_type: null
+allow_tf32: false
+anatomical_regions:
+- head
+attention_impl: null
+batch_size: 1
+cache_ttl: 3600
+classification_labels: []
+config_version: 1.0.0
+cudnn_benchmark: null
+document_types:
+- clinical_note
+- discharge_summary
+- radiology_report
+domain_adaptation: false
+domain_adaptation_lambda: 0.1
+domain_specific_vocab: null
+emit_trace: false
+enable_flash_attention: null
+enable_memory_pooling: false
+enable_mixed_precision: false
+enable_profiling: false
+enable_uncertainty_estimation: false
+enforce_eager: false
+entity_linking:
+  confidence_threshold: 0.8
+  enabled: false
+  knowledge_bases:
+  - umls
+  - snomed_ct
+  - loinc
+eos: -1
+file_path: null
+flash_attention_config: null
+gpu_memory_utilization: 0.9
+grad_checkpointing: false
+hf_config: namespace(model_type='unknown', max_position_embeddings=4096)
+imaging_modalities:
+- xray
+kvcache_block_size: 256
+max_entity_span_length: 10
+max_medical_seq_length: 4096
+max_model_len: 4096
+max_num_batched_tokens: 32768
+max_num_seqs: 512
+max_retries: 3
+medical_entity_types:
+- disease
+- drug
+- procedure
+medical_specialties:
+- cardiology
+memory_efficient: true
+mixed_precision_dtype: fp16
+model: dmis-lab/biobert-base-cased-v1.2
+model_type: medical_llm
+ner_confidence_threshold: 0.85
+num_kvcache_blocks: -1
+pool_device: auto
+pool_max_bytes: null
+pretrained_model_name_or_path: dmis-lab/biobert-base-cased-v1.2
+profiler_device: auto
+quantization_bits: null
+quantization_method: null
+recompute_granularity: null
+regulatory_compliance:
+- hipaa
+- gdpr
+request_timeout: 30
+section_headers:
+- history_of_present_illness
+- past_medical_history
+- medications
+- allergies
+- family_history
+- social_history
+- review_of_systems
+- physical_exam
+- assessment_and_plan
+task_type: ner
+tensor_parallel_size: 1
+torch_matmul_precision: null
+trace_dir: profiles
+uncertainty_threshold: 0.7
+use_cuda_graphs: false
+use_medical_adapter: true
+version: 0.1.0
