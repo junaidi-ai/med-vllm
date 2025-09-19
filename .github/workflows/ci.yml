@@ -66,23 +66,23 @@ jobs:
           --seg-dataset seg2d_small --seg-threshold 0.5 \
           --out benchmarks/benchmark_results_cpu_smoke/ci_seg2d.json
         python - << 'PY'
-import json, os, sys
-p = 'benchmarks/benchmark_results_cpu_smoke/ci_seg2d.json'
-with open(p, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-seg = data.get('seg_dataset') or {}
-err = seg.get('error')
-count = int(seg.get('count', 0))
-dice = float(seg.get('dice', 0.0))
-iou = float(seg.get('iou', 0.0))
-min_dice = float(os.getenv('MEDVLLM_SEG_MIN_DICE', '0.70'))
-min_iou = float(os.getenv('MEDVLLM_SEG_MIN_IOU', '0.55'))
-url = os.getenv('MEDVLLM_SEG2D_URL')
-enforce = bool(url) and not err and count > 0
-ok = (dice >= min_dice) and (iou >= min_iou) if enforce else True
-print({'dice': dice, 'iou': iou, 'min_dice': min_dice, 'min_iou': min_iou, 'count': count, 'error': err, 'dataset_url_set': bool(url), 'enforce': enforce, 'ok': ok})
-sys.exit(0 if ok else 1)
-PY
+        import json, os, sys
+        p = 'benchmarks/benchmark_results_cpu_smoke/ci_seg2d.json'
+        with open(p, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        seg = data.get('seg_dataset') or {}
+        err = seg.get('error')
+        count = int(seg.get('count', 0))
+        dice = float(seg.get('dice', 0.0))
+        iou = float(seg.get('iou', 0.0))
+        min_dice = float(os.getenv('MEDVLLM_SEG_MIN_DICE', '0.70'))
+        min_iou = float(os.getenv('MEDVLLM_SEG_MIN_IOU', '0.55'))
+        url = os.getenv('MEDVLLM_SEG2D_URL')
+        enforce = bool(url) and not err and count > 0
+        ok = (dice >= min_dice) and (iou >= min_iou) if enforce else True
+        print({'dice': dice, 'iou': iou, 'min_dice': min_dice, 'min_iou': min_iou, 'count': count, 'error': err, 'dataset_url_set': bool(url), 'enforce': enforce, 'ok': ok})
+        sys.exit(0 if ok else 1)
+        PY
     
     - name: Depthwise perf smoke (CPU, non-blocking)
       run: |

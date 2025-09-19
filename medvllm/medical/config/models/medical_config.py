@@ -103,6 +103,9 @@ SUPPORTED_MODEL_TYPES = {
     "clinical_notes",
 }
 
+# Supported task types for medical workflows
+SUPPORTED_TASK_TYPES = {"classification", "ner", "generation"}
+
 # Default configuration values
 DEFAULT_MEDICAL_SPECIALTIES = ["cardiology"]  # Set to match conformance tests exactly
 DEFAULT_ANATOMICAL_REGIONS = ["head"]  # Set to match conformance tests exactly
@@ -351,6 +354,23 @@ class MedicalModelConfig(BaseMedicalConfig):
     section_headers: List[str] = field(
         default_factory=lambda: list(DEFAULT_SECTION_HEADERS),
         metadata={"description": "Common section headers in clinical documents"},
+    )
+
+    # Task configuration
+    task_type: str = field(
+        default="ner",
+        metadata={
+            "description": "Primary task mode for this configuration",
+            "choices": SUPPORTED_TASK_TYPES,
+        },
+    )
+
+    classification_labels: List[str] = field(
+        default_factory=list,
+        metadata={
+            "description": "Valid labels for classification when task_type is 'classification'",
+            "category": "task",
+        },
     )
 
     # API and request handling
@@ -759,6 +779,56 @@ class MedicalModelConfig(BaseMedicalConfig):
         if hasattr(self, "invalid_param"):
             raise ValueError("Invalid parameter 'invalid_param' is not allowed")
 
+    def _validate_task_parameters(self) -> None:
+        """Validate task_type and classification_labels.
+
+        - task_type must be one of SUPPORTED_TASK_TYPES
+        - If task_type == 'classification', classification_labels must be a non-empty list
+          of non-empty strings. Whitespace-only items are invalid.
+        - For other task types, classification_labels may be empty.
+        """
+        # task_type validation
+        if not isinstance(self.task_type, str):
+            raise ValueError(f"task_type must be a string, got {type(self.task_type).__name__}")
+        tt = self.task_type.lower().strip()
+        if tt not in SUPPORTED_TASK_TYPES:
+            raise ValueError(
+                f"Unsupported task_type: {self.task_type}. Must be one of: {', '.join(sorted(SUPPORTED_TASK_TYPES))}"
+            )
+        # Normalize task_type storage to lowercase
+        object.__setattr__(self, "task_type", tt)
+
+        # classification_labels validation
+        if not hasattr(self, "classification_labels") or self.classification_labels is None:
+            object.__setattr__(self, "classification_labels", [])
+        if not isinstance(self.classification_labels, list):
+            raise ValueError("classification_labels must be a list of strings")
+
+        # Normalize labels to stripped strings
+        normalized: List[str] = []
+        for lbl in self.classification_labels:
+            if lbl is None:
+                raise ValueError("classification_labels cannot contain None values")
+            s = str(lbl).strip()
+            if s == "":
+                raise ValueError("classification_labels cannot contain empty strings")
+            normalized.append(s)
+
+        # If classification task, require at least one label
+        if tt == "classification" and len(normalized) == 0:
+            raise ValueError("classification_labels must be provided for classification task")
+
+        # Deduplicate case-insensitively while preserving first occurrence casing and order
+        seen_ci = set()
+        deduped = []
+        for s in normalized:
+            key = s.lower()
+            if key not in seen_ci:
+                seen_ci.add(key)
+                deduped.append(s)
+
+        object.__setattr__(self, "classification_labels", deduped)
+
     def _validate_medical_parameters(self) -> None:
         """Validate medical-specific parameters.
 
@@ -786,6 +856,9 @@ class MedicalModelConfig(BaseMedicalConfig):
 
         # Clinical entity recognition validation
         self._validate_ner_parameters()
+
+        # Task-specific validation
+        self._validate_task_parameters()
 
         # Performance and resource validation
         self._validate_performance_parameters()

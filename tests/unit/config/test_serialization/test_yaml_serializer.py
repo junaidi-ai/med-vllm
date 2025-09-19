@@ -152,7 +152,8 @@ class TestYAMLSerializer:
     ) -> None:
         """Test deserialization with various YAML strings."""
         if should_raise:
-            with pytest.raises(expected_type, match=error_match):
+            # Always expect ValueError on error cases; do not pass None as an exception type
+            with pytest.raises(ValueError, match=error_match):
                 YAMLSerializer.from_yaml(yaml_content)
         else:
             result = YAMLSerializer.from_yaml(yaml_content)
