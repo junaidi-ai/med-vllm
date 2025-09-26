@@ -1,20 +1,38 @@
 import os
-import gradio as gr
+import json
+from typing import Dict, Any
 
-from medvllm.medical.config.models.medical_config import MedicalModelConfig
+import gradio as gr
+from huggingface_hub import hf_hub_download
 
 HF_REPO_ID = os.getenv("MEDVLLM_DEMO_REPO", "Junaidi-AI/med-vllm")
 
 
-def load_config(repo_id: str):
+def _load_config_dict(repo_id: str) -> Dict[str, Any]:
+    """Fetch config.json or config.yaml from a Hub repo and return as dict."""
+    # Try JSON first
     try:
-        cfg = MedicalModelConfig.from_pretrained(repo_id)
-        return cfg
+        cfg_path = hf_hub_download(repo_id=repo_id, filename="config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        pass
+
+    # Fallback to YAML
+    try:
+        import yaml  # type: ignore
+
+        cfg_path = hf_hub_download(repo_id=repo_id, filename="config.yaml")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+            if not isinstance(data, dict):
+                raise ValueError("YAML config is not a mapping/dict")
+            return data
     except Exception as e:
-        raise gr.Error(f"Failed to load config from {repo_id}: {e}")
+        raise gr.Error(f"Failed to load config.json or config.yaml from {repo_id}: {e}")
 
 
-CFG = load_config(HF_REPO_ID)
+CFG: Dict[str, Any] = _load_config_dict(HF_REPO_ID)
 
 
 def run_task(task_type: str, text: str):
@@ -28,7 +46,7 @@ def run_task(task_type: str, text: str):
         import re
 
         entities = []
-        for ent in CFG.medical_entity_types:
+        for ent in CFG.get("medical_entity_types", []):
             # naive token contains match
             if re.search(rf"\b{re.escape(ent)}\b", text, flags=re.IGNORECASE):
                 entities.append({"text": ent, "label": ent.upper(), "start": 0, "end": 0})
@@ -39,7 +57,7 @@ def run_task(task_type: str, text: str):
 
     elif task_type == "classification":
         # Placeholder: pick first label if present
-        labels = CFG.classification_labels or ["positive", "negative"]
+        labels = CFG.get("classification_labels") or ["positive", "negative"]
         return labels[0], f"labels={labels}"
 
     else:  # generation
@@ -48,22 +66,27 @@ def run_task(task_type: str, text: str):
 
 
 def build_ui():
-    with gr.Blocks(title="Med vLLM Demo (Config-first)") as demo:
+    with gr.Blocks(title="Med VLLM Demo (Config-first)") as demo:
         gr.Markdown(
             """
-            # Med vLLM Demo (Config-first)
+            # Med VLLM Demo (Config-first)
             This Space loads `MedicalModelConfig` from the Hub and demonstrates a simple, config-driven UI.
 
             - Repo: {repo}
             - Task: {task}
             - Model: {model}
             - Version: {ver}
-            """.format(repo=HF_REPO_ID, task=CFG.task_type, model=CFG.model, ver=CFG.config_version)
+            """.format(
+                repo=HF_REPO_ID,
+                task=CFG.get("task_type", "ner"),
+                model=CFG.get("model", "unknown"),
+                ver=CFG.get("config_version", "unknown"),
+            )
         )
         with gr.Row():
             task = gr.Radio(
                 choices=["ner", "classification", "generation"],
-                value=CFG.task_type,
+                value=CFG.get("task_type", "ner"),
                 label="Task",
             )
             text = gr.Textbox(label="Input Text", lines=6, placeholder="Enter clinical text...")

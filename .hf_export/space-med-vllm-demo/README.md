@@ -1,3 +1,14 @@
+---
+title: Med vLLM Demo (Config-first)
+emoji: 🩺
+colorFrom: indigo
+colorTo: blue
+sdk: gradio
+sdk_version: "4.44.0"
+app_file: app.py
+pinned: false
+---
+
 # Med vLLM Demo (Config-first)
 
 This Space demonstrates loading `MedicalModelConfig` from the Hub and provides a minimal UI for NER / Classification / Generation.
